@@ -48,7 +48,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            check=False)
+                check=False,
+            )
             parsed: dict[str, Any] = {}
             try:
                 parsed = json.loads(res.stdout) if res.stdout.strip() else {}
@@ -89,7 +90,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=timeout,
-            check=False)
+            check=False,
+        )
         success = result.returncode == 0 and self.codegraph_dir.exists()
         return {
             "success": success,
@@ -108,15 +110,14 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            check=False)
+                check=False,
+            )
             lines = res.stdout.splitlines()
             results: list[dict[str, Any]] = []
 
             for line in lines:
                 sline = line.strip()
-                if (
-                    not sline or sline.startswith(("Search Results", "─"))
-                ):
+                if not sline or sline.startswith(("Search Results", "─")):
                     continue
                 # e.g., "method      login"
                 parts = sline.split()
@@ -129,9 +130,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
                     "const",
                     "var",
                 ]:
-                    results.append(
-                        {"kind": parts[0], "name": parts[1], "file": "", "line": 0}
-                    )
+                    results.append({"kind": parts[0], "name": parts[1], "file": "", "line": 0})
                 elif (
                     (sline.startswith(("src/", "./")) or ":" in sline)
                     and results
@@ -154,7 +153,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=25,
-            check=False)
+                check=False,
+            )
             return res.stdout.strip()
         except Exception as e:
             return f"Explore error: {e!s}"
@@ -168,7 +168,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=20,
-            check=False)
+                check=False,
+            )
             return res.stdout.strip()
         except Exception as e:
             return f"Node error: {e!s}"
@@ -177,31 +178,45 @@ class CodeGraphAdapter(BaseGraphAdapter):
         """Finds all functions/methods that call a specific symbol."""
         try:
             res = subprocess.run(
-                [self.bin_path, "callers", symbol],
+                [
+                    self.bin_path,
+                    "callers",
+                    "-j",
+                    "-p",
+                    str(self.project_path),
+                    symbol,
+                ],
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,
                 timeout=15,
-            check=False)
+                check=False,
+            )
+            if not res.stdout.strip():
+                return []
+            payload = json.loads(res.stdout)
+            callers_raw = payload.get("callers") or []
             callers: list[dict[str, Any]] = []
-            lines = res.stdout.splitlines()
-            current_caller: dict[str, Any] | None = None
-
-            for line in lines:
-                sline = line.strip()
-                if not sline or "Callers of" in sline:
+            for item in callers_raw:
+                if not isinstance(item, dict):
                     continue
-                parts = sline.split()
-                if len(parts) >= 2 and parts[0] in ["function", "method", "class"]:
-                    current_caller = {
-                        "kind": parts[0],
-                        "name": parts[1],
-                        "location": "",
+                name = str(item.get("name") or "")
+                if not name:
+                    continue
+                file_path = str(item.get("filePath") or "")
+                start_line = item.get("startLine")
+                location = (
+                    f"{file_path}:{start_line}"
+                    if file_path and start_line is not None
+                    else file_path
+                )
+                callers.append(
+                    {
+                        "kind": str(item.get("kind") or ""),
+                        "name": name,
+                        "location": location,
                     }
-                    callers.append(current_caller)
-                elif current_caller and (":" in sline or "/" in sline):
-                    current_caller["location"] = sline
-                    current_caller = None
+                )
             return callers
         except Exception:
             return []
@@ -210,31 +225,45 @@ class CodeGraphAdapter(BaseGraphAdapter):
         """Finds all functions/methods that a specific symbol calls."""
         try:
             res = subprocess.run(
-                [self.bin_path, "callees", symbol],
+                [
+                    self.bin_path,
+                    "callees",
+                    "-j",
+                    "-p",
+                    str(self.project_path),
+                    symbol,
+                ],
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,
                 timeout=15,
-            check=False)
+                check=False,
+            )
+            if not res.stdout.strip():
+                return []
+            payload = json.loads(res.stdout)
+            callees_raw = payload.get("callees") or []
             callees: list[dict[str, Any]] = []
-            lines = res.stdout.splitlines()
-            current_callee: dict[str, Any] | None = None
-
-            for line in lines:
-                sline = line.strip()
-                if not sline or "Callees of" in sline:
+            for item in callees_raw:
+                if not isinstance(item, dict):
                     continue
-                parts = sline.split()
-                if len(parts) >= 2 and parts[0] in ["function", "method", "class"]:
-                    current_callee = {
-                        "kind": parts[0],
-                        "name": parts[1],
-                        "location": "",
+                name = str(item.get("name") or "")
+                if not name:
+                    continue
+                file_path = str(item.get("filePath") or "")
+                start_line = item.get("startLine")
+                location = (
+                    f"{file_path}:{start_line}"
+                    if file_path and start_line is not None
+                    else file_path
+                )
+                callees.append(
+                    {
+                        "kind": str(item.get("kind") or ""),
+                        "name": name,
+                        "location": location,
                     }
-                    callees.append(current_callee)
-                elif current_callee and (":" in sline or "/" in sline):
-                    current_callee["location"] = sline
-                    current_callee = None
+                )
             return callees
         except Exception:
             return []
@@ -262,7 +291,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            check=False)
+                check=False,
+            )
             tests: list[str] = []
             try:
                 parsed = json.loads(res.stdout) if res.stdout.strip() else {}
@@ -271,9 +301,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
             except Exception:
                 for line in res.stdout.splitlines():
                     sline = line.strip()
-                    if sline and (
-                        "test_" in sline or ".test." in sline or ".spec." in sline
-                    ):
+                    if sline and ("test_" in sline or ".test." in sline or ".spec." in sline):
                         tests.append(sline)
             return tests
         except Exception:

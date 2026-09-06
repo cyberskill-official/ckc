@@ -196,7 +196,8 @@ def main() -> None:
         if args.force:
             cmd.append("--force")
         subprocess.run(cmd,
-            check=False)
+                check=False,
+            )
         return
 
     if args.command in ["clean", "cleanup"]:
@@ -211,7 +212,8 @@ def main() -> None:
         if args.yes:
             cmd.append("--yes")
         subprocess.run(cmd,
-            check=False)
+                check=False,
+            )
         return
 
     try:

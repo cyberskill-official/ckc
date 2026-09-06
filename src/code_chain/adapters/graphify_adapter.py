@@ -155,7 +155,8 @@ class GraphifyAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=timeout,
-            check=False)
+                check=False,
+            )
 
         success = result.returncode == 0 and self.graph_json_path.exists()
         return {
@@ -291,7 +292,8 @@ class GraphifyAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            check=False)
+                check=False,
+            )
             if res.returncode == 0:
                 return res.stdout.strip()
         except Exception:
@@ -316,7 +318,8 @@ class GraphifyAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            check=False)
+                check=False,
+            )
             if res.returncode == 0:
                 return res.stdout.strip()
         except Exception:

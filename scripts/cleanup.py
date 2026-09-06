@@ -56,7 +56,8 @@ def kill_background_daemons():
         try:
             subprocess.run(
                 ["codegraph", "daemon", "stop"], capture_output=True, timeout=5,
-            check=False)
+                check=False,
+            )
             print_success("Stopped codegraph daemons (if any)")
         except Exception:
             pass

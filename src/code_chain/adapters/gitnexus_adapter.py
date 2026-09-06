@@ -111,7 +111,8 @@ class GitNexusAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            check=False)
+                check=False,
+            )
             parsed = _extract_json(res.stdout) or {}
             status_label = parsed.get("status") or parsed.get("error") or "unknown"
             is_ready = res.returncode == 0 and status_label not in (
@@ -163,7 +164,8 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=timeout,
-            check=False)
+                check=False,
+            )
         success = result.returncode == 0 and self.nexus_dir.exists()
         return {
             "success": success,
@@ -183,7 +185,8 @@ class GitNexusAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=20,
-            check=False)
+                check=False,
+            )
             parsed = _extract_json(res.stdout)
             if parsed:
                 return parsed
@@ -206,7 +209,8 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=20,
-            check=False)
+                check=False,
+            )
         return _extract_json(res.stdout)
 
     def get_symbol_context(self, symbol_name: str) -> dict[str, Any] | None:
@@ -294,7 +298,8 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=30,
-            check=False)
+                check=False,
+            )
         return _extract_json(res.stdout)
 
     def _resolve_impact_target(
@@ -397,7 +402,8 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=25,
-            check=False)
+                check=False,
+            )
         return _extract_json(res.stdout)
 
     def trace_path(self, from_symbol: str, to_symbol: str) -> dict[str, Any] | None:
@@ -442,7 +448,8 @@ class GitNexusAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=25,
-            check=False)
+                check=False,
+            )
             parsed = _extract_json(res.stdout)
             if parsed:
                 return parsed

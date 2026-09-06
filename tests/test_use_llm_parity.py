@@ -74,7 +74,8 @@ class TestUseLlmParity(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 timeout=30,
-            check=False)
+                check=False,
+            )
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         self.assertEqual(len(lines), 1)
         text = json.loads(lines[0])["result"]["content"][0]["text"]

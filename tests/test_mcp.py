@@ -45,7 +45,8 @@ class TestMCPServer(unittest.TestCase):
             capture_output=True,
             text=True,
             timeout=15,
-            check=False)
+                check=False,
+            )
 
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         self.assertEqual(len(lines), 4)
