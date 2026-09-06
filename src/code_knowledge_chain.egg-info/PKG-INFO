@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: code-knowledge-chain
+Version: 1.0.0
+Summary: A unified 3-tier chaining workflow for Graphify, GitNexus, and CodeGraph
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic>=2.0
