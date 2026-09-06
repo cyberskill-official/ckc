@@ -39,6 +39,12 @@ class TestGraphifyEntityTyping(unittest.TestCase):
             "code",
         )
 
+    def test_md_file_is_doc(self):
+        self.assertEqual(
+            classify_entity_type("docs/ARCH.md", "code", "Architecture Document"),
+            "doc",
+        )
+
     def test_qualified_table_outscore_filename(self):
         terms = ["entitlements", "schema", "public.entitlements"]
         table = entity_match_score(

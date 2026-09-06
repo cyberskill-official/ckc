@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import sys
 from typing import Dict, Any
+from code_chain.core.env import load_dotenv
 from code_chain.core.orchestrator import CodeKnowledgeChain
 
 
@@ -49,6 +50,10 @@ def get_available_tools() -> list:
                         "type": "boolean",
                         "description": "Whether to enable LLM multimodal extraction for non-code files (defaults to false for fast AST indexing)",
                     },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Clear prior indexes and re-run extraction (default false)",
+                    },
                 },
                 "required": ["project_path"],
             },
@@ -67,6 +72,10 @@ def get_available_tools() -> list:
                         "type": "string",
                         "description": "The architectural concept, feature, or question (e.g. 'How does authentication work?')",
                     },
+                    "use_llm": {
+                        "type": "boolean",
+                        "description": "Append local LM Studio / OpenAI-compatible synthesis when configured (default true)",
+                    },
                 },
                 "required": ["query"],
             },
@@ -84,6 +93,10 @@ def get_available_tools() -> list:
                     "symbol": {
                         "type": "string",
                         "description": "The function, class, or method name to analyze for refactoring impact",
+                    },
+                    "use_llm": {
+                        "type": "boolean",
+                        "description": "Append local LM Studio / OpenAI-compatible synthesis when configured (default true)",
                     },
                 },
                 "required": ["symbol"],
@@ -107,6 +120,10 @@ def get_available_tools() -> list:
                         "type": "string",
                         "description": "Destination function or symbol name",
                     },
+                    "use_llm": {
+                        "type": "boolean",
+                        "description": "Append local LM Studio / OpenAI-compatible synthesis when configured (default true)",
+                    },
                 },
                 "required": ["from_symbol", "to_symbol"],
             },
@@ -123,23 +140,27 @@ def handle_tool_call(name: str, arguments: Dict[str, Any], default_path: str) ->
 
     elif name == "chain_init":
         multimodal = arguments.get("multimodal", False)
-        chain.index(code_only=not multimodal)
+        force = bool(arguments.get("force", False))
+        chain.index(code_only=not multimodal, force=force)
         return chain.export_summary()
 
     elif name == "chain_query":
         query_text = arguments.get("query", "")
-        res = chain.query(query_text)
+        use_llm = arguments.get("use_llm", True)
+        res = chain.query(query_text, use_llm=bool(use_llm))
         return res.synthesized_context
 
     elif name == "chain_impact":
         symbol = arguments.get("symbol", "")
-        res = chain.impact(symbol)
+        use_llm = arguments.get("use_llm", True)
+        res = chain.impact(symbol, use_llm=bool(use_llm))
         return res.synthesized_report
 
     elif name == "chain_trace":
         from_sym = arguments.get("from_symbol", "")
         to_sym = arguments.get("to_symbol", "")
-        res = chain.trace(from_sym, to_sym)
+        use_llm = arguments.get("use_llm", True)
+        res = chain.trace(from_sym, to_sym, use_llm=bool(use_llm))
         return res.synthesized_flow
 
     else:
@@ -148,6 +169,7 @@ def handle_tool_call(name: str, arguments: Dict[str, Any], default_path: str) ->
 
 def run_mcp_server(default_project_path: str = ".") -> None:
     """Runs a standard JSON-RPC 2.0 MCP server loop over stdin/stdout."""
+    load_dotenv()
     for line in sys.stdin:
         line = line.strip()
         if not line:

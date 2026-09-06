@@ -143,6 +143,10 @@ async function loadProjectStatus(path) {
       throw new Error(err.detail || "Failed to load project status");
     }
     const data = await res.json();
+    window.__ckcLastStatusMeta = {
+      llm: data.llm,
+      local_docs_count: data.local_docs_count,
+    };
     renderStatus(data.status);
   } catch (err) {
     badge.className = "badge badge-missing";
@@ -173,7 +177,17 @@ function renderStatus(status) {
   gBadge.textContent = g.indexed ? "Indexed" : "Missing";
   document.getElementById("statGraphifyNodes").textContent = g.node_count || 0;
   document.getElementById("statGraphifyDetails").textContent =
-    `Communities: ${g.details?.communities_count || 0} | Edges: ${g.edge_count || 0}`;
+    `Communities: ${g.details?.communities_count || 0} | Edges: ${g.edge_count || 0} | Local docs: ${g.details?.local_docs_count || 0}`;
+
+  const llmChip = document.getElementById("llmStatusChip");
+  if (llmChip && window.__ckcLastStatusMeta) {
+    const llm = window.__ckcLastStatusMeta.llm;
+    if (llm?.configured) {
+      llmChip.textContent = `LLM: ${llm.model || "configured"} @ ${llm.base_url || "?"}`;
+    } else {
+      llmChip.textContent = "LLM: not configured";
+    }
+  }
 
   // GitNexus
   const gn = status.gitnexus || {};
@@ -213,7 +227,8 @@ function setupIndexing() {
       return;
     }
     const multimodal = document.getElementById("checkMultimodal").checked;
-    startIndexingStream(path, multimodal);
+    const force = document.getElementById("checkForceIndex")?.checked || false;
+    startIndexingStream(path, multimodal, force);
   });
 
   btnCancel.addEventListener("click", async () => {
@@ -231,7 +246,7 @@ function setupIndexing() {
   });
 }
 
-function startIndexingStream(projectPath, multimodal) {
+function startIndexingStream(projectPath, multimodal, force = false) {
   const btnStart = document.getElementById("btnStartIndex");
   const btnCancel = document.getElementById("btnCancelIndex");
   const terminal = document.getElementById("terminalBody");
@@ -250,7 +265,7 @@ function startIndexingStream(projectPath, multimodal) {
     timer.textContent = `${m}:${s}`;
   }, 1000);
 
-  const url = `/api/index/stream?project=${encodeURIComponent(projectPath)}&multimodal=${multimodal}`;
+  const url = `/api/index/stream?project=${encodeURIComponent(projectPath)}&multimodal=${multimodal}&force=${force}`;
   const es = new EventSource(url);
   state.indexingSource = es;
 
@@ -365,7 +380,11 @@ async function runQuery(queryText) {
     const res = await fetch("/api/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ project_path: state.currentProject, query: queryText }),
+      body: JSON.stringify({
+        project_path: state.currentProject,
+        query: queryText,
+        use_llm: document.getElementById("checkQueryLlm")?.checked !== false,
+      }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -435,7 +454,11 @@ async function runImpact(symbol) {
     const res = await fetch("/api/impact", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ project_path: state.currentProject, symbol }),
+      body: JSON.stringify({
+        project_path: state.currentProject,
+        symbol,
+        use_llm: document.getElementById("checkImpactLlm")?.checked !== false,
+      }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -510,6 +533,7 @@ async function runTrace(fromSymbol, toSymbol) {
         project_path: state.currentProject,
         from_symbol: fromSymbol,
         to_symbol: toSymbol,
+        use_llm: document.getElementById("checkTraceLlm")?.checked !== false,
       }),
     });
     if (!res.ok) {
@@ -607,7 +631,11 @@ async function viewArtifact(relativePath, label) {
     const res = await fetch(`/api/artifacts/content?project=${encodeURIComponent(state.currentProject)}&file=${encodeURIComponent(relativePath)}`);
     if (!res.ok) throw new Error("Failed to read artifact");
     const data = await res.json();
-    content.textContent = data.content;
+    if (data.is_binary) {
+      content.textContent = data.message || "Binary artifact listed only; contents are not displayed.";
+    } else {
+      content.textContent = data.content;
+    }
   } catch (err) {
     content.textContent = `Error reading file: ${err.message}`;
   }

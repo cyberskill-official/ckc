@@ -16,13 +16,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from code_chain.core.env import load_dotenv
 from code_chain.core.orchestrator import CodeKnowledgeChain
 from code_chain.core.config import ChainConfig
+from code_chain.core.docs_index import index_docs_overlay, local_docs_count
+from code_chain.core.llm import llm_public_status
 from code_chain.core.paths import (
     UnsafeProjectPathError,
     assert_safe_project_path,
+    ensure_engine_gitignore,
 )
 
+load_dotenv()
 
 app = FastAPI(
     title="Code Knowledge Chain UI",
@@ -33,7 +38,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -55,17 +60,20 @@ def validate_project_path(path_str: str) -> Path:
 class QueryPayload(BaseModel):
     project_path: str
     query: str = Field(..., min_length=1)
+    use_llm: bool = True
 
 
 class ImpactPayload(BaseModel):
     project_path: str
     symbol: str = Field(..., min_length=1)
+    use_llm: bool = True
 
 
 class TracePayload(BaseModel):
     project_path: str
     from_symbol: str = Field(..., min_length=1)
     to_symbol: str = Field(..., min_length=1)
+    use_llm: bool = True
 
 
 class CancelPayload(BaseModel):
@@ -118,6 +126,8 @@ def get_status(
         "status": status.model_dump(),
         "git": git_info,
         "summary": chain.export_summary(),
+        "local_docs_count": local_docs_count(resolved),
+        "llm": llm_public_status(),
     }
 
 
@@ -145,10 +155,12 @@ async def stream_indexing(
     request: Request,
     project: str = Query(...),
     multimodal: bool = Query(False),
+    force: bool = Query(False),
 ):
     resolved = validate_project_path(project)
     proj_key = str(resolved)
     config = ChainConfig()
+    code_only = not multimodal
 
     async def event_generator() -> AsyncGenerator[str, None]:
         with _active_indexing_lock:
@@ -159,8 +171,20 @@ async def stream_indexing(
                 "event": "start",
                 "message": f"Starting 3-tier indexing on {resolved}",
                 "multimodal": multimodal,
+                "force": force,
             }
         )
+
+        if force:
+            chain_force = CodeKnowledgeChain(project_path=str(resolved))
+            yield json.dumps(
+                {
+                    "event": "log",
+                    "engine": "ckc",
+                    "line": "[force] Clearing prior engine indexes...",
+                }
+            )
+            chain_force.index_pipe._clear_engine_indexes()
 
         steps = [
             (
@@ -255,6 +279,25 @@ async def stream_indexing(
                 if not success:
                     overall_success = False
 
+                if engine == "graphify":
+                    overlay = index_docs_overlay(
+                        resolved, code_only=code_only, announce=False
+                    )
+                    discovered = int(overlay.get("discovered_files") or 0)
+                    doc_count = int(overlay.get("doc_count") or 0)
+                    step_results[engine]["local_docs_count"] = doc_count
+                    if code_only:
+                        yield json.dumps(
+                            {
+                                "event": "log",
+                                "engine": "graphify",
+                                "line": (
+                                    f"Graphify --code-only skipped {discovered} "
+                                    f"doc file(s); indexed {doc_count} local chunk(s)"
+                                ),
+                            }
+                        )
+
                 yield json.dumps(
                     {
                         "event": "step_finish",
@@ -276,6 +319,8 @@ async def stream_indexing(
                     }
                 )
 
+        gitignore_added = ensure_engine_gitignore(resolved)
+
         # Save manifest
         chain = CodeKnowledgeChain(project_path=str(resolved))
         status = chain.status()
@@ -286,6 +331,9 @@ async def stream_indexing(
             "project_path": str(resolved),
             "step_results": step_results,
             "overall_success": overall_success,
+            "gitignore_entries_added": gitignore_added,
+            "force": force,
+            "code_only": code_only,
             "status": status.model_dump(),
         }
         with open(manifest_file, "w", encoding="utf-8") as f:
@@ -307,7 +355,7 @@ async def stream_indexing(
 def run_query(payload: QueryPayload):
     resolved = validate_project_path(payload.project_path)
     chain = CodeKnowledgeChain(project_path=str(resolved))
-    result = chain.query(payload.query)
+    result = chain.query(payload.query, use_llm=payload.use_llm)
     return result.model_dump()
 
 
@@ -315,7 +363,7 @@ def run_query(payload: QueryPayload):
 def run_impact(payload: ImpactPayload):
     resolved = validate_project_path(payload.project_path)
     chain = CodeKnowledgeChain(project_path=str(resolved))
-    result = chain.impact(payload.symbol)
+    result = chain.impact(payload.symbol, use_llm=payload.use_llm)
     return result.model_dump()
 
 
@@ -323,7 +371,9 @@ def run_impact(payload: ImpactPayload):
 def run_trace(payload: TracePayload):
     resolved = validate_project_path(payload.project_path)
     chain = CodeKnowledgeChain(project_path=str(resolved))
-    result = chain.trace(payload.from_symbol, payload.to_symbol)
+    result = chain.trace(
+        payload.from_symbol, payload.to_symbol, use_llm=payload.use_llm
+    )
     return result.model_dump()
 
 
@@ -338,6 +388,7 @@ def list_artifacts(project: str = Query(...)):
         ("Graphify Report", resolved / "graphify-out" / "GRAPH_REPORT.md"),
         ("Graphify Tree View", resolved / "graphify-out" / "GRAPH_TREE.html"),
         ("Chain Manifest", resolved / ".code_chain" / "index_manifest.json"),
+        ("Local Docs Overlay", resolved / ".code_chain" / "docs_index.json"),
         ("GitNexus Meta", resolved / ".gitnexus" / "meta.json"),
         ("GitNexus Schema", resolved / ".gitnexus" / "schema.json"),
         ("CodeGraph Database", resolved / ".codegraph" / "codegraph.db"),
@@ -405,6 +456,7 @@ def get_artifact_content(
             "content": content,
             "is_json": clean_file.endswith(".json"),
             "is_binary": False,
+            "message": None,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading artifact: {e}")

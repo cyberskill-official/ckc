@@ -6,8 +6,25 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 from code_chain.core.config import ChainConfig
+from code_chain.core.llm import finalize_stacked_markdown
 from code_chain.core.models import ChainedTraceResult, ChainedTraceStep
 from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
+
+_MAX_ENRICHED_HOPS = 8
+_SNIPPET_CHARS = 800
+
+
+def _mermaid_escape(text: str) -> str:
+    """Escape labels for Mermaid node text (quotes / brackets / newlines)."""
+    return (
+        (text or "")
+        .replace("\\", "\\\\")
+        .replace('"', "'")
+        .replace("[", "(")
+        .replace("]", ")")
+        .replace("\n", " ")
+        .replace("\r", " ")
+    )
 
 
 class TracePipeline:
@@ -20,26 +37,61 @@ class TracePipeline:
         self.gitnexus = GitNexusAdapter(config.gitnexus_bin, project_path)
         self.codegraph = CodeGraphAdapter(config.codegraph_bin, project_path)
 
-    def run(self, from_symbol: str, to_symbol: str) -> ChainedTraceResult:
+    def run(
+        self, from_symbol: str, to_symbol: str, use_llm: bool = True
+    ) -> ChainedTraceResult:
         # Tier 1: GitNexus AST Trace
         trace_data = self.gitnexus.trace_path(from_symbol, to_symbol)
         if not trace_data or trace_data.get("status") != "ok":
-            # Fallback to Graphify path if GitNexus doesn't find a direct AST path
+            # Fallback to Graphify path if GitNexus doesn't find a direct AST path.
+            # Graphify returns free-text stdout — not structured hops — so path_found
+            # stays False; keep the Graphify text under a clear heading.
             g_path = self.graphify.find_path(from_symbol, to_symbol)
+            lines = [
+                f"# Execution Trace: `{from_symbol}` ➔ `{to_symbol}`",
+                "",
+                "> No directed execution path found in GitNexus AST.",
+                "",
+            ]
+            if g_path:
+                lines.extend(
+                    [
+                        "## Graphify fallback",
+                        "",
+                        g_path,
+                        "",
+                    ]
+                )
+            else:
+                lines.extend(
+                    [
+                        "## Graphify fallback",
+                        "",
+                        "No path found in project graph.",
+                        "",
+                    ]
+                )
+            synthesis = finalize_stacked_markdown(
+                "\n".join(lines),
+                task="trace",
+                enabled=use_llm,
+                max_tokens_budget=self.config.max_tokens_budget,
+            )
             return ChainedTraceResult(
                 from_symbol=from_symbol,
                 to_symbol=to_symbol,
                 project_path=str(self.project_path),
-                path_found=bool(g_path),
+                path_found=False,
                 path_length=0,
                 steps=[],
-                synthesized_flow=f"No directed execution path found in GitNexus AST. Graphify path check:\n{g_path or 'No path found in project graph.'}",
+                synthesized_flow=synthesis,
             )
 
         hops = trace_data.get("hops", [])
         edges = trace_data.get("edges", [])
         steps: List[ChainedTraceStep] = []
         cross_domain_touchpoints: List[str] = []
+        codegraph_ready = self.codegraph.get_status().indexed
 
         # Tier 2 & 3: Enrich each hop with CodeGraph code context & Graphify domain tags
         for i, hop in enumerate(hops):
@@ -56,11 +108,20 @@ class TracePipeline:
             ]
             cross_domain_touchpoints.extend(tags)
 
+            snippet = None
+            if codegraph_ready and i < _MAX_ENRICHED_HOPS:
+                node_text = self.codegraph.get_node(name)
+                if node_text and not node_text.startswith("Node error:"):
+                    snippet = node_text[:_SNIPPET_CHARS]
+                    if len(node_text) > _SNIPPET_CHARS:
+                        snippet = snippet.rstrip() + "…"
+
             step = ChainedTraceStep(
                 step_number=i + 1,
                 symbol_name=name,
                 file_path=file_path,
                 relation_to_next=rel,
+                source_snippet=snippet,
                 domain_tags=tags,
             )
             steps.append(step)
@@ -70,9 +131,15 @@ class TracePipeline:
         for i in range(len(steps) - 1):
             s_curr = steps[i]
             s_next = steps[i + 1]
-            rel_label = s_curr.relation_to_next or "CALLS"
+            rel_label = _mermaid_escape(s_curr.relation_to_next or "CALLS")
+            curr_label = _mermaid_escape(
+                f"{s_curr.symbol_name} ({s_curr.file_path})"
+            )
+            next_label = _mermaid_escape(
+                f"{s_next.symbol_name} ({s_next.file_path})"
+            )
             diagram_lines.append(
-                f'  n{i}["{s_curr.symbol_name} ({s_curr.file_path})"] -->|{rel_label}| n{i + 1}["{s_next.symbol_name} ({s_next.file_path})"]'
+                f'  n{i}["{curr_label}"] -->|{rel_label}| n{i + 1}["{next_label}"]'
             )
         diagram_lines.append("```")
 
@@ -97,8 +164,20 @@ class TracePipeline:
             report_lines.append(
                 f"{s.step_number}. **`{s.symbol_name}`** (`{s.file_path}`){rel_str}{tag_str}"
             )
+            if s.source_snippet:
+                report_lines.append("")
+                report_lines.append("```")
+                report_lines.append(s.source_snippet)
+                report_lines.append("```")
+                report_lines.append("")
 
         report_lines.append("")
+        synthesis = finalize_stacked_markdown(
+            "\n".join(report_lines),
+            task="trace",
+            enabled=use_llm,
+            max_tokens_budget=self.config.max_tokens_budget,
+        )
 
         return ChainedTraceResult(
             from_symbol=from_symbol,
@@ -108,5 +187,5 @@ class TracePipeline:
             path_length=len(steps),
             steps=steps,
             cross_domain_touchpoints=list(set(cross_domain_touchpoints)),
-            synthesized_flow="\n".join(report_lines),
+            synthesized_flow=synthesis,
         )

@@ -89,6 +89,9 @@ class ChainedImpactResult(BaseModel):
     project_path: str
     risk_level: str = "LOW"
     blast_radius_count: int = 0
+    # ok | empty | error | ambiguous_unresolved
+    outcome: str = "ok"
+    resolved_uid: Optional[str] = None
     affected_modules: List[str] = Field(default_factory=list)
     affected_processes: List[str] = Field(default_factory=list)
     affected_tests: List[str] = Field(default_factory=list)

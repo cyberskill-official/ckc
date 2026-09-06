@@ -5,6 +5,7 @@ CodeGraph Adapter: Fine-grained symbol intelligence, line-accurate code blocks, 
 from __future__ import annotations
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -21,11 +22,15 @@ class CodeGraphAdapter(BaseGraphAdapter):
         super().__init__(bin_path, project_path)
         self.codegraph_dir = self.project_path / ".codegraph"
 
+    def _bin_available(self) -> bool:
+        return bool(shutil.which(self.bin_path) or Path(self.bin_path).is_file())
+
     def get_status(self) -> EngineStatus:
+        available = self._bin_available()
         if not self.codegraph_dir.exists():
             return EngineStatus(
                 engine_name="codegraph",
-                available=True,
+                available=available,
                 indexed=False,
                 index_path=str(self.codegraph_dir),
                 node_count=0,
@@ -52,7 +57,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
             indexed = bool(parsed.get("initialized", self.codegraph_dir.exists()))
             return EngineStatus(
                 engine_name="codegraph",
-                available=True,
+                available=available,
                 indexed=indexed,
                 index_path=str(self.codegraph_dir),
                 node_count=node_count,
@@ -66,7 +71,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
         except Exception as e:
             return EngineStatus(
                 engine_name="codegraph",
-                available=True,
+                available=available,
                 indexed=self.codegraph_dir.exists(),
                 index_path=str(self.codegraph_dir),
                 error_message=str(e),

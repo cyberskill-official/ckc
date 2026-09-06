@@ -10,6 +10,13 @@ Traditional AI coding assistants read repositories like books—from page one to
 
 Modern software systems are **networks, not flat documents**. This framework chains three complementary code intelligence engines to provide structured, layered context:
 
+**Default stack (no API key required):**
+- **Graphify** runs in `--code-only` (AST) mode by default
+- A **local docs overlay** (`.code_chain/docs_index.json`) indexes markdown / rst / adoc so docs still appear in search without multimodal LLM extract
+- **GitNexus** + **CodeGraph** supply AST flows and symbol precision
+- **Optional LM Studio** (or any OpenAI-compatible `/v1`) can append a short synthesis section when `CKC_LLM_BASE_URL` / `OPENAI_BASE_URL` is set — use `--no-llm` to skip
+- **`--multimodal`** remains the opt-in Graphify path for semantic doc/image edges (works with LM Studio via `OPENAI_BASE_URL`)
+
 ```
         ┌─────────────────────────────────────────────────────────┐
         │       User Query / Task / Refactor Specification        │
@@ -18,7 +25,7 @@ Modern software systems are **networks, not flat documents**. This framework cha
                                      ▼
         ┌─────────────────────────────────────────────────────────┐
         │            Tier 1: Broad Project Knowledge              │
-        │                       (Graphify)                        │
+        │           (Graphify + local docs overlay)               │
         │  • Discovers architecture docs, ADRs, SQL schemas       │
         │  • Identifies system modules, communities, & God nodes  │
         └────────────────────────────┬────────────────────────────┘
@@ -44,8 +51,8 @@ Modern software systems are **networks, not flat documents**. This framework cha
                                      ▼
         ┌─────────────────────────────────────────────────────────┐
         │            Tier 4: Grounded Synthesis Engine            │
-        │  • Assembles token-efficient, high-density context      │
-        │  • Eliminates "Search → Read → Guess"                   │
+        │  • Assembles token-budgeted stacked markdown            │
+        │  • Optional local LM Studio / OpenAI-compatible chat    │
         └─────────────────────────────────────────────────────────┘
 ```
 
@@ -55,9 +62,11 @@ Modern software systems are **networks, not flat documents**. This framework cha
 
 | Engine | Primary Strength | Storage / Backend | Target Questions |
 | :--- | :--- | :--- | :--- |
-| **Graphify** | Multi-Modal & Architecture | `graphify-out/graph.json` | *"How does the entire system fit together? Which docs/schemas belong to this module?"* |
-| **GitNexus** | Structural AST & Blast Radius | `.gitnexus/` (KuzuDB) | *"What breaks if I change this function? Which execution paths are affected?"* |
-| **CodeGraph** | Fast Symbols & Source Context | `.codegraph/` | *"Where is this function defined, what is its exact code, and which tests cover it?"* |
+| **Graphify** | Architecture graph (default `--code-only`) | `graphify-out/graph.json` | *"How does the system fit together?"* |
+| **Local docs overlay** | Markdown / docs without multimodal LLM | `.code_chain/docs_index.json` | *"Which ADRs or ARCH docs mention this module?"* |
+| **GitNexus** | Structural AST & Blast Radius | `.gitnexus/` (KuzuDB) | *"What breaks if I change this function?"* |
+| **CodeGraph** | Fast Symbols & Source Context | `.codegraph/` | *"Where is this defined, and which tests cover it?"* |
+| **Optional LLM** | Short local synthesis (LM Studio) | `CKC_LLM_*` / `OPENAI_*` env | *"Summarize the stacked context for me."* |
 
 ---
 
@@ -165,12 +174,14 @@ Once running, navigate to `http://localhost:8000`.
 ### 1. Indexing a Repository
 ```bash
 # Index current directory across Graphify, GitNexus, and CodeGraph
+# Default: Graphify --code-only + local docs overlay (no API key)
 code-chain init
 
 # Index a specific target project
 code-chain -p /path/to/project init
 
-# Optional: enable LLM multimodal extraction for non-code files
+# Optional: enable Graphify multimodal extract for semantic doc/image edges
+# (works with LM Studio if OPENAI_BASE_URL points at http://127.0.0.1:1234/v1)
 code-chain -p /path/to/project init --multimodal
 ```
 
@@ -182,6 +193,9 @@ code-chain -p /path/to/project status
 ### 3. Architecture & Feature Queries ("How does X work?")
 ```bash
 code-chain -p /path/to/project query "user authentication and session validation"
+
+# Skip optional LM Studio synthesis even if CKC_LLM_BASE_URL is set
+code-chain -p /path/to/project query "auth" --no-llm
 ```
 
 ### 4. Blast Radius & Refactor Analysis ("What breaks if I touch X?")
@@ -198,6 +212,15 @@ code-chain -p /path/to/project trace handle_order_request process_payment
 ```bash
 code-chain -p /path/to/project diff
 ```
+
+### Optional local model (LM Studio)
+Copy `.env.example` and point at your OpenAI-compatible server:
+```bash
+export CKC_LLM_BASE_URL=http://127.0.0.1:1234/v1
+export CKC_LLM_MODEL=your-loaded-model
+export CKC_LLM_API_KEY=lm-studio
+```
+When configured, `query` / `impact` / `trace` append a **Local model synthesis** section. Soft-fails if the server is down; use `--no-llm` to disable.
 
 ---
 
@@ -277,10 +300,7 @@ The system is designed with graceful degradation:
 Run the full automated test suite (adapters, pipelines, MCP server, Web UI API, SSE streaming):
 
 ```bash
-pytest tests -v
+pytest tests -q
 ```
 
-Output:
-```
-============================= 23 passed in 19.01s ==============================
-```
+LLM tests mock HTTP — no live LM Studio required. Integration tests on `examples/python-auth-service` expect the sample graphs to already be indexed (via `code-chain setup` or `init`).

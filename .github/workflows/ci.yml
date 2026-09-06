@@ -41,15 +41,11 @@ jobs:
         run: |
           ruff check .
 
-      - name: Run Test Suite
-        run: |
-          pytest tests -v
-
-      - name: Test Setup Script (--no-ui)
+      - name: Setup engines and sample indexes (--no-ui)
         run: |
           python scripts/setup.py --no-ui
 
-      - name: Verify Post-Setup Tests
+      - name: Run Test Suite
         run: |
           pytest tests -v
 

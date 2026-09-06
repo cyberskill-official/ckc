@@ -4,10 +4,12 @@ Indexing Pipeline: Sequentially indexes a repository across Graphify, GitNexus, 
 
 from __future__ import annotations
 import json
+import shutil
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from code_chain.core.config import ChainConfig
+from code_chain.core.docs_index import index_docs_overlay
 from code_chain.core.models import ProjectGraphStatus
 from code_chain.core.paths import ensure_engine_gitignore
 from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
@@ -43,12 +45,43 @@ class IndexPipeline:
             ready_count=ready_count,
         )
 
-    def run(self, code_only: bool = True, force: bool = False) -> Dict[str, Any]:
+    def _clear_engine_indexes(self) -> None:
+        """Remove prior engine artifacts so a forced re-index starts clean."""
+        targets = [
+            self.project_path / "graphify-out",
+            self.project_path / ".gitnexus",
+            self.project_path / ".codegraph",
+            self.manifest_dir / "docs_index.json",
+            self.manifest_path,
+        ]
+        for target in targets:
+            if not target.exists():
+                continue
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            else:
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
+
+    def run(
+        self, code_only: Optional[bool] = None, force: bool = False
+    ) -> Dict[str, Any]:
         """Runs the full 3-engine indexing pipeline."""
+        if code_only is None:
+            code_only = self.config.graphify_code_only
+
+        if force:
+            print("[force] Clearing prior Graphify / GitNexus / CodeGraph indexes...")
+            self._clear_engine_indexes()
+
         start_time = time.time()
         results: Dict[str, Any] = {
             "project_path": str(self.project_path),
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "force": force,
+            "code_only": code_only,
             "engines": {},
         }
 
@@ -61,6 +94,14 @@ class IndexPipeline:
             code_only=code_only,
             timeout=self.config.index_timeout,
         )
+        docs_overlay = index_docs_overlay(
+            self.project_path, code_only=code_only, announce=True
+        )
+        res_graphify = {
+            **res_graphify,
+            "local_docs_count": docs_overlay.get("doc_count", 0),
+            "docs_index_path": docs_overlay.get("path"),
+        }
         t_graphify = time.time() - t0
         results["engines"]["graphify"] = {
             "success": res_graphify.get("success", False),

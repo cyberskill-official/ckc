@@ -20,3 +20,6 @@ code-chain = "code_chain.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"code_chain.ui" = ["static/*"]

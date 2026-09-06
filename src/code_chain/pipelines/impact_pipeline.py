@@ -6,8 +6,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from code_chain.core.config import ChainConfig
+from code_chain.core.llm import finalize_stacked_markdown
 from code_chain.core.models import ChainedImpactResult, CrossDomainEntity
 from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
+
+_VALID_OUTCOMES = frozenset({"ok", "empty", "error", "ambiguous_unresolved"})
 
 
 class ImpactPipeline:
@@ -20,7 +23,7 @@ class ImpactPipeline:
         self.gitnexus = GitNexusAdapter(config.gitnexus_bin, project_path)
         self.codegraph = CodeGraphAdapter(config.codegraph_bin, project_path)
 
-    def run(self, target_symbol: str) -> ChainedImpactResult:
+    def run(self, target_symbol: str, use_llm: bool = True) -> ChainedImpactResult:
         # Tier 1: GitNexus AST Blast Radius Analysis
         impact_data = self.gitnexus.analyze_impact(target_symbol)
         risk = impact_data.get("risk") or "UNKNOWN"
@@ -28,6 +31,11 @@ class ImpactPipeline:
             risk = "UNKNOWN"
         raw_count = impact_data.get("impactedCount", 0)
         impacted_count = raw_count if isinstance(raw_count, int) else 0
+        raw_outcome = impact_data.get("_outcome") or "ok"
+        outcome = raw_outcome if raw_outcome in _VALID_OUTCOMES else "ok"
+        resolved_uid = impact_data.get("_resolved_uid")
+        if not isinstance(resolved_uid, str) or not resolved_uid:
+            resolved_uid = None
 
         raw_procs = impact_data.get("affected_processes") or []
         affected_procs = [
@@ -113,6 +121,8 @@ class ImpactPipeline:
             target_symbol=target_symbol,
             risk=risk,
             impacted_count=impacted_count,
+            outcome=outcome,
+            resolved_uid=resolved_uid,
             affected_procs=affected_procs,
             affected_mods=affected_mods,
             call_hierarchy=call_hierarchy,
@@ -124,12 +134,20 @@ class ImpactPipeline:
             graphify_explanation=graphify_explanation,
             steps=steps,
         )
+        report = finalize_stacked_markdown(
+            report,
+            task="impact",
+            enabled=use_llm,
+            max_tokens_budget=self.config.max_tokens_budget,
+        )
 
         return ChainedImpactResult(
             target_symbol=target_symbol,
             project_path=str(self.project_path),
             risk_level=risk,
             blast_radius_count=impacted_count,
+            outcome=outcome,
+            resolved_uid=resolved_uid,
             affected_modules=affected_mods,
             affected_processes=affected_procs,
             affected_tests=affected_tests,
@@ -144,6 +162,8 @@ class ImpactPipeline:
         target_symbol: str,
         risk: str,
         impacted_count: int,
+        outcome: str,
+        resolved_uid: Optional[str],
         affected_procs: List[str],
         affected_mods: List[str],
         call_hierarchy: List[Dict[str, Any]],
@@ -158,29 +178,47 @@ class ImpactPipeline:
         lines = []
         lines.append(f"# Refactor Blast Radius & Impact Report: `{target_symbol}`")
         lines.append("")
-        risk_badge = (
-            f"🟢 **{risk} RISK**"
-            if risk == "LOW"
-            else f"🟡 **{risk} RISK**"
-            if risk == "MEDIUM"
-            else f"🔴 **{risk} RISK**"
-        )
+        risk_upper = (risk or "UNKNOWN").upper()
+        if risk_upper == "LOW":
+            risk_badge = f"🟢 **{risk_upper} RISK**"
+        elif risk_upper == "MEDIUM":
+            risk_badge = f"🟡 **{risk_upper} RISK**"
+        elif risk_upper in {"HIGH", "CRITICAL"}:
+            risk_badge = f"🔴 **{risk_upper} RISK**"
+        else:
+            # GitNexus uses UNKNOWN when no callers resolved — not an alarm.
+            risk_badge = f"**{risk_upper} RISK**"
         lines.append(
             f"> Assessment: {risk_badge} | Blast Radius: **{impacted_count} dependent component(s)**"
+            f" | Outcome: `{outcome}`"
         )
+        if resolved_uid:
+            lines.append(f"> Resolved symbol UID: `{resolved_uid}`")
         lines.append("")
 
         # 1. Structural Blast Radius (GitNexus)
         lines.append("## 1. Structural Blast Radius (GitNexus AST Engine)")
-        if call_hierarchy:
+        if outcome == "ambiguous_unresolved":
+            lines.append(
+                "- *Ambiguous symbol matches could not be resolved to a unique UID.*"
+            )
+        elif outcome == "error":
+            lines.append("- *GitNexus impact analysis returned an error.*")
+        elif outcome == "empty":
+            lines.append("- *No impact data returned from GitNexus.*")
+        elif call_hierarchy:
             lines.append("### Upstream Call Hierarchy (What Breaks If Changed):")
             for c in call_hierarchy:
                 lines.append(
                     f"- Depth {c['depth']}: `{c['symbol']}` in `{c['file']}` [{c['relation']}]"
                 )
-        else:
+        elif outcome == "ok" and impacted_count == 0:
             lines.append(
                 "- *No external upstream callers detected. Localized blast radius.*"
+            )
+        else:
+            lines.append(
+                "- *Upstream call hierarchy unavailable in summary payload.*"
             )
 
         if affected_procs:

@@ -83,7 +83,7 @@
           <div class="card-stat" id="statGraphifyNodes">0</div>
           <div class="card-stat-label">Multi-modal Nodes & Artifacts</div>
           <div class="card-details" id="statGraphifyDetails">
-            Communities: 0 | Edges: 0
+            Communities: 0 | Edges: 0 | Local docs: 0
           </div>
         </div>
 
@@ -129,11 +129,16 @@
               Constructs deterministic AST call graphs, multi-modal project maps, and symbol tables across all 3 layers.
             </p>
           </div>
-          <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
             <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; gap: 6px;">
               <input type="checkbox" id="checkMultimodal" />
               Enable LLM Multi-Modal Docs (Graphify)
             </label>
+            <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; gap: 6px;">
+              <input type="checkbox" id="checkForceIndex" />
+              Force re-index
+            </label>
+            <span id="llmStatusChip" style="font-size: 12px; color: var(--text-muted);">LLM: —</span>
             <button id="btnStartIndex" class="btn btn-primary">
               ▶ Run 3-Tier Indexing
             </button>
@@ -180,6 +185,10 @@
           />
           <button id="btnRunQuery" class="btn btn-primary">Search Graph</button>
         </div>
+        <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;">
+          <input type="checkbox" id="checkQueryLlm" checked />
+          Local model synthesis (when configured)
+        </label>
         <div class="quick-links">
           <span>Suggestions:</span>
           <span class="link-chip" data-query="authentication and login">authentication and login</span>
@@ -223,6 +232,10 @@
           />
           <button id="btnRunImpact" class="btn btn-primary">Analyze Blast Radius</button>
         </div>
+        <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;">
+          <input type="checkbox" id="checkImpactLlm" checked />
+          Local model synthesis (when configured)
+        </label>
         <div class="quick-links">
           <span>Suggestions:</span>
           <span class="link-chip" data-impact="login">login</span>
@@ -272,6 +285,10 @@
           />
           <button id="btnRunTrace" class="btn btn-primary">Trace Flow</button>
         </div>
+        <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;">
+          <input type="checkbox" id="checkTraceLlm" checked />
+          Local model synthesis (when configured)
+        </label>
         <div class="quick-links" style="margin-top: 10px;">
           <span>Presets:</span>
           <span class="link-chip" data-trace-from="handle_login_request" data-trace-to="verify_password">handle_login_request ➔ verify_password</span>

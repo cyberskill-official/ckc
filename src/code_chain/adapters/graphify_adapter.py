@@ -4,13 +4,16 @@ Graphify Adapter: Extracts and queries broad project knowledge graphs (multi-mod
 
 from __future__ import annotations
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from code_chain.adapters.base import BaseGraphAdapter
+from code_chain.core.docs_index import load_docs_index, local_docs_count
 from code_chain.core.models import EngineStatus, CrossDomainEntity
 
 _NON_CODE_RESERVE = 2
+_DOC_SUFFIXES = (".md", ".mdx", ".rst", ".adoc")
 
 
 def classify_entity_type(source_file: str, file_type: str, label: str = "") -> str:
@@ -23,10 +26,11 @@ def classify_entity_type(source_file: str, file_type: str, label: str = "") -> s
     source = (source_file or "").replace("\\", "/").lower()
     if source.endswith(".sql"):
         return "schema"
+    if source.endswith(_DOC_SUFFIXES):
+        return "doc"
     if (label or "").lower().startswith("public."):
         return "schema"
     return raw
-
 
 def entity_match_score(
     query_terms: List[str],
@@ -81,16 +85,24 @@ class GraphifyAdapter(BaseGraphAdapter):
         self.output_dir = self.project_path / "graphify-out"
         self.graph_json_path = self.output_dir / "graph.json"
 
+    def _bin_available(self) -> bool:
+        return bool(shutil.which(self.bin_path) or Path(self.bin_path).is_file())
+
     def get_status(self) -> EngineStatus:
+        available = self._bin_available()
+        docs_count = local_docs_count(self.project_path)
         if not self.graph_json_path.exists():
             return EngineStatus(
                 engine_name="graphify",
-                available=True,
+                available=available,
                 indexed=False,
                 index_path=str(self.graph_json_path),
                 node_count=0,
                 edge_count=0,
-                details={"status": "not_indexed"},
+                details={
+                    "status": "not_indexed",
+                    "local_docs_count": docs_count,
+                },
             )
 
         try:
@@ -101,7 +113,7 @@ class GraphifyAdapter(BaseGraphAdapter):
             communities = set(n.get("community") for n in nodes if "community" in n)
             return EngineStatus(
                 engine_name="graphify",
-                available=True,
+                available=available,
                 indexed=True,
                 index_path=str(self.graph_json_path),
                 node_count=len(nodes),
@@ -110,15 +122,17 @@ class GraphifyAdapter(BaseGraphAdapter):
                     "status": "ready",
                     "communities_count": len(communities),
                     "built_at_commit": data.get("built_at_commit", "unknown"),
+                    "local_docs_count": docs_count,
                 },
             )
         except Exception as e:
             return EngineStatus(
                 engine_name="graphify",
-                available=True,
+                available=available,
                 indexed=False,
                 index_path=str(self.graph_json_path),
                 error_message=f"Error reading graph.json: {str(e)}",
+                details={"local_docs_count": docs_count},
             )
 
     def _extract_cmd(self, code_only: bool = True) -> list:
@@ -212,6 +226,45 @@ class GraphifyAdapter(BaseGraphAdapter):
                     f"Community {n.get('community')}, {entity_type} artifact "
                     f"in {source_file}"
                 ),
+            )
+            ranked.append((score, entity))
+
+        # Merge local markdown overlay (code-only Graphify skips docs).
+        overlay = load_docs_index(self.project_path)
+        seen_paths = {
+            (entity.source_path or "").replace("\\", "/").lower()
+            for _score, entity in ranked
+        }
+        for doc in overlay.get("docs") or []:
+            if not isinstance(doc, dict):
+                continue
+            source_file = str(doc.get("source_path") or "")
+            label = str(doc.get("name") or source_file)
+            node_id = str(doc.get("id") or f"local-doc:{source_file}")
+            entity_type = "doc"
+            score = entity_match_score(
+                query_terms, label, node_id, source_file, entity_type
+            )
+            excerpt = str(doc.get("excerpt") or "")
+            if score <= 0 and excerpt:
+                searchable = excerpt.lower()
+                score = sum(1 for term in query_terms if term in searchable)
+            if score <= 0:
+                continue
+            norm = source_file.replace("\\", "/").lower()
+            if norm and norm in seen_paths:
+                continue
+            if norm:
+                seen_paths.add(norm)
+            entity = CrossDomainEntity(
+                id=node_id,
+                name=label,
+                entity_type=entity_type,
+                source_path=source_file,
+                community_id=None,
+                degree=0,
+                connections=[],
+                description=excerpt or f"Local documentation overlay: {source_file}",
             )
             ranked.append((score, entity))
 

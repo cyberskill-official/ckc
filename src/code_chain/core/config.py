@@ -25,12 +25,14 @@ class ChainConfig(BaseModel):
 
     # Timeouts in seconds
     index_timeout: int = 300
+    # Soft upper bound for interactive query/impact/trace work (UI messaging / future caps).
     query_timeout: int = 60
 
     # Indexing options
     graphify_code_only: bool = (
         True  # Defaults to fast AST mode without requiring external LLM API keys
     )
+    # Cap on Tier-2 GitNexus context lookups per query (and related search depth).
     max_search_depth: int = 5
     max_tokens_budget: int = 4000
 

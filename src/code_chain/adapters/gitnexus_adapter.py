@@ -4,6 +4,7 @@ GitNexus Adapter: AST-based structural code intelligence, call graphs, execution
 
 from __future__ import annotations
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -21,6 +22,39 @@ def _extract_json(raw_text: str) -> Optional[Dict[str, Any]]:
         except Exception:
             return None
     return None
+
+
+def _candidate_uid(candidate: Dict[str, Any]) -> Optional[str]:
+    uid = candidate.get("uid") or candidate.get("id")
+    return uid if isinstance(uid, str) and uid else None
+
+
+def _candidate_span(candidate: Dict[str, Any]) -> int:
+    start = candidate.get("startLine") or candidate.get("line") or 0
+    end = candidate.get("endLine") or start
+    try:
+        return max(0, int(end) - int(start))
+    except (TypeError, ValueError):
+        return 0
+
+
+def pick_best_candidate(candidates: list) -> Optional[Dict[str, Any]]:
+    """Prefer highest score, then impact count, then largest source span (impl over stub)."""
+    viable = [c for c in candidates if isinstance(c, dict) and _candidate_uid(c)]
+    if not viable:
+        return None
+
+    def sort_key(c: Dict[str, Any]):
+        score = c.get("score")
+        try:
+            score_v = float(score) if score is not None else 0.0
+        except (TypeError, ValueError):
+            score_v = 0.0
+        impact = c.get("impactedCount")
+        impact_v = impact if isinstance(impact, int) else -1
+        return (score_v, impact_v, _candidate_span(c))
+
+    return max(viable, key=sort_key)
 
 
 class GitNexusAdapter(BaseGraphAdapter):
@@ -50,11 +84,15 @@ class GitNexusAdapter(BaseGraphAdapter):
         except Exception:
             return {}
 
+    def _bin_available(self) -> bool:
+        return bool(shutil.which(self.bin_path) or Path(self.bin_path).is_file())
+
     def get_status(self) -> EngineStatus:
+        available = self._bin_available()
         if not self.nexus_dir.exists():
             return EngineStatus(
                 engine_name="gitnexus",
-                available=True,
+                available=available,
                 indexed=False,
                 index_path=str(self.nexus_dir),
                 node_count=0,
@@ -85,7 +123,7 @@ class GitNexusAdapter(BaseGraphAdapter):
             }
             return EngineStatus(
                 engine_name="gitnexus",
-                available=True,
+                available=available,
                 indexed=is_ready or bool(stats),
                 index_path=str(self.nexus_dir),
                 node_count=stats.get("nodes", 0),
@@ -95,7 +133,7 @@ class GitNexusAdapter(BaseGraphAdapter):
         except Exception as e:
             return EngineStatus(
                 engine_name="gitnexus",
-                available=True,
+                available=available,
                 indexed=self.nexus_dir.exists(),
                 index_path=str(self.nexus_dir),
                 node_count=stats.get("nodes", 0),
@@ -150,17 +188,45 @@ class GitNexusAdapter(BaseGraphAdapter):
             pass
         return {"processes": [], "definitions": []}
 
+    def _run_context(
+        self, symbol_name: str, *, uid: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        cmd = [self.bin_path, "context"]
+        if uid:
+            cmd.extend(["-u", uid])
+        else:
+            cmd.append(symbol_name)
+        cmd.extend(self._repo_args())
+        res = subprocess.run(
+            cmd,
+            cwd=str(self.project_path),
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return _extract_json(res.stdout)
+
     def get_symbol_context(self, symbol_name: str) -> Optional[Dict[str, Any]]:
         """Retrieves 360-degree view of a code symbol: callers, callees, processes."""
         try:
-            res = subprocess.run(
-                [self.bin_path, "context", symbol_name, *self._repo_args()],
-                cwd=str(self.project_path),
-                capture_output=True,
-                text=True,
-                timeout=20,
+            parsed = self._run_context(symbol_name)
+            if not parsed:
+                return None
+            if parsed.get("status") != "ambiguous":
+                return parsed
+            candidates = parsed.get("candidates") or []
+            best = pick_best_candidate(
+                candidates if isinstance(candidates, list) else []
             )
-            return _extract_json(res.stdout)
+            uid = _candidate_uid(best) if best else None
+            if not uid:
+                return parsed
+            resolved = self._run_context(symbol_name, uid=uid)
+            if resolved and resolved.get("status") == "found":
+                resolved["_resolved_from_ambiguous"] = True
+                resolved["_resolved_uid"] = uid
+                return resolved
+            return parsed
         except Exception:
             return None
 
@@ -187,7 +253,79 @@ class GitNexusAdapter(BaseGraphAdapter):
         out["affected_processes"] = procs if isinstance(procs, list) else []
         out["affected_modules"] = mods if isinstance(mods, list) else []
         out["byDepth"] = by_depth
+        # Explicit outcome for callers (ok | empty | error | ambiguous_unresolved).
+        if out.get("error"):
+            out["_outcome"] = "error"
+        elif out.get("status") == "ambiguous" and not out.get("_resolved_uid"):
+            out["_outcome"] = "ambiguous_unresolved"
+        elif out.get("_outcome") in {"empty", "error", "ambiguous_unresolved", "ok"}:
+            pass
+        else:
+            out["_outcome"] = "ok"
         return out
+
+    def _run_impact(
+        self,
+        target_symbol: str,
+        *,
+        uid: Optional[str] = None,
+        summary_only: bool = True,
+        depth: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        cmd = [self.bin_path, "impact"]
+        if uid:
+            cmd.extend(["-u", uid])
+        else:
+            cmd.append(target_symbol)
+        cmd.extend(self._repo_args())
+        if summary_only:
+            cmd.append("--summary-only")
+        if depth is not None:
+            cmd.extend(["--depth", str(depth)])
+        if limit is not None:
+            cmd.extend(["--limit", str(limit)])
+        res = subprocess.run(
+            cmd,
+            cwd=str(self.project_path),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return _extract_json(res.stdout)
+
+    def _resolve_impact_target(
+        self, target_symbol: str, parsed: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """When GitNexus returns ambiguous matches, re-query the best candidate by UID."""
+        if parsed.get("status") != "ambiguous":
+            return parsed
+        candidates = parsed.get("candidates") or []
+        if not isinstance(candidates, list):
+            return parsed
+        best = pick_best_candidate(candidates)
+        uid = _candidate_uid(best) if best else None
+        if not uid:
+            # Fall back to aggregate fields if present.
+            if not isinstance(parsed.get("impactedCount"), int):
+                max_count = parsed.get("maxImpactedCount")
+                if isinstance(max_count, int):
+                    parsed["impactedCount"] = max_count
+            if not isinstance(parsed.get("risk"), str) or parsed.get("risk") in (
+                None,
+                "",
+                "UNKNOWN",
+            ):
+                known = parsed.get("knownMaxRisk") or parsed.get("maxRisk")
+                if isinstance(known, str) and known and known != "UNKNOWN":
+                    parsed["risk"] = known
+            return parsed
+        resolved = self._run_impact(target_symbol, uid=uid, summary_only=True)
+        if resolved and not resolved.get("error"):
+            resolved["_resolved_from_ambiguous"] = True
+            resolved["_resolved_uid"] = uid
+            return resolved
+        return parsed
 
     def analyze_impact(self, target_symbol: str) -> Dict[str, Any]:
         """Blast radius analysis: what breaks if you change a symbol."""
@@ -197,69 +335,98 @@ class GitNexusAdapter(BaseGraphAdapter):
             "affected_processes": [],
             "affected_modules": [],
             "byDepth": {},
+            "_outcome": "empty",
         }
         # Summary-only stays under GitNexus's ~64KB stdout cap and is repo-scoped.
-        cmd = [
-            self.bin_path,
-            "impact",
-            target_symbol,
-            *self._repo_args(),
-            "--summary-only",
-        ]
         try:
-            res = subprocess.run(
-                cmd,
-                cwd=str(self.project_path),
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            parsed = _extract_json(res.stdout)
-            if parsed:
-                if not parsed.get("error"):
-                    detail_cmd = [
-                        self.bin_path,
-                        "impact",
-                        target_symbol,
-                        *self._repo_args(),
-                        "--depth",
-                        "2",
-                        "--limit",
-                        "20",
-                    ]
-                    detail_res = subprocess.run(
-                        detail_cmd,
-                        cwd=str(self.project_path),
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                    detail = _extract_json(detail_res.stdout)
-                    if detail and not detail.get("error"):
-                        if detail.get("byDepth"):
-                            parsed["byDepth"] = detail["byDepth"]
-                        if detail.get("affected_processes"):
-                            parsed["affected_processes"] = detail[
-                                "affected_processes"
-                            ]
-                        if detail.get("affected_modules"):
-                            parsed["affected_modules"] = detail["affected_modules"]
+            parsed = self._run_impact(target_symbol, summary_only=True)
+            if not parsed:
+                return empty
+            parsed = self._resolve_impact_target(target_symbol, parsed)
+            if parsed.get("status") == "ambiguous" and not parsed.get("_resolved_uid"):
+                parsed["_outcome"] = "ambiguous_unresolved"
                 return self._normalize_impact(parsed)
+            if parsed.get("error"):
+                parsed["_outcome"] = "error"
+                return self._normalize_impact(parsed)
+            uid = parsed.get("_resolved_uid")
+            detail = self._run_impact(
+                target_symbol,
+                uid=uid if isinstance(uid, str) else None,
+                summary_only=False,
+                depth=2,
+                limit=20,
+            )
+            if detail and not detail.get("error"):
+                if detail.get("status") == "ambiguous":
+                    detail = self._resolve_impact_target(target_symbol, detail)
+                if detail.get("byDepth"):
+                    parsed["byDepth"] = detail["byDepth"]
+                if detail.get("affected_processes"):
+                    parsed["affected_processes"] = detail["affected_processes"]
+                if detail.get("affected_modules"):
+                    parsed["affected_modules"] = detail["affected_modules"]
+                if detail.get("_resolved_uid") and not parsed.get("_resolved_uid"):
+                    parsed["_resolved_uid"] = detail["_resolved_uid"]
+                    parsed["_resolved_from_ambiguous"] = True
+            parsed["_outcome"] = "ok"
+            return self._normalize_impact(parsed)
         except Exception:
             pass
         return empty
 
+    def _run_trace(
+        self,
+        from_symbol: str,
+        to_symbol: str,
+        *,
+        from_uid: Optional[str] = None,
+        to_uid: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        cmd = [self.bin_path, "trace", from_symbol, to_symbol, *self._repo_args()]
+        if from_uid:
+            cmd.extend(["--from-uid", from_uid])
+        if to_uid:
+            cmd.extend(["--to-uid", to_uid])
+        res = subprocess.run(
+            cmd,
+            cwd=str(self.project_path),
+            capture_output=True,
+            text=True,
+            timeout=25,
+        )
+        return _extract_json(res.stdout)
+
     def trace_path(self, from_symbol: str, to_symbol: str) -> Optional[Dict[str, Any]]:
         """Find the shortest directed execution path between two symbols."""
         try:
-            res = subprocess.run(
-                [self.bin_path, "trace", from_symbol, to_symbol, *self._repo_args()],
-                cwd=str(self.project_path),
-                capture_output=True,
-                text=True,
-                timeout=25,
-            )
-            return _extract_json(res.stdout)
+            parsed = self._run_trace(from_symbol, to_symbol)
+            if not parsed:
+                return None
+            from_uid: Optional[str] = None
+            to_uid: Optional[str] = None
+            # Resolve one ambiguous endpoint at a time (GitNexus reports one role).
+            for _ in range(2):
+                if parsed.get("status") != "ambiguous":
+                    break
+                candidates = parsed.get("candidates") or []
+                best = pick_best_candidate(
+                    candidates if isinstance(candidates, list) else []
+                )
+                uid = _candidate_uid(best) if best else None
+                if not uid:
+                    break
+                role = parsed.get("role")
+                if role == "to":
+                    to_uid = uid
+                else:
+                    from_uid = uid
+                parsed = self._run_trace(
+                    from_symbol, to_symbol, from_uid=from_uid, to_uid=to_uid
+                )
+                if not parsed:
+                    return None
+            return parsed
         except Exception:
             return None
 

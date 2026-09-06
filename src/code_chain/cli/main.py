@@ -4,11 +4,18 @@ Command-Line Interface (CLI) for code-knowledge-chain.
 
 from __future__ import annotations
 import argparse
+import json
+import os
 import subprocess
 import sys
 import webbrowser
 from pathlib import Path
+
+import uvicorn
+
+from code_chain.core.env import load_dotenv
 from code_chain.core.orchestrator import CodeKnowledgeChain
+from code_chain.mcp.server import run_mcp_server
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument(
         "--code-only",
         action="store_true",
-        help="Skip Graphify docs/images and use local AST only (default without --multimodal)",
+        help="Skip Graphify docs/images and use local AST only (default without --multimodal; wins if both flags set)",
     )
     p_init.add_argument(
         "--force", action="store_true", help="Force re-indexing even if already present"
@@ -60,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_query.add_argument(
         "--json", action="store_true", help="Output raw JSON instead of markdown"
     )
+    p_query.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Skip optional LM Studio / OpenAI-compatible synthesis even if configured",
+    )
 
     # impact
     p_impact = subparsers.add_parser(
@@ -68,6 +80,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_impact.add_argument("symbol", help="Target symbol or function to analyze")
     p_impact.add_argument(
         "--json", action="store_true", help="Output raw JSON instead of markdown"
+    )
+    p_impact.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Skip optional LM Studio / OpenAI-compatible synthesis even if configured",
     )
 
     # trace
@@ -78,6 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_trace.add_argument("to_symbol", help="Destination symbol name")
     p_trace.add_argument(
         "--json", action="store_true", help="Output raw JSON instead of markdown"
+    )
+    p_trace.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Skip optional LM Studio / OpenAI-compatible synthesis even if configured",
     )
 
     # diff
@@ -91,12 +113,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # ui
+    default_host = os.environ.get("CKC_HOST", "127.0.0.1")
+    try:
+        default_port = int(os.environ.get("CKC_PORT", "8000"))
+    except ValueError:
+        default_port = 8000
     p_ui = subparsers.add_parser("ui", help="Start the interactive web dashboard")
     p_ui.add_argument(
-        "--host", default="127.0.0.1", help="Host interface (default: 127.0.0.1)"
+        "--host", default=default_host, help=f"Host interface (default: {default_host})"
     )
     p_ui.add_argument(
-        "--port", type=int, default=8000, help="Port to listen on (default: 8000)"
+        "--port",
+        type=int,
+        default=default_port,
+        help=f"Port to listen on (default: {default_port})",
     )
     p_ui.add_argument(
         "--open", action="store_true", help="Automatically open web browser"
@@ -132,18 +162,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    load_dotenv()
     parser = build_parser()
     args = parser.parse_args()
 
     if args.command == "mcp":
-        from code_chain.mcp.server import run_mcp_server
-
         run_mcp_server(args.project)
         return
 
     if args.command == "ui":
-        import uvicorn
-
         url = f"http://{args.host}:{args.port}"
         print(f"Starting Code Knowledge Chain UI at: {url}")
         if args.open:
@@ -189,8 +216,12 @@ def main() -> None:
 
     if args.command in ["init", "index"]:
         print(f"Initializing 3-tier knowledge graph in: {chain.project_path}")
-        code_only = not args.multimodal
-        res = chain.index(code_only=code_only, force=args.force)
+        # --code-only wins when both flags appear; default remains code-only without --multimodal.
+        if args.code_only:
+            code_only = True
+        else:
+            code_only = not args.multimodal
+        chain.index(code_only=code_only, force=args.force)
         print("\nIndexing Complete!")
         print(chain.export_summary())
 
@@ -198,21 +229,23 @@ def main() -> None:
         print(chain.export_summary())
 
     elif args.command == "query":
-        result = chain.query(args.query_text)
+        result = chain.query(args.query_text, use_llm=not args.no_llm)
         if args.json:
             print(result.model_dump_json(indent=2))
         else:
             print(result.synthesized_context)
 
     elif args.command == "impact":
-        result = chain.impact(args.symbol)
+        result = chain.impact(args.symbol, use_llm=not args.no_llm)
         if args.json:
             print(result.model_dump_json(indent=2))
         else:
             print(result.synthesized_report)
 
     elif args.command == "trace":
-        result = chain.trace(args.from_symbol, args.to_symbol)
+        result = chain.trace(
+            args.from_symbol, args.to_symbol, use_llm=not args.no_llm
+        )
         if args.json:
             print(result.model_dump_json(indent=2))
         else:
@@ -220,8 +253,6 @@ def main() -> None:
 
     elif args.command == "diff":
         res = chain.detect_changes()
-        import json
-
         print(json.dumps(res, indent=2))
 
 

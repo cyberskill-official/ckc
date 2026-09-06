@@ -4,8 +4,9 @@ Query Pipeline: Chains Graphify (Tier 1), GitNexus (Tier 2), and CodeGraph (Tier
 
 from __future__ import annotations
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 from code_chain.core.config import ChainConfig
+from code_chain.core.llm import finalize_stacked_markdown
 from code_chain.core.models import (
     ChainedQueryResult,
     CrossDomainEntity,
@@ -13,6 +14,13 @@ from code_chain.core.models import (
     SymbolDetail,
 )
 from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
+
+_MAX_TIER1 = 8
+_MAX_TIER2 = 5
+_MAX_TIER3 = 5
+_MAX_EXPLORE_CHARS = 2500
+_SNIPPET_CHARS = 800
+_SNIPPET_TOP_N = 2
 
 
 class QueryPipeline:
@@ -24,29 +32,56 @@ class QueryPipeline:
         self.graphify = GraphifyAdapter(config.graphify_bin, project_path)
         self.gitnexus = GitNexusAdapter(config.gitnexus_bin, project_path)
         self.codegraph = CodeGraphAdapter(config.codegraph_bin, project_path)
+        self._label_cache: Optional[Dict[str, str]] = None
 
-    def run(self, query: str) -> ChainedQueryResult:
+    def _neighbor_label(self, neighbor_id: str) -> str:
+        """Resolve Graphify neighbor node IDs to human-readable labels when possible."""
+        if not neighbor_id:
+            return neighbor_id
+        if self._label_cache is None:
+            self._label_cache = {}
+            data = self.graphify.load_graph_data()
+            for node in data.get("nodes") or []:
+                nid = node.get("id")
+                label = node.get("label")
+                if isinstance(nid, str) and nid:
+                    self._label_cache[nid] = (
+                        label if isinstance(label, str) and label else nid
+                    )
+        return self._label_cache.get(neighbor_id, neighbor_id)
+
+    def run(self, query: str, use_llm: bool = True) -> ChainedQueryResult:
         # Tier 1: Graphify broad cross-domain scan
-        tier1_entities = self.graphify.find_cross_domain_entities(query, limit=8)
+        tier1_entities = self.graphify.find_cross_domain_entities(
+            query, limit=_MAX_TIER1
+        )
 
         # Tier 2: GitNexus structural execution flows
         gitnexus_data = self.gitnexus.query_concepts(query)
         tier2_flows: List[ExecutionFlow] = []
 
-        # Parse definitions or processes found in GitNexus
-        candidate_symbols = set()
+        # Deterministic candidate order (sorted), not hash-order from a set.
+        candidate_symbols: List[str] = []
+        seen: set = set()
         for d in gitnexus_data.get("definitions", []):
             name = d.get("name")
-            if name and not name.endswith((".md", ".txt", ".json", ".sql")):
-                candidate_symbols.add(name)
+            if (
+                name
+                and not name.endswith((".md", ".txt", ".json", ".sql"))
+                and name not in seen
+            ):
+                seen.add(name)
+                candidate_symbols.append(name)
 
-        # Also add symbols from tier 1 entities
         for e in tier1_entities:
-            if e.entity_type == "code" and "(" not in e.name:
-                candidate_symbols.add(e.name)
+            if e.entity_type == "code" and "(" not in e.name and e.name not in seen:
+                seen.add(e.name)
+                candidate_symbols.append(e.name)
 
-        # Collect execution flows for candidate symbols
-        for sym in list(candidate_symbols)[:5]:
+        candidate_symbols = sorted(candidate_symbols)
+        depth_cap = min(_MAX_TIER2, max(1, self.config.max_search_depth))
+
+        for sym in candidate_symbols[:depth_cap]:
             ctx = self.gitnexus.get_symbol_context(sym)
             if ctx and ctx.get("status") == "found":
                 symbol_info = ctx.get("symbol", {})
@@ -68,25 +103,46 @@ class QueryPipeline:
                 tier2_flows.append(flow)
 
         # Tier 3: CodeGraph fine-grained source exploration and symbol definitions
-        raw_explore = self.codegraph.explore(query)
+        raw_explore = self.codegraph.explore(query) or ""
+        if len(raw_explore) > _MAX_EXPLORE_CHARS:
+            raw_explore = (
+                raw_explore[:_MAX_EXPLORE_CHARS].rstrip()
+                + "\n… *(explore output truncated)*\n"
+            )
         tier3_symbols: List[SymbolDetail] = []
         cg_symbols = self.codegraph.query_symbols(query)
 
-        for s in cg_symbols[:5]:
+        for idx, s in enumerate(cg_symbols[:_MAX_TIER3]):
             callers = self.codegraph.get_callers(s["name"])
             callees = self.codegraph.get_callees(s["name"])
+            snippet = None
+            if idx < _SNIPPET_TOP_N:
+                node_text = self.codegraph.get_node(s["name"])
+                if node_text and not node_text.startswith("Node error:"):
+                    snippet = node_text[:_SNIPPET_CHARS]
+                    if len(node_text) > _SNIPPET_CHARS:
+                        snippet = snippet.rstrip() + "…"
             sym_detail = SymbolDetail(
                 name=s["name"],
                 kind=s.get("kind", "symbol"),
                 file_path=s.get("file", ""),
                 line_number=s.get("line"),
+                source_snippet=snippet,
                 callers=callers,
                 callees=callees,
             )
             tier3_symbols.append(sym_detail)
 
         # Tier 4: Grounded Synthesis
-        synthesis = self._synthesize(query, tier1_entities, tier2_flows, raw_explore)
+        synthesis = self._synthesize(
+            query, tier1_entities, tier2_flows, tier3_symbols, raw_explore
+        )
+        synthesis = finalize_stacked_markdown(
+            synthesis,
+            task="query",
+            enabled=use_llm,
+            max_tokens_budget=self.config.max_tokens_budget,
+        )
 
         return ChainedQueryResult(
             query=query,
@@ -102,6 +158,7 @@ class QueryPipeline:
         query: str,
         tier1: List[CrossDomainEntity],
         tier2: List[ExecutionFlow],
+        tier3: List[SymbolDetail],
         raw_explore: str,
     ) -> str:
         lines = []
@@ -124,7 +181,10 @@ class QueryPipeline:
                     else "🧩"
                 )
                 conn_str = ", ".join(
-                    [f"{c['neighbor']} ({c['relation']})" for c in ent.connections[:3]]
+                    [
+                        f"{self._neighbor_label(str(c.get('neighbor', '')))} ({c.get('relation')})"
+                        for c in ent.connections[:3]
+                    ]
                 )
                 lines.append(
                     f"- {icon} **{ent.name}** (`{ent.source_path or 'unknown'}`)"
@@ -132,6 +192,8 @@ class QueryPipeline:
                 lines.append(
                     f"  - Type: `{ent.entity_type}`, Community: `{ent.community_id}`, Degree: `{ent.degree}`"
                 )
+                if ent.description and ent.entity_type == "doc":
+                    lines.append(f"  - Excerpt: {ent.description}")
                 if conn_str:
                     lines.append(f"  - Key Connections: {conn_str}")
         else:
@@ -171,9 +233,34 @@ class QueryPipeline:
 
         # 3. Precision Code Blocks & Source (CodeGraph)
         lines.append("## 3. Precision Source Context (CodeGraph)")
+        if tier3:
+            for sym in tier3:
+                loc = sym.file_path or "unknown"
+                if sym.line_number:
+                    loc = f"{loc}:{sym.line_number}"
+                lines.append(f"### `{sym.name}` ({sym.kind} at `{loc}`)")
+                if sym.source_snippet:
+                    lines.append("")
+                    lines.append("```")
+                    lines.append(sym.source_snippet)
+                    lines.append("```")
+                    lines.append("")
+                if sym.callers:
+                    caller_names = ", ".join(
+                        c.get("name", "?") for c in sym.callers[:5]
+                    )
+                    lines.append(f"- **Callers:** {caller_names}")
+                if sym.callees:
+                    callee_names = ", ".join(
+                        c.get("name", "?") for c in sym.callees[:5]
+                    )
+                    lines.append(f"- **Callees:** {callee_names}")
         if raw_explore:
+            if tier3:
+                lines.append("")
+                lines.append("#### Explore output")
             lines.append(raw_explore)
-        else:
+        elif not tier3:
             lines.append("- *No direct source symbols found.*")
         lines.append("")
 
