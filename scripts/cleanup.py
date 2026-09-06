@@ -8,13 +8,13 @@ Usage:
 """
 
 from __future__ import annotations
+
 import argparse
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -35,7 +35,8 @@ def safe_remove_dir(path: Path):
     if path.exists() and path.is_dir():
         shutil.rmtree(path, ignore_errors=True)
         print_success(
-            f"Removed directory: {path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path}"
+            f"Removed directory: "
+            f"{path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path}"
         )
 
 
@@ -43,7 +44,8 @@ def safe_remove_file(path: Path):
     if path.exists() and path.is_file():
         path.unlink(missing_ok=True)
         print_success(
-            f"Removed file: {path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path}"
+            f"Removed file: "
+            f"{path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path}"
         )
 
 
@@ -53,8 +55,8 @@ def kill_background_daemons():
     if shutil.which("codegraph"):
         try:
             subprocess.run(
-                ["codegraph", "daemon", "stop"], capture_output=True, timeout=5
-            )
+                ["codegraph", "daemon", "stop"], capture_output=True, timeout=5,
+            check=False)
             print_success("Stopped codegraph daemons (if any)")
         except Exception:
             pass
@@ -76,6 +78,7 @@ def clean_light():
 
     # 2. Clean Pytest & Test caches
     safe_remove_dir(ROOT_DIR / ".pytest_cache")
+    safe_remove_dir(ROOT_DIR / ".ruff_cache")
     safe_remove_file(ROOT_DIR / ".coverage")
 
     # 3. Clean Build & Egg info
@@ -85,6 +88,12 @@ def clean_light():
         safe_remove_dir(p)
     for p in (ROOT_DIR / "src").glob("*.egg-info"):
         safe_remove_dir(p)
+
+    # 4. macOS Finder clutter
+    for p in ROOT_DIR.rglob(".DS_Store"):
+        if p.is_file():
+            safe_remove_file(p)
+            count += 1
 
     print_success(f"Light cleanup completed ({count} cache items cleared).")
 

@@ -3,8 +3,8 @@ Project-path safety and target-repo hygiene for Code Knowledge Chain.
 """
 
 from __future__ import annotations
+
 from pathlib import Path
-from typing import List
 
 
 class UnsafeProjectPathError(ValueError):
@@ -97,7 +97,7 @@ def assert_safe_project_path(path_str: str) -> Path:
     return resolved
 
 
-def ensure_engine_gitignore(project_path: Path) -> List[str]:
+def ensure_engine_gitignore(project_path: Path) -> list[str]:
     """Append engine index dirs to the target .gitignore when the repo is a git worktree."""
     if not (project_path / ".git").exists():
         return []
@@ -113,7 +113,7 @@ def ensure_engine_gitignore(project_path: Path) -> List[str]:
     ]
     if not to_add:
         return []
-    block_lines: List[str] = []
+    block_lines: list[str] = []
     if existing_lines and existing_lines[-1].strip():
         block_lines.append("")
     if "# code-knowledge-chain indexes" not in existing:

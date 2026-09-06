@@ -3,30 +3,32 @@ Orchestrator: The main entry point coordinating Graphify, GitNexus, and CodeGrap
 """
 
 from __future__ import annotations
-from typing import Optional, Dict, Any
+
+from typing import Any
+
+from code_chain.adapters import GitNexusAdapter
 from code_chain.core.config import ChainConfig
 from code_chain.core.docs_index import local_docs_count
 from code_chain.core.llm import llm_public_status
 from code_chain.core.models import (
-    ProjectGraphStatus,
-    ChainedQueryResult,
     ChainedImpactResult,
+    ChainedQueryResult,
     ChainedTraceResult,
+    ProjectGraphStatus,
 )
 from code_chain.pipelines import (
+    ImpactPipeline,
     IndexPipeline,
     QueryPipeline,
-    ImpactPipeline,
     TracePipeline,
 )
-from code_chain.adapters import GitNexusAdapter
 
 
 class CodeKnowledgeChain:
     """The central unified orchestrator for the 3-engine code knowledge graph chain."""
 
     def __init__(
-        self, project_path: Optional[str] = None, config: Optional[ChainConfig] = None
+        self, project_path: str | None = None, config: ChainConfig | None = None
     ):
         self.config = config or ChainConfig()
         self.project_path = self.config.resolve_project_path(project_path)
@@ -40,7 +42,7 @@ class CodeKnowledgeChain:
         """Returns the status and indexing health of all 3 graph engines."""
         return self.index_pipe.get_status()
 
-    def index(self, code_only: bool = True, force: bool = False) -> Dict[str, Any]:
+    def index(self, code_only: bool = True, force: bool = False) -> dict[str, Any]:
         """Indexes the target project across Graphify, GitNexus, and CodeGraph."""
         return self.index_pipe.run(code_only=code_only, force=force)
 
@@ -62,7 +64,7 @@ class CodeKnowledgeChain:
         """Traces the execution path between two symbols across all 3 engines."""
         return self.trace_pipe.run(from_symbol, to_symbol, use_llm=use_llm)
 
-    def detect_changes(self) -> Dict[str, Any]:
+    def detect_changes(self) -> dict[str, Any]:
         """Maps current git diff hunks to indexed knowledge graph symbols."""
         return self.gitnexus.detect_changes()
 
@@ -82,9 +84,26 @@ class CodeKnowledgeChain:
             "",
             "| Engine | Layer | Status | Nodes | Details |",
             "| :--- | :--- | :--- | :--- | :--- |",
-            f"| **Graphify** | Multi-Modal & Architecture | {'✅ Ready' if status.graphify.indexed else '❌ Missing'} | {status.graphify.node_count} | {status.graphify.details.get('communities_count', 0)} communities, {status.graphify.details.get('local_docs_count', docs_count)} local docs |",
-            f"| **GitNexus** | AST & Execution Flows | {'✅ Ready' if status.gitnexus.indexed else '❌ Missing'} | {status.gitnexus.node_count} | {status.gitnexus.edge_count} edges, {status.gitnexus.details.get('communities_count', 0)} clusters |",
-            f"| **CodeGraph** | Symbols & Test Impact | {'✅ Ready' if status.codegraph.indexed else '❌ Missing'} | {status.codegraph.node_count} | {status.codegraph.edge_count} edges |",
+            (
+                f"| **Graphify** | Multi-Modal & Architecture | "
+                f"{'✅ Ready' if status.graphify.indexed else '❌ Missing'} | "
+                f"{status.graphify.node_count} | "
+                f"{status.graphify.details.get('communities_count', 0)} communities, "
+                f"{status.graphify.details.get('local_docs_count', docs_count)} local docs |"
+            ),
+            (
+                f"| **GitNexus** | AST & Execution Flows | "
+                f"{'✅ Ready' if status.gitnexus.indexed else '❌ Missing'} | "
+                f"{status.gitnexus.node_count} | "
+                f"{status.gitnexus.edge_count} edges, "
+                f"{status.gitnexus.details.get('communities_count', 0)} clusters |"
+            ),
+            (
+                f"| **CodeGraph** | Symbols & Test Impact | "
+                f"{'✅ Ready' if status.codegraph.indexed else '❌ Missing'} | "
+                f"{status.codegraph.node_count} | "
+                f"{status.codegraph.edge_count} edges |"
+            ),
             "",
             f"**Overall Readiness:** {status.ready_count}/3 engines indexed.",
             f"**Local docs overlay:** {docs_count}",

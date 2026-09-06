@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+
 from code_chain.core.paths import (
     UnsafeProjectPathError,
     assert_safe_project_path,

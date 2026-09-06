@@ -7,12 +7,19 @@ name = "code-knowledge-chain"
 version = "1.0.0"
 description = "A unified 3-tier chaining workflow and interactive UI for Graphify, GitNexus, and CodeGraph"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0",
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
     "sse-starlette>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "ruff==0.16.6",
+    "httpx",
 ]
 
 [project.scripts]
@@ -23,3 +30,29 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "code_chain.ui" = ["static/*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+    "RUF",
+    "PIE",
+    "PLW1510",
+    "ASYNC",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/code_chain/adapters/**" = ["BLE001", "S110"]
+"src/code_chain/core/llm.py" = ["BLE001", "S110"]
+"scripts/**" = ["BLE001", "S110"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["code_chain"]

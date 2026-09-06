@@ -3,10 +3,12 @@ Configuration and runtime environment resolution for code-knowledge-chain.
 """
 
 from __future__ import annotations
+
 import shutil
 from pathlib import Path
-from typing import Optional
+
 from pydantic import BaseModel, Field
+
 from code_chain.core.paths import assert_safe_project_path
 
 
@@ -36,7 +38,7 @@ class ChainConfig(BaseModel):
     max_search_depth: int = 5
     max_tokens_budget: int = 4000
 
-    def resolve_project_path(self, path: Optional[str] = None) -> Path:
+    def resolve_project_path(self, path: str | None = None) -> Path:
         target = str(path) if path else str(Path.cwd())
         return assert_safe_project_path(target)
 

@@ -4,7 +4,10 @@ Automated unit and integration tests for Code Knowledge Chain Web UI API.
 
 import unittest
 from pathlib import Path
+
 from fastapi.testclient import TestClient
+
+from code_chain.ui import server as ui_server
 from code_chain.ui.server import app
 
 
@@ -113,6 +116,30 @@ class TestWebUIApi(unittest.TestCase):
             f"/api/artifacts/content?project={self.test_repo}&file=src/auth.py"
         )
         self.assertEqual(res.status_code, 403)
+
+    def test_artifacts_content_resolved_escape_blocked(self):
+        # Symlink-style escape: prefix is allowed, but resolved path must stay in project
+        res = self.client.get(
+            f"/api/artifacts/content?project={self.test_repo}"
+            f"&file=graphify-out/../../../etc/passwd"
+        )
+        self.assertIn(res.status_code, (400, 403))
+
+    def test_artifacts_content_size_cap(self):
+        oversized = Path(self.test_repo) / "graphify-out" / "oversized_test_artifact.md"
+        oversized.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            oversized.write_text(
+                "x" * (ui_server._MAX_ARTIFACT_BYTES + 1), encoding="utf-8"
+            )
+            res = self.client.get(
+                f"/api/artifacts/content?project={self.test_repo}"
+                f"&file=graphify-out/oversized_test_artifact.md"
+            )
+            self.assertEqual(res.status_code, 413)
+            self.assertIn("size limit", res.json()["detail"])
+        finally:
+            oversized.unlink(missing_ok=True)
 
     def test_cancel_indexing(self):
         payload = {"project_path": self.test_repo}

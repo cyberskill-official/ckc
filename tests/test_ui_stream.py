@@ -5,7 +5,9 @@ Tests for Server-Sent Events (SSE) indexing stream and cancellation.
 import json
 import unittest
 from pathlib import Path
+
 from fastapi.testclient import TestClient
+
 from code_chain.ui.server import app
 
 
@@ -28,7 +30,7 @@ class TestUIStreaming(unittest.TestCase):
                 if line.startswith("data: "):
                     payload = json.loads(line[6:])
                     events.append(payload)
-                    # Once we have observed the start and step_start events, break to avoid waiting for full re-index
+                    # Once we have start/step_start events, break to avoid full re-index wait
                     if payload.get("event") in ["step_start", "log"]:
                         break
 

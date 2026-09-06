@@ -6,11 +6,12 @@ writes `.code_chain/docs_index.json` so docs still surface in search/synthesis.
 """
 
 from __future__ import annotations
+
 import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 DOC_SUFFIXES = {".md", ".mdx", ".rst", ".adoc"}
 SKIP_DIR_NAMES = {
@@ -87,14 +88,14 @@ def _first_heading_body(text: str) -> str:
     return after.strip() or body
 
 
-def _chunk_by_heading(text: str, fallback_title: str) -> List[Tuple[str, str]]:
+def _chunk_by_heading(text: str, fallback_title: str) -> list[tuple[str, str]]:
     """Split a doc into (title, body) chunks by headings; whole file if none."""
     body = _strip_frontmatter(text)
     matches = list(_HEADING_RE.finditer(body))
     if not matches:
         return [(fallback_title, body.strip())]
 
-    chunks: List[Tuple[str, str]] = []
+    chunks: list[tuple[str, str]] = []
     # Prefatory text before the first heading (rare after frontmatter strip).
     preface = body[: matches[0].start()].strip()
     if preface:
@@ -109,10 +110,10 @@ def _chunk_by_heading(text: str, fallback_title: str) -> List[Tuple[str, str]]:
     return chunks
 
 
-def discover_doc_files(project_path: Path) -> List[Path]:
+def discover_doc_files(project_path: Path) -> list[Path]:
     """Walk the project and collect documentation files, pruning skip dirs early."""
     root = project_path.resolve()
-    found: List[Path] = []
+    found: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         # Mutate dirnames in-place so os.walk does not descend into skip dirs.
         dirnames[:] = [d for d in dirnames if not _should_skip_dir(d)]
@@ -123,10 +124,10 @@ def discover_doc_files(project_path: Path) -> List[Path]:
     return sorted(found)
 
 
-def build_docs_entries(project_path: Path) -> List[Dict[str, Any]]:
+def build_docs_entries(project_path: Path) -> list[dict[str, Any]]:
     """Build overlay entries from discovered documentation files (heading chunks)."""
     root = project_path.resolve()
-    entries: List[Dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     for path in discover_doc_files(root):
         rel = str(path.relative_to(root)).replace("\\", "/")
         try:
@@ -151,7 +152,7 @@ def build_docs_entries(project_path: Path) -> List[Dict[str, Any]]:
     return entries
 
 
-def write_docs_index(project_path: Path) -> Dict[str, Any]:
+def write_docs_index(project_path: Path) -> dict[str, Any]:
     """Write `.code_chain/docs_index.json` and return a summary dict."""
     root = project_path.resolve()
     discovered = discover_doc_files(root)
@@ -176,13 +177,13 @@ def write_docs_index(project_path: Path) -> Dict[str, Any]:
     }
 
 
-def load_docs_index(project_path: Path) -> Dict[str, Any]:
+def load_docs_index(project_path: Path) -> dict[str, Any]:
     """Load the local docs overlay, or an empty structure if missing."""
     path = docs_index_path(project_path)
     if not path.exists():
         return {"doc_count": 0, "docs": []}
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
         docs = data.get("docs") or []
         if not isinstance(docs, list):
@@ -203,7 +204,7 @@ def local_docs_count(project_path: Path) -> int:
 
 def index_docs_overlay(
     project_path: Path, *, code_only: bool = True, announce: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the overlay and optionally print the code-only skip message."""
     result = write_docs_index(project_path)
     discovered = int(result.get("discovered_files") or 0)

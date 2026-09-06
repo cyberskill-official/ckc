@@ -3,6 +3,7 @@ Command-Line Interface (CLI) for code-knowledge-chain.
 """
 
 from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -46,7 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument(
         "--code-only",
         action="store_true",
-        help="Skip Graphify docs/images and use local AST only (default without --multimodal; wins if both flags set)",
+        help=(
+            "Skip Graphify docs/images and use local AST only "
+            "(default without --multimodal; wins if both flags set)"
+        ),
     )
     p_init.add_argument(
         "--force", action="store_true", help="Force re-indexing even if already present"
@@ -191,7 +195,8 @@ def main() -> None:
             cmd.append("--no-ui")
         if args.force:
             cmd.append("--force")
-        subprocess.run(cmd)
+        subprocess.run(cmd,
+            check=False)
         return
 
     if args.command in ["clean", "cleanup"]:
@@ -205,7 +210,8 @@ def main() -> None:
             cmd.append("--all")
         if args.yes:
             cmd.append("--yes")
-        subprocess.run(cmd)
+        subprocess.run(cmd,
+            check=False)
         return
 
     try:
@@ -217,10 +223,7 @@ def main() -> None:
     if args.command in ["init", "index"]:
         print(f"Initializing 3-tier knowledge graph in: {chain.project_path}")
         # --code-only wins when both flags appear; default remains code-only without --multimodal.
-        if args.code_only:
-            code_only = True
-        else:
-            code_only = not args.multimodal
+        code_only = True if args.code_only else not args.multimodal
         chain.index(code_only=code_only, force=args.force)
         print("\nIndexing Complete!")
         print(chain.export_summary())

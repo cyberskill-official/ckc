@@ -4,6 +4,7 @@ Integration tests for the 3-tier chaining pipelines.
 
 import unittest
 from pathlib import Path
+
 from code_chain.core.orchestrator import CodeKnowledgeChain
 
 

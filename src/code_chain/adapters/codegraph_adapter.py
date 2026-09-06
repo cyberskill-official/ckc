@@ -1,14 +1,17 @@
 """
-CodeGraph Adapter: Fine-grained symbol intelligence, line-accurate code blocks, caller/callee trees, and test impacts.
+CodeGraph Adapter: Fine-grained symbol intelligence, line-accurate code blocks,
+caller/callee trees, and test impacts.
 """
 
 from __future__ import annotations
+
 import json
 import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any
+
 from code_chain.adapters.base import BaseGraphAdapter
 from code_chain.core.models import EngineStatus
 
@@ -45,8 +48,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            )
-            parsed: Dict[str, Any] = {}
+            check=False)
+            parsed: dict[str, Any] = {}
             try:
                 parsed = json.loads(res.stdout) if res.stdout.strip() else {}
             except Exception:
@@ -77,7 +80,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 error_message=str(e),
             )
 
-    def index_project(self, timeout: int = 300) -> Dict[str, Any]:
+    def index_project(self, timeout: int = 300) -> dict[str, Any]:
         """Runs codegraph init or index on the target project."""
         cmd = [self.bin_path, "init", str(self.project_path)]
         result = subprocess.run(
@@ -86,7 +89,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=timeout,
-        )
+            check=False)
         success = result.returncode == 0 and self.codegraph_dir.exists()
         return {
             "success": success,
@@ -96,7 +99,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
             "codegraph_dir": str(self.codegraph_dir),
         }
 
-    def query_symbols(self, query: str) -> List[Dict[str, Any]]:
+    def query_symbols(self, query: str) -> list[dict[str, Any]]:
         """Searches for symbols matching query."""
         try:
             res = subprocess.run(
@@ -105,16 +108,14 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            )
+            check=False)
             lines = res.stdout.splitlines()
-            results: List[Dict[str, Any]] = []
+            results: list[dict[str, Any]] = []
 
             for line in lines:
                 sline = line.strip()
                 if (
-                    not sline
-                    or sline.startswith("Search Results")
-                    or sline.startswith("─")
+                    not sline or sline.startswith(("Search Results", "─"))
                 ):
                     continue
                 # e.g., "method      login"
@@ -131,12 +132,15 @@ class CodeGraphAdapter(BaseGraphAdapter):
                     results.append(
                         {"kind": parts[0], "name": parts[1], "file": "", "line": 0}
                     )
-                elif sline.startswith("src/") or sline.startswith("./") or ":" in sline:
-                    if results and not results[-1]["file"]:
-                        fparts = sline.split(":")
-                        results[-1]["file"] = fparts[0]
-                        if len(fparts) > 1 and fparts[1].isdigit():
-                            results[-1]["line"] = int(fparts[1])
+                elif (
+                    (sline.startswith(("src/", "./")) or ":" in sline)
+                    and results
+                    and not results[-1]["file"]
+                ):
+                    fparts = sline.split(":")
+                    results[-1]["file"] = fparts[0]
+                    if len(fparts) > 1 and fparts[1].isdigit():
+                        results[-1]["line"] = int(fparts[1])
             return results
         except Exception:
             return []
@@ -150,10 +154,10 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=25,
-            )
+            check=False)
             return res.stdout.strip()
         except Exception as e:
-            return f"Explore error: {str(e)}"
+            return f"Explore error: {e!s}"
 
     def get_node(self, symbol_name: str) -> str:
         """Gets symbol's source and caller/callee trail or file view."""
@@ -164,12 +168,12 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=20,
-            )
+            check=False)
             return res.stdout.strip()
         except Exception as e:
-            return f"Node error: {str(e)}"
+            return f"Node error: {e!s}"
 
-    def get_callers(self, symbol: str) -> List[Dict[str, Any]]:
+    def get_callers(self, symbol: str) -> list[dict[str, Any]]:
         """Finds all functions/methods that call a specific symbol."""
         try:
             res = subprocess.run(
@@ -178,10 +182,10 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            )
-            callers: List[Dict[str, Any]] = []
+            check=False)
+            callers: list[dict[str, Any]] = []
             lines = res.stdout.splitlines()
-            current_caller: Optional[Dict[str, Any]] = None
+            current_caller: dict[str, Any] | None = None
 
             for line in lines:
                 sline = line.strip()
@@ -202,7 +206,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
         except Exception:
             return []
 
-    def get_callees(self, symbol: str) -> List[Dict[str, Any]]:
+    def get_callees(self, symbol: str) -> list[dict[str, Any]]:
         """Finds all functions/methods that a specific symbol calls."""
         try:
             res = subprocess.run(
@@ -211,10 +215,10 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            )
-            callees: List[Dict[str, Any]] = []
+            check=False)
+            callees: list[dict[str, Any]] = []
             lines = res.stdout.splitlines()
-            current_callee: Optional[Dict[str, Any]] = None
+            current_callee: dict[str, Any] | None = None
 
             for line in lines:
                 sline = line.strip()
@@ -235,7 +239,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
         except Exception:
             return []
 
-    def extract_source_files(self, node_text: str) -> List[str]:
+    def extract_source_files(self, node_text: str) -> list[str]:
         """Parse source file paths from `codegraph node` markdown output."""
         if not node_text:
             return []
@@ -246,7 +250,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
         file_path = location.split(":")[0]
         return [file_path] if file_path else []
 
-    def get_affected_tests(self, files: Optional[List[str]] = None) -> List[str]:
+    def get_affected_tests(self, files: list[str] | None = None) -> list[str]:
         """Finds test files affected by changed source files."""
         if not files:
             return []
@@ -258,8 +262,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            )
-            tests: List[str] = []
+            check=False)
+            tests: list[str] = []
             try:
                 parsed = json.loads(res.stdout) if res.stdout.strip() else {}
                 raw_tests = parsed.get("affectedTests") or []

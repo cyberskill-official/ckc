@@ -1,6 +1,7 @@
 """Unit tests for the local markdown docs overlay."""
 
 from __future__ import annotations
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -84,7 +85,10 @@ class TestDocsIndex(unittest.TestCase):
                 "ARCH" in (e.source_path or "") or "Architecture" in e.name
                 for e in doc_hits
             ),
-            f"Expected ARCH.md doc hit, got: {[(e.name, e.source_path, e.entity_type) for e in hits]}",
+            (
+                "Expected ARCH.md doc hit, got: "
+                f"{[(e.name, e.source_path, e.entity_type) for e in hits]}"
+            ),
         )
 
 

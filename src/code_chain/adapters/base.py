@@ -3,9 +3,11 @@ Base adapter interface for code knowledge graph engines.
 """
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
+
 from code_chain.core.models import EngineStatus
 
 
@@ -19,9 +21,7 @@ class BaseGraphAdapter(ABC):
     @abstractmethod
     def get_status(self) -> EngineStatus:
         """Check if the engine is available and whether the project is indexed."""
-        pass
 
     @abstractmethod
-    def index_project(self, **kwargs) -> Dict[str, Any]:
+    def index_project(self, **kwargs) -> dict[str, Any]:
         """Index or update the project knowledge graph."""
-        pass

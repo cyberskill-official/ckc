@@ -6,14 +6,14 @@ Soft-fails on timeout or connection errors so stacked markdown stays usable.
 """
 
 from __future__ import annotations
+
 import json
 import os
 import urllib.error
 import urllib.request
-from typing import Optional, Tuple
 
 
-def resolve_llm_config() -> Optional[Tuple[str, str, str]]:
+def resolve_llm_config() -> tuple[str, str, str] | None:
     """
     Return (base_url, model, api_key) when LLM synthesis is configured.
 
@@ -68,7 +68,7 @@ def chat_completions(
     timeout: float = 45.0,
     temperature: float = 0.2,
     max_tokens: int = 800,
-) -> Optional[str]:
+) -> str | None:
     """POST /chat/completions; return assistant text or None on soft failure."""
     cfg = resolve_llm_config()
     if not cfg:
@@ -103,7 +103,14 @@ def chat_completions(
         if isinstance(content, str) and content.strip():
             return content.strip()
         return None
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, KeyError):
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        TimeoutError,
+        OSError,
+        ValueError,
+        KeyError,
+    ):
         return None
     except Exception:
         return None
@@ -113,8 +120,8 @@ def synthesize_stacked_context(
     stacked_markdown: str,
     *,
     task: str = "query",
-    max_input_chars: Optional[int] = None,
-) -> Optional[str]:
+    max_input_chars: int | None = None,
+) -> str | None:
     """Ask the local model for a short synthesis of stacked context."""
     if not stacked_markdown.strip():
         return None

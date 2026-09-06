@@ -1,6 +1,7 @@
 """Unit tests for Graphify entity typing and mixed search ranking."""
 
 import unittest
+
 from code_chain.adapters.graphify_adapter import (
     classify_entity_type,
     entity_match_score,

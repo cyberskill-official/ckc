@@ -1,16 +1,19 @@
 """
-Graphify Adapter: Extracts and queries broad project knowledge graphs (multi-modal: docs, schemas, code hubs).
+Graphify Adapter: Extracts and queries broad project knowledge graphs (multi-modal: docs,
+schemas, code hubs).
 """
 
 from __future__ import annotations
+
 import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any
+
 from code_chain.adapters.base import BaseGraphAdapter
 from code_chain.core.docs_index import load_docs_index, local_docs_count
-from code_chain.core.models import EngineStatus, CrossDomainEntity
+from code_chain.core.models import CrossDomainEntity, EngineStatus
 
 _NON_CODE_RESERVE = 2
 _DOC_SUFFIXES = (".md", ".mdx", ".rst", ".adoc")
@@ -33,7 +36,7 @@ def classify_entity_type(source_file: str, file_type: str, label: str = "") -> s
     return raw
 
 def entity_match_score(
-    query_terms: List[str],
+    query_terms: list[str],
     label: str,
     node_id: str,
     source_file: str,
@@ -50,15 +53,15 @@ def entity_match_score(
 
 
 def select_mixed_entities(
-    ranked: List[Tuple[int, CrossDomainEntity]], limit: int
-) -> List[CrossDomainEntity]:
+    ranked: list[tuple[int, CrossDomainEntity]], limit: int
+) -> list[CrossDomainEntity]:
     """Keep match-score order, but reserve slots for docs/schemas when they hit."""
     if limit <= 0 or not ranked:
         return []
     others = [entity for _score, entity in ranked if entity.entity_type != "code"]
     code = [entity for _score, entity in ranked if entity.entity_type == "code"]
     reserved = min(_NON_CODE_RESERVE, len(others), limit)
-    selected: List[CrossDomainEntity] = others[:reserved]
+    selected: list[CrossDomainEntity] = others[:reserved]
     seen = {entity.id for entity in selected}
     for entity in code:
         if len(selected) >= limit:
@@ -106,7 +109,7 @@ class GraphifyAdapter(BaseGraphAdapter):
             )
 
         try:
-            with open(self.graph_json_path, "r", encoding="utf-8") as f:
+            with open(self.graph_json_path, encoding="utf-8") as f:
                 data = json.load(f)
             nodes = data.get("nodes", [])
             links = data.get("links", [])
@@ -131,7 +134,7 @@ class GraphifyAdapter(BaseGraphAdapter):
                 available=available,
                 indexed=False,
                 index_path=str(self.graph_json_path),
-                error_message=f"Error reading graph.json: {str(e)}",
+                error_message=f"Error reading graph.json: {e!s}",
                 details={"local_docs_count": docs_count},
             )
 
@@ -143,7 +146,7 @@ class GraphifyAdapter(BaseGraphAdapter):
 
     def index_project(
         self, code_only: bool = True, timeout: int = 300
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Runs graphify extraction on the target project."""
         cmd = self._extract_cmd(code_only)
         result = subprocess.run(
@@ -152,7 +155,7 @@ class GraphifyAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=timeout,
-        )
+            check=False)
 
         success = result.returncode == 0 and self.graph_json_path.exists()
         return {
@@ -163,26 +166,26 @@ class GraphifyAdapter(BaseGraphAdapter):
             "graph_json_path": str(self.graph_json_path),
         }
 
-    def load_graph_data(self) -> Dict[str, Any]:
+    def load_graph_data(self) -> dict[str, Any]:
         if not self.graph_json_path.exists():
             return {"nodes": [], "links": []}
         try:
-            with open(self.graph_json_path, "r", encoding="utf-8") as f:
+            with open(self.graph_json_path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {"nodes": [], "links": []}
 
     def find_cross_domain_entities(
         self, query: str, limit: int = 10
-    ) -> List[CrossDomainEntity]:
+    ) -> list[CrossDomainEntity]:
         """Search for cross-domain entities (docs, schemas, code hubs) matching the query."""
         data = self.load_graph_data()
         nodes = data.get("nodes", [])
         links = data.get("links", [])
 
         # Build adjacency degree map
-        node_degrees: Dict[str, int] = {}
-        node_connections: Dict[str, List[Dict[str, Any]]] = {}
+        node_degrees: dict[str, int] = {}
+        node_connections: dict[str, list[dict[str, Any]]] = {}
         for link in links:
             s = link.get("source")
             t = link.get("target")
@@ -197,7 +200,7 @@ class GraphifyAdapter(BaseGraphAdapter):
         if not query_terms:
             query_terms = [query.lower()]
 
-        ranked: List[Tuple[int, CrossDomainEntity]] = []
+        ranked: list[tuple[int, CrossDomainEntity]] = []
 
         for n in nodes:
             label = n.get("label", "")
@@ -271,7 +274,7 @@ class GraphifyAdapter(BaseGraphAdapter):
         ranked.sort(key=lambda pair: (pair[0], pair[1].degree), reverse=True)
         return select_mixed_entities(ranked, limit)
 
-    def explain_node(self, node_label: str) -> Optional[str]:
+    def explain_node(self, node_label: str) -> str | None:
         """Calls `graphify explain` CLI for deep neighborhood explanation."""
         if not self.graph_json_path.exists():
             return None
@@ -288,14 +291,14 @@ class GraphifyAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            )
+            check=False)
             if res.returncode == 0:
                 return res.stdout.strip()
         except Exception:
             pass
         return None
 
-    def find_path(self, from_node: str, to_node: str) -> Optional[str]:
+    def find_path(self, from_node: str, to_node: str) -> str | None:
         """Calls `graphify path` to find the shortest graph path."""
         if not self.graph_json_path.exists():
             return None
@@ -313,7 +316,7 @@ class GraphifyAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            )
+            check=False)
             if res.returncode == 0:
                 return res.stdout.strip()
         except Exception:

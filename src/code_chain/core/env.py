@@ -5,16 +5,16 @@ Stdlib only — no python-dotenv dependency.
 """
 
 from __future__ import annotations
+
 import os
 from pathlib import Path
-from typing import Optional, Union
 
 
 def load_dotenv(
-    path: Optional[Union[str, Path]] = None,
+    path: str | Path | None = None,
     *,
     override: bool = False,
-) -> Optional[Path]:
+) -> Path | None:
     """
     Parse KEY=VALUE lines from `.env` and set them in os.environ.
 

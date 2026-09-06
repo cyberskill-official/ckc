@@ -1,18 +1,21 @@
 """
-GitNexus Adapter: AST-based structural code intelligence, call graphs, execution tracing, and blast radius.
+GitNexus Adapter: AST-based structural code intelligence, call graphs, execution tracing,
+and blast radius.
 """
 
 from __future__ import annotations
+
 import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
+
 from code_chain.adapters.base import BaseGraphAdapter
 from code_chain.core.models import EngineStatus
 
 
-def _extract_json(raw_text: str) -> Optional[Dict[str, Any]]:
+def _extract_json(raw_text: str) -> dict[str, Any] | None:
     """Helper to extract JSON object from CLI stdout that might contain banners."""
     start = raw_text.find("{")
     end = raw_text.rfind("}")
@@ -24,12 +27,12 @@ def _extract_json(raw_text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _candidate_uid(candidate: Dict[str, Any]) -> Optional[str]:
+def _candidate_uid(candidate: dict[str, Any]) -> str | None:
     uid = candidate.get("uid") or candidate.get("id")
     return uid if isinstance(uid, str) and uid else None
 
 
-def _candidate_span(candidate: Dict[str, Any]) -> int:
+def _candidate_span(candidate: dict[str, Any]) -> int:
     start = candidate.get("startLine") or candidate.get("line") or 0
     end = candidate.get("endLine") or start
     try:
@@ -38,13 +41,13 @@ def _candidate_span(candidate: Dict[str, Any]) -> int:
         return 0
 
 
-def pick_best_candidate(candidates: list) -> Optional[Dict[str, Any]]:
+def pick_best_candidate(candidates: list) -> dict[str, Any] | None:
     """Prefer highest score, then impact count, then largest source span (impl over stub)."""
     viable = [c for c in candidates if isinstance(c, dict) and _candidate_uid(c)]
     if not viable:
         return None
 
-    def sort_key(c: Dict[str, Any]):
+    def sort_key(c: dict[str, Any]):
         score = c.get("score")
         try:
             score_v = float(score) if score is not None else 0.0
@@ -67,7 +70,7 @@ class GitNexusAdapter(BaseGraphAdapter):
     def _repo_args(self) -> list:
         return ["-r", str(self.project_path)]
 
-    def _meta_stats(self) -> Dict[str, int]:
+    def _meta_stats(self) -> dict[str, int]:
         meta_path = self.nexus_dir / "meta.json"
         if not meta_path.exists():
             return {}
@@ -108,7 +111,7 @@ class GitNexusAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=15,
-            )
+            check=False)
             parsed = _extract_json(res.stdout) or {}
             status_label = parsed.get("status") or parsed.get("error") or "unknown"
             is_ready = res.returncode == 0 and status_label not in (
@@ -151,7 +154,7 @@ class GitNexusAdapter(BaseGraphAdapter):
         ]
         return cmd
 
-    def index_project(self, timeout: int = 300) -> Dict[str, Any]:
+    def index_project(self, timeout: int = 300) -> dict[str, Any]:
         """Indexes the repository with GitNexus (Tree-sitter AST analysis)."""
         cmd = self._analyze_cmd()
         result = subprocess.run(
@@ -160,7 +163,7 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=timeout,
-        )
+            check=False)
         success = result.returncode == 0 and self.nexus_dir.exists()
         return {
             "success": success,
@@ -170,7 +173,7 @@ class GitNexusAdapter(BaseGraphAdapter):
             "nexus_dir": str(self.nexus_dir),
         }
 
-    def query_concepts(self, search_query: str) -> Dict[str, Any]:
+    def query_concepts(self, search_query: str) -> dict[str, Any]:
         """Searches the knowledge graph for execution flows related to a concept."""
         try:
             cmd = [self.bin_path, "query", search_query, *self._repo_args()]
@@ -180,7 +183,7 @@ class GitNexusAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=20,
-            )
+            check=False)
             parsed = _extract_json(res.stdout)
             if parsed:
                 return parsed
@@ -189,8 +192,8 @@ class GitNexusAdapter(BaseGraphAdapter):
         return {"processes": [], "definitions": []}
 
     def _run_context(
-        self, symbol_name: str, *, uid: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        self, symbol_name: str, *, uid: str | None = None
+    ) -> dict[str, Any] | None:
         cmd = [self.bin_path, "context"]
         if uid:
             cmd.extend(["-u", uid])
@@ -203,10 +206,10 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=20,
-        )
+            check=False)
         return _extract_json(res.stdout)
 
-    def get_symbol_context(self, symbol_name: str) -> Optional[Dict[str, Any]]:
+    def get_symbol_context(self, symbol_name: str) -> dict[str, Any] | None:
         """Retrieves 360-degree view of a code symbol: callers, callees, processes."""
         try:
             parsed = self._run_context(symbol_name)
@@ -230,7 +233,7 @@ class GitNexusAdapter(BaseGraphAdapter):
         except Exception:
             return None
 
-    def _normalize_impact(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_impact(self, parsed: dict[str, Any]) -> dict[str, Any]:
         """Coerce GitNexus impact payloads so nulls and missing lists cannot crash callers."""
         count = parsed.get("impactedCount")
         if not isinstance(count, int):
@@ -268,11 +271,11 @@ class GitNexusAdapter(BaseGraphAdapter):
         self,
         target_symbol: str,
         *,
-        uid: Optional[str] = None,
+        uid: str | None = None,
         summary_only: bool = True,
-        depth: Optional[int] = None,
-        limit: Optional[int] = None,
-    ) -> Optional[Dict[str, Any]]:
+        depth: int | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any] | None:
         cmd = [self.bin_path, "impact"]
         if uid:
             cmd.extend(["-u", uid])
@@ -291,12 +294,12 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=30,
-        )
+            check=False)
         return _extract_json(res.stdout)
 
     def _resolve_impact_target(
-        self, target_symbol: str, parsed: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, target_symbol: str, parsed: dict[str, Any]
+    ) -> dict[str, Any]:
         """When GitNexus returns ambiguous matches, re-query the best candidate by UID."""
         if parsed.get("status") != "ambiguous":
             return parsed
@@ -327,7 +330,7 @@ class GitNexusAdapter(BaseGraphAdapter):
             return resolved
         return parsed
 
-    def analyze_impact(self, target_symbol: str) -> Dict[str, Any]:
+    def analyze_impact(self, target_symbol: str) -> dict[str, Any]:
         """Blast radius analysis: what breaks if you change a symbol."""
         empty = {
             "impactedCount": 0,
@@ -380,9 +383,9 @@ class GitNexusAdapter(BaseGraphAdapter):
         from_symbol: str,
         to_symbol: str,
         *,
-        from_uid: Optional[str] = None,
-        to_uid: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        from_uid: str | None = None,
+        to_uid: str | None = None,
+    ) -> dict[str, Any] | None:
         cmd = [self.bin_path, "trace", from_symbol, to_symbol, *self._repo_args()]
         if from_uid:
             cmd.extend(["--from-uid", from_uid])
@@ -394,17 +397,17 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=25,
-        )
+            check=False)
         return _extract_json(res.stdout)
 
-    def trace_path(self, from_symbol: str, to_symbol: str) -> Optional[Dict[str, Any]]:
+    def trace_path(self, from_symbol: str, to_symbol: str) -> dict[str, Any] | None:
         """Find the shortest directed execution path between two symbols."""
         try:
             parsed = self._run_trace(from_symbol, to_symbol)
             if not parsed:
                 return None
-            from_uid: Optional[str] = None
-            to_uid: Optional[str] = None
+            from_uid: str | None = None
+            to_uid: str | None = None
             # Resolve one ambiguous endpoint at a time (GitNexus reports one role).
             for _ in range(2):
                 if parsed.get("status") != "ambiguous":
@@ -430,7 +433,7 @@ class GitNexusAdapter(BaseGraphAdapter):
         except Exception:
             return None
 
-    def detect_changes(self) -> Dict[str, Any]:
+    def detect_changes(self) -> dict[str, Any]:
         """Maps git diff hunks to indexed symbols and affected execution flows."""
         try:
             res = subprocess.run(
@@ -439,7 +442,7 @@ class GitNexusAdapter(BaseGraphAdapter):
                 capture_output=True,
                 text=True,
                 timeout=25,
-            )
+            check=False)
             parsed = _extract_json(res.stdout)
             if parsed:
                 return parsed

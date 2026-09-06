@@ -3,16 +3,19 @@ Indexing Pipeline: Sequentially indexes a repository across Graphify, GitNexus, 
 """
 
 from __future__ import annotations
+
+import contextlib
 import json
 import shutil
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
+
+from code_chain.adapters import CodeGraphAdapter, GitNexusAdapter, GraphifyAdapter
 from code_chain.core.config import ChainConfig
 from code_chain.core.docs_index import index_docs_overlay
 from code_chain.core.models import ProjectGraphStatus
 from code_chain.core.paths import ensure_engine_gitignore
-from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
 
 
 class IndexPipeline:
@@ -60,14 +63,12 @@ class IndexPipeline:
             if target.is_dir():
                 shutil.rmtree(target, ignore_errors=True)
             else:
-                try:
+                with contextlib.suppress(OSError):
                     target.unlink()
-                except OSError:
-                    pass
 
     def run(
-        self, code_only: Optional[bool] = None, force: bool = False
-    ) -> Dict[str, Any]:
+        self, code_only: bool | None = None, force: bool = False
+    ) -> dict[str, Any]:
         """Runs the full 3-engine indexing pipeline."""
         if code_only is None:
             code_only = self.config.graphify_code_only
@@ -77,7 +78,7 @@ class IndexPipeline:
             self._clear_engine_indexes()
 
         start_time = time.time()
-        results: Dict[str, Any] = {
+        results: dict[str, Any] = {
             "project_path": str(self.project_path),
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "force": force,

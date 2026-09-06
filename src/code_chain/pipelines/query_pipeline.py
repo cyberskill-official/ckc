@@ -1,10 +1,13 @@
 """
-Query Pipeline: Chains Graphify (Tier 1), GitNexus (Tier 2), and CodeGraph (Tier 3) to answer developer queries.
+Query Pipeline: Chains Graphify (Tier 1), GitNexus (Tier 2), and CodeGraph (Tier 3) to
+answer developer queries.
 """
 
 from __future__ import annotations
+
 from pathlib import Path
-from typing import Dict, List, Optional
+
+from code_chain.adapters import CodeGraphAdapter, GitNexusAdapter, GraphifyAdapter
 from code_chain.core.config import ChainConfig
 from code_chain.core.llm import finalize_stacked_markdown
 from code_chain.core.models import (
@@ -13,7 +16,6 @@ from code_chain.core.models import (
     ExecutionFlow,
     SymbolDetail,
 )
-from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
 
 _MAX_TIER1 = 8
 _MAX_TIER2 = 5
@@ -32,7 +34,7 @@ class QueryPipeline:
         self.graphify = GraphifyAdapter(config.graphify_bin, project_path)
         self.gitnexus = GitNexusAdapter(config.gitnexus_bin, project_path)
         self.codegraph = CodeGraphAdapter(config.codegraph_bin, project_path)
-        self._label_cache: Optional[Dict[str, str]] = None
+        self._label_cache: dict[str, str] | None = None
 
     def _neighbor_label(self, neighbor_id: str) -> str:
         """Resolve Graphify neighbor node IDs to human-readable labels when possible."""
@@ -58,10 +60,10 @@ class QueryPipeline:
 
         # Tier 2: GitNexus structural execution flows
         gitnexus_data = self.gitnexus.query_concepts(query)
-        tier2_flows: List[ExecutionFlow] = []
+        tier2_flows: list[ExecutionFlow] = []
 
         # Deterministic candidate order (sorted), not hash-order from a set.
-        candidate_symbols: List[str] = []
+        candidate_symbols: list[str] = []
         seen: set = set()
         for d in gitnexus_data.get("definitions", []):
             name = d.get("name")
@@ -109,7 +111,7 @@ class QueryPipeline:
                 raw_explore[:_MAX_EXPLORE_CHARS].rstrip()
                 + "\n… *(explore output truncated)*\n"
             )
-        tier3_symbols: List[SymbolDetail] = []
+        tier3_symbols: list[SymbolDetail] = []
         cg_symbols = self.codegraph.query_symbols(query)
 
         for idx, s in enumerate(cg_symbols[:_MAX_TIER3]):
@@ -156,9 +158,9 @@ class QueryPipeline:
     def _synthesize(
         self,
         query: str,
-        tier1: List[CrossDomainEntity],
-        tier2: List[ExecutionFlow],
-        tier3: List[SymbolDetail],
+        tier1: list[CrossDomainEntity],
+        tier2: list[ExecutionFlow],
+        tier3: list[SymbolDetail],
         raw_explore: str,
     ) -> str:
         lines = []
@@ -190,7 +192,10 @@ class QueryPipeline:
                     f"- {icon} **{ent.name}** (`{ent.source_path or 'unknown'}`)"
                 )
                 lines.append(
-                    f"  - Type: `{ent.entity_type}`, Community: `{ent.community_id}`, Degree: `{ent.degree}`"
+                    
+                        f"  - Type: `{ent.entity_type}`, Community: `{ent.community_id}`, "
+                        f"Degree: `{ent.degree}`"
+                    
                 )
                 if ent.description and ent.entity_type == "doc":
                     lines.append(f"  - Excerpt: {ent.description}")

@@ -1,6 +1,7 @@
 """Tests for use_llm parity on UI and MCP surfaces."""
 
 from __future__ import annotations
+
 import json
 import subprocess
 import unittest
@@ -27,19 +28,18 @@ class TestUseLlmParity(unittest.TestCase):
             "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
             "CKC_LLM_MODEL": "local-model",
         }
-        with patch.dict("os.environ", env, clear=False):
-            with patch(
-                "code_chain.core.llm.synthesize_stacked_context",
-                return_value="SHOULD NOT APPEAR",
-            ) as synth:
-                res = self.client.post(
-                    "/api/query",
-                    json={
-                        "project_path": self.test_repo,
-                        "query": "authentication",
-                        "use_llm": False,
-                    },
-                )
+        with patch.dict("os.environ", env, clear=False), patch(
+            "code_chain.core.llm.synthesize_stacked_context",
+            return_value="SHOULD NOT APPEAR",
+        ) as synth:
+            res = self.client.post(
+                "/api/query",
+                json={
+                    "project_path": self.test_repo,
+                    "query": "authentication",
+                    "use_llm": False,
+                },
+            )
         self.assertEqual(res.status_code, 200)
         text = res.json()["synthesized_context"]
         self.assertNotIn("Local model synthesis", text)
@@ -74,7 +74,7 @@ class TestUseLlmParity(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 timeout=30,
-            )
+            check=False)
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         self.assertEqual(len(lines), 1)
         text = json.loads(lines[0])["result"]["content"][0]["text"]

@@ -1,6 +1,7 @@
 """Unit tests for query / trace synthesis improvements."""
 
 from __future__ import annotations
+
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch

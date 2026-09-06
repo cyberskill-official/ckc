@@ -7,6 +7,27 @@ on:
     branches: [ main ]
 
 jobs:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run Ruff Linter
+        run: ruff check .
+
   test:
     name: Test (${{ matrix.os }} - Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
@@ -24,22 +45,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+          cache: "pip"
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Install Python package and test tools
+      - name: Configure npm global prefix (no sudo)
+        run: |
+          mkdir -p "$HOME/.npm-global"
+          echo "NPM_CONFIG_PREFIX=$HOME/.npm-global" >> "$GITHUB_ENV"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+
+      - name: Install Python package with dev extras
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
-          pip install pytest ruff
-
-      - name: Run Ruff Linter
-        run: |
-          ruff check .
+          pip install -e ".[dev]"
 
       - name: Setup engines and sample indexes (--no-ui)
         run: |
@@ -55,8 +77,10 @@ jobs:
 
       - name: Verify Clean State
         run: |
+          # Scrub flaky local/CI artifacts that cleanup should not leave behind
+          rm -rf .ruff_cache
+          find . -name .DS_Store -delete 2>/dev/null || true
           git status --porcelain
-          # Confirm that cleanup left no untracked or modified files in working directory
           if [ -n "$(git status --porcelain)" ]; then
             echo "Working tree is dirty after cleanup:"
             git status --porcelain

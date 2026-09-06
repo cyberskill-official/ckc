@@ -4,23 +4,25 @@ Provides REST and Server-Sent Events (SSE) endpoints for indexing, status, query
 """
 
 from __future__ import annotations
+
 import asyncio
 import json
-import subprocess
 import threading
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Dict, Any, AsyncGenerator
+from typing import Any
+
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from code_chain.core.env import load_dotenv
-from code_chain.core.orchestrator import CodeKnowledgeChain
 from code_chain.core.config import ChainConfig
 from code_chain.core.docs_index import index_docs_overlay, local_docs_count
+from code_chain.core.env import load_dotenv
 from code_chain.core.llm import llm_public_status
+from code_chain.core.orchestrator import CodeKnowledgeChain
 from code_chain.core.paths import (
     UnsafeProjectPathError,
     assert_safe_project_path,
@@ -29,9 +31,14 @@ from code_chain.core.paths import (
 
 load_dotenv()
 
+_MAX_ARTIFACT_BYTES = 2 * 1024 * 1024  # 2 MiB
+
 app = FastAPI(
     title="Code Knowledge Chain UI",
-    description="Interactive Web Dashboard for Graphify + GitNexus + CodeGraph 3-Tier Code Intelligence",
+    description=(
+        "Interactive Web Dashboard for Graphify + GitNexus + CodeGraph "
+        "3-Tier Code Intelligence"
+    ),
     version="1.0.0",
 )
 
@@ -45,8 +52,8 @@ app.add_middleware(
 
 # Active indexing process tracker for cancellation
 _active_indexing_lock = threading.Lock()
-_active_indexing_processes: Dict[str, subprocess.Popen] = {}
-_cancellation_flags: Dict[str, bool] = {}
+_active_indexing_processes: dict[str, asyncio.subprocess.Process] = {}
+_cancellation_flags: dict[str, bool] = {}
 
 
 def validate_project_path(path_str: str) -> Path:
@@ -81,12 +88,12 @@ class CancelPayload(BaseModel):
 
 
 @app.get("/api/health")
-def health() -> Dict[str, str]:
+def health() -> dict[str, str]:
     return {"status": "ok", "service": "code-knowledge-chain-ui"}
 
 
 @app.get("/api/samples")
-def get_samples() -> Dict[str, Any]:
+def get_samples() -> dict[str, Any]:
     """Returns bundled sample repositories with resolved absolute paths."""
     base_dir = Path(__file__).resolve().parent.parent.parent.parent / "examples"
     samples = []
@@ -138,7 +145,7 @@ def cancel_indexing(payload: CancelPayload):
     with _active_indexing_lock:
         _cancellation_flags[proj_key] = True
         proc = _active_indexing_processes.get(proj_key)
-        if proc and proc.poll() is None:
+        if proc and proc.returncode is None:
             try:
                 proc.terminate()
                 return {
@@ -232,21 +239,23 @@ async def stream_indexing(
             )
 
             try:
-                proc = subprocess.Popen(
-                    cmd,
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
                     cwd=str(resolved),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
                 )
                 with _active_indexing_lock:
                     _active_indexing_processes[proj_key] = proc
 
-                # Stream stdout line by line
+                # Stream stdout line by line without blocking the event loop
+                assert proc.stdout is not None
                 while True:
                     if _cancellation_flags.get(proj_key, False):
                         proc.terminate()
+                        await proc.wait()
+                        with _active_indexing_lock:
+                            _active_indexing_processes.pop(proj_key, None)
                         yield json.dumps(
                             {
                                 "event": "cancelled",
@@ -255,24 +264,21 @@ async def stream_indexing(
                         )
                         return
 
-                    line = proc.stdout.readline()
-                    if not line and proc.poll() is not None:
+                    line_bytes = await proc.stdout.readline()
+                    if not line_bytes:
                         break
-                    if line:
-                        clean_line = line.rstrip()
-                        yield json.dumps(
-                            {
-                                "event": "log",
-                                "engine": engine,
-                                "line": clean_line,
-                            }
-                        )
-                    await asyncio.sleep(0.01)
+                    clean_line = line_bytes.decode("utf-8", errors="replace").rstrip()
+                    yield json.dumps(
+                        {
+                            "event": "log",
+                            "engine": engine,
+                            "line": clean_line,
+                        }
+                    )
 
-                rc = proc.poll()
+                rc = await proc.wait()
                 with _active_indexing_lock:
-                    if proj_key in _active_indexing_processes:
-                        del _active_indexing_processes[proj_key]
+                    _active_indexing_processes.pop(proj_key, None)
 
                 success = rc == 0
                 step_results[engine] = {"success": success, "returncode": rc}
@@ -336,8 +342,11 @@ async def stream_indexing(
             "code_only": code_only,
             "status": status.model_dump(),
         }
-        with open(manifest_file, "w", encoding="utf-8") as f:
-            json.dump(manifest_data, f, indent=2)
+        await asyncio.to_thread(
+            manifest_file.write_text,
+            json.dumps(manifest_data, indent=2),
+            "utf-8",
+        )
 
         yield json.dumps(
             {
@@ -431,8 +440,22 @@ def get_artifact_content(
         )
 
     target_file = (resolved / clean_file).resolve()
+    if not target_file.is_relative_to(resolved):
+        raise HTTPException(
+            status_code=403, detail="Resolved path escapes the project directory."
+        )
     if not target_file.exists() or not target_file.is_file():
         raise HTTPException(status_code=404, detail="Artifact file not found.")
+
+    size = target_file.stat().st_size
+    if size > _MAX_ARTIFACT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Artifact exceeds size limit "
+                f"({size} bytes > {_MAX_ARTIFACT_BYTES} bytes)."
+            ),
+        )
 
     binary_suffixes = {".db", ".sqlite", ".sqlite3"}
     if (
@@ -441,7 +464,7 @@ def get_artifact_content(
     ):
         return {
             "file": clean_file,
-            "size": target_file.stat().st_size,
+            "size": size,
             "content": "",
             "is_json": False,
             "is_binary": True,
@@ -459,7 +482,9 @@ def get_artifact_content(
             "message": None,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading artifact: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error reading artifact: {e}"
+        ) from e
 
 
 # Mount static assets

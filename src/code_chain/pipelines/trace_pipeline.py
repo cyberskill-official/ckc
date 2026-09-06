@@ -1,14 +1,16 @@
 """
-Trace Pipeline: Chains GitNexus (Directed AST Trace), CodeGraph (Source Signatures), and Graphify (Domain Tags).
+Trace Pipeline: Chains GitNexus (Directed AST Trace), CodeGraph (Source Signatures), and
+Graphify (Domain Tags).
 """
 
 from __future__ import annotations
+
 from pathlib import Path
-from typing import List
+
+from code_chain.adapters import CodeGraphAdapter, GitNexusAdapter, GraphifyAdapter
 from code_chain.core.config import ChainConfig
 from code_chain.core.llm import finalize_stacked_markdown
 from code_chain.core.models import ChainedTraceResult, ChainedTraceStep
-from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
 
 _MAX_ENRICHED_HOPS = 8
 _SNIPPET_CHARS = 800
@@ -89,8 +91,8 @@ class TracePipeline:
 
         hops = trace_data.get("hops", [])
         edges = trace_data.get("edges", [])
-        steps: List[ChainedTraceStep] = []
-        cross_domain_touchpoints: List[str] = []
+        steps: list[ChainedTraceStep] = []
+        cross_domain_touchpoints: list[str] = []
         codegraph_ready = self.codegraph.get_status().indexed
 
         # Tier 2 & 3: Enrich each hop with CodeGraph code context & Graphify domain tags

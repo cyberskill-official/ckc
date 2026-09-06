@@ -1,6 +1,7 @@
 """Unit tests for optional OpenAI-compatible / LM Studio synthesis."""
 
 from __future__ import annotations
+
 import json
 import unittest
 from unittest.mock import MagicMock, patch
@@ -52,27 +53,28 @@ class TestLlmHelpers(unittest.TestCase):
         mock_resp.__enter__.return_value = mock_resp
         mock_resp.__exit__.return_value = False
 
-        with patch.dict("os.environ", env, clear=True):
-            with patch("urllib.request.urlopen", return_value=mock_resp) as mocked:
-                text = llm.chat_completions(
-                    [{"role": "user", "content": "hi"}], timeout=5
-                )
-                self.assertEqual(text, "Short grounded summary.")
-                mocked.assert_called_once()
+        with (
+            patch.dict("os.environ", env, clear=True),
+            patch("urllib.request.urlopen", return_value=mock_resp) as mocked,
+        ):
+            text = llm.chat_completions(
+                [{"role": "user", "content": "hi"}], timeout=5
+            )
+            self.assertEqual(text, "Short grounded summary.")
+            mocked.assert_called_once()
 
     def test_append_section_on_success(self):
         env = {
             "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
             "CKC_LLM_MODEL": "local-model",
         }
-        with patch.dict("os.environ", env, clear=True):
-            with patch(
-                "code_chain.core.llm.synthesize_stacked_context",
-                return_value="Auth flows through login.",
-            ):
-                out = llm.maybe_append_llm_section(
-                    "# Stacked\n\nbody", task="query", enabled=True
-                )
+        with patch.dict("os.environ", env, clear=True), patch(
+            "code_chain.core.llm.synthesize_stacked_context",
+            return_value="Auth flows through login.",
+        ):
+            out = llm.maybe_append_llm_section(
+                "# Stacked\n\nbody", task="query", enabled=True
+            )
         self.assertIn("## Local model synthesis", out)
         self.assertIn("Auth flows through login.", out)
 
@@ -81,11 +83,10 @@ class TestLlmHelpers(unittest.TestCase):
             "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
             "CKC_LLM_MODEL": "local-model",
         }
-        with patch.dict("os.environ", env, clear=True):
-            with patch(
-                "code_chain.core.llm.synthesize_stacked_context", return_value=None
-            ):
-                out = llm.maybe_append_llm_section("# Keep me", enabled=True)
+        with patch.dict("os.environ", env, clear=True), patch(
+            "code_chain.core.llm.synthesize_stacked_context", return_value=None
+        ):
+            out = llm.maybe_append_llm_section("# Keep me", enabled=True)
         self.assertIn("# Keep me", out)
         self.assertIn("Local model synthesis unavailable", out)
 
@@ -95,14 +96,13 @@ class TestLlmHelpers(unittest.TestCase):
             "CKC_LLM_MODEL": "local-model",
         }
         long_body = "word " * 2000
-        with patch.dict("os.environ", env, clear=True):
-            with patch(
-                "code_chain.core.llm.synthesize_stacked_context",
-                return_value="SYNTH " + ("x" * 5000),
-            ):
-                out = llm.finalize_stacked_markdown(
-                    long_body, task="query", enabled=True, max_tokens_budget=80
-                )
+        with patch.dict("os.environ", env, clear=True), patch(
+            "code_chain.core.llm.synthesize_stacked_context",
+            return_value="SYNTH " + ("x" * 5000),
+        ):
+            out = llm.finalize_stacked_markdown(
+                long_body, task="query", enabled=True, max_tokens_budget=80
+            )
         self.assertIn("truncated to max_tokens_budget", out)
         self.assertLessEqual(llm._approx_tokens(out), 80 + 20)
 
@@ -111,13 +111,12 @@ class TestLlmHelpers(unittest.TestCase):
             "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
             "CKC_LLM_MODEL": "local-model",
         }
-        with patch.dict("os.environ", env, clear=True):
-            with patch(
-                "code_chain.core.llm.synthesize_stacked_context"
-            ) as synth:
-                out = llm.finalize_stacked_markdown(
-                    "# body", task="query", enabled=False, max_tokens_budget=4000
-                )
+        with patch.dict("os.environ", env, clear=True), patch(
+            "code_chain.core.llm.synthesize_stacked_context"
+        ) as synth:
+            out = llm.finalize_stacked_markdown(
+                "# body", task="query", enabled=False, max_tokens_budget=4000
+            )
         synth.assert_not_called()
         self.assertEqual(out.strip(), "# body")
         self.assertNotIn("Local model synthesis", out)

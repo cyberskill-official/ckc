@@ -4,8 +4,9 @@ Unit tests for code-knowledge-chain adapters.
 
 import unittest
 from pathlib import Path
+
+from code_chain.adapters import CodeGraphAdapter, GitNexusAdapter, GraphifyAdapter
 from code_chain.core.config import ChainConfig
-from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
 
 
 class TestAdapters(unittest.TestCase):

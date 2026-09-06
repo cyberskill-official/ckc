@@ -1,19 +1,22 @@
 """
 Model Context Protocol (MCP) Stdio Server for code-knowledge-chain.
-Exposes the 3-tier chaining workflow as native MCP tools to Claude Code, Cursor, Antigravity, and other AI agents.
+Exposes the 3-tier chaining workflow as native MCP tools to Claude Code,
+Cursor, Antigravity, and other AI agents.
 """
 
 from __future__ import annotations
+
 import json
 import sys
-from typing import Dict, Any
+from typing import Any
+
 from code_chain.core.env import load_dotenv
 from code_chain.core.orchestrator import CodeKnowledgeChain
 
 
 def make_tool_definition(
-    name: str, description: str, input_schema: Dict[str, Any]
-) -> Dict[str, Any]:
+    name: str, description: str, input_schema: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "name": name,
         "description": description,
@@ -25,20 +28,29 @@ def get_available_tools() -> list:
     return [
         make_tool_definition(
             name="chain_status",
-            description="Check the indexing health and readiness of Graphify, GitNexus, and CodeGraph for a project.",
+            description=(
+                "Check the indexing health and readiness of Graphify, GitNexus, "
+                "and CodeGraph for a project."
+            ),
             input_schema={
                 "type": "object",
                 "properties": {
                     "project_path": {
                         "type": "string",
-                        "description": "Path to the repository (defaults to server working directory)",
+                        "description": (
+                            "Path to the repository "
+                            "(defaults to server working directory)"
+                        ),
                     }
                 },
             },
         ),
         make_tool_definition(
             name="chain_init",
-            description="Index a repository across all three knowledge graph engines (Graphify, GitNexus, CodeGraph).",
+            description=(
+                "Index a repository across all three knowledge graph engines "
+                "(Graphify, GitNexus, CodeGraph)."
+            ),
             input_schema={
                 "type": "object",
                 "properties": {
@@ -48,7 +60,10 @@ def get_available_tools() -> list:
                     },
                     "multimodal": {
                         "type": "boolean",
-                        "description": "Whether to enable LLM multimodal extraction for non-code files (defaults to false for fast AST indexing)",
+                        "description": (
+                            "Whether to enable LLM multimodal extraction for "
+                            "non-code files (defaults to false for fast AST indexing)"
+                        ),
                     },
                     "force": {
                         "type": "boolean",
@@ -60,7 +75,11 @@ def get_available_tools() -> list:
         ),
         make_tool_definition(
             name="chain_query",
-            description="Query the 3-tier chained knowledge graph to understand features, architecture, and connections across documentation, AST execution flows, and verbatim code blocks.",
+            description=(
+                "Query the 3-tier chained knowledge graph to understand features, "
+                "architecture, and connections across documentation, AST execution "
+                "flows, and verbatim code blocks."
+            ),
             input_schema={
                 "type": "object",
                 "properties": {
@@ -70,11 +89,17 @@ def get_available_tools() -> list:
                     },
                     "query": {
                         "type": "string",
-                        "description": "The architectural concept, feature, or question (e.g. 'How does authentication work?')",
+                        "description": (
+                            "The architectural concept, feature, or question "
+                            "(e.g. 'How does authentication work?')"
+                        ),
                     },
                     "use_llm": {
                         "type": "boolean",
-                        "description": "Append local LM Studio / OpenAI-compatible synthesis when configured (default true)",
+                        "description": (
+                            "Append local LM Studio / OpenAI-compatible synthesis "
+                            "when configured (default true)"
+                        ),
                     },
                 },
                 "required": ["query"],
@@ -82,7 +107,11 @@ def get_available_tools() -> list:
         ),
         make_tool_definition(
             name="chain_impact",
-            description="Calculate blast radius and refactoring impact for a symbol: returns upstream callers, affected business processes, impacted tests, and step-by-step refactoring plan.",
+            description=(
+                "Calculate blast radius and refactoring impact for a symbol: "
+                "returns upstream callers, affected business processes, impacted "
+                "tests, and step-by-step refactoring plan."
+            ),
             input_schema={
                 "type": "object",
                 "properties": {
@@ -92,11 +121,17 @@ def get_available_tools() -> list:
                     },
                     "symbol": {
                         "type": "string",
-                        "description": "The function, class, or method name to analyze for refactoring impact",
+                        "description": (
+                            "The function, class, or method name to analyze for "
+                            "refactoring impact"
+                        ),
                     },
                     "use_llm": {
                         "type": "boolean",
-                        "description": "Append local LM Studio / OpenAI-compatible synthesis when configured (default true)",
+                        "description": (
+                            "Append local LM Studio / OpenAI-compatible synthesis "
+                            "when configured (default true)"
+                        ),
                     },
                 },
                 "required": ["symbol"],
@@ -104,7 +139,10 @@ def get_available_tools() -> list:
         ),
         make_tool_definition(
             name="chain_trace",
-            description="Trace the exact directed execution path between two symbols across the codebase, complete with hop sequence and diagram.",
+            description=(
+                "Trace the exact directed execution path between two symbols "
+                "across the codebase, complete with hop sequence and diagram."
+            ),
             input_schema={
                 "type": "object",
                 "properties": {
@@ -122,7 +160,10 @@ def get_available_tools() -> list:
                     },
                     "use_llm": {
                         "type": "boolean",
-                        "description": "Append local LM Studio / OpenAI-compatible synthesis when configured (default true)",
+                        "description": (
+                            "Append local LM Studio / OpenAI-compatible synthesis "
+                            "when configured (default true)"
+                        ),
                     },
                 },
                 "required": ["from_symbol", "to_symbol"],
@@ -131,7 +172,7 @@ def get_available_tools() -> list:
     ]
 
 
-def handle_tool_call(name: str, arguments: Dict[str, Any], default_path: str) -> str:
+def handle_tool_call(name: str, arguments: dict[str, Any], default_path: str) -> str:
     path = arguments.get("project_path") or default_path
     chain = CodeKnowledgeChain(project_path=path)
 
@@ -225,7 +266,7 @@ def run_mcp_server(default_project_path: str = ".") -> None:
                         "content": [
                             {
                                 "type": "text",
-                                "text": f"Error executing {tool_name}: {str(e)}",
+                                "text": f"Error executing {tool_name}: {e!s}",
                             }
                         ],
                         "isError": True,

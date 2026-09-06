@@ -8,12 +8,13 @@ Usage:
 """
 
 from __future__ import annotations
+
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -48,11 +49,11 @@ def check_prerequisites() -> dict[str, bool]:
 
     # Python version
     py_ver = sys.version_info
-    if py_ver >= (3, 9):
+    if py_ver >= (3, 10):
         print_success(f"Python {py_ver.major}.{py_ver.minor}.{py_ver.micro}")
         results["python"] = True
     else:
-        print_error(f"Python 3.9+ required (found {py_ver.major}.{py_ver.minor})")
+        print_error(f"Python 3.10+ required (found {py_ver.major}.{py_ver.minor})")
         results["python"] = False
 
     # Git
@@ -130,7 +131,8 @@ def check_prerequisites() -> dict[str, bool]:
                 has_codegraph = True
             except Exception as e:
                 print_warn(
-                    f"Automatic codegraph install failed: {e}. Can run: npm install -g @colbymchenry/codegraph"
+                    f"Automatic codegraph install failed: {e}. "
+                    f"Can run: npm install -g @colbymchenry/codegraph"
                 )
 
     results["engines_ready"] = has_graphify and has_gitnexus and has_codegraph
@@ -229,14 +231,26 @@ def main():
     print("   Code Knowledge Chain (CKC) - One-Click Setup")
     print("=" * 60 + "\033[0m")
 
+    is_ci = os.getenv("CI", "").lower() in ("true", "1")
+
     prereqs = check_prerequisites()
     if not prereqs.get("python") or not prereqs.get("git"):
         print_error("Fatal prerequisites missing. Aborting.")
         sys.exit(1)
 
+    if is_ci and not prereqs.get("engines_ready"):
+        print_error(
+            "CI requires Graphify, GitNexus, and CodeGraph on PATH after setup. "
+            "Aborting."
+        )
+        sys.exit(1)
+
     install_package()
     init_sample_repositories(force=args.force)
-    run_health_checks()
+    if not is_ci:
+        run_health_checks()
+    else:
+        print_step("Skipping nested pytest health checks (CI runs pytest separately)")
 
     print("\n\033[1;32m" + "=" * 60)
     print("   Setup Complete! Code Knowledge Chain is Ready.")

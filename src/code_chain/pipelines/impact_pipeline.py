@@ -1,14 +1,17 @@
 """
-Impact Pipeline: Chains GitNexus (Blast Radius), CodeGraph (Source & Tests), and Graphify (Docs & Schemas).
+Impact Pipeline: Chains GitNexus (Blast Radius), CodeGraph (Source & Tests), and Graphify
+(Docs & Schemas).
 """
 
 from __future__ import annotations
+
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any
+
+from code_chain.adapters import CodeGraphAdapter, GitNexusAdapter, GraphifyAdapter
 from code_chain.core.config import ChainConfig
 from code_chain.core.llm import finalize_stacked_markdown
 from code_chain.core.models import ChainedImpactResult, CrossDomainEntity
-from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
 
 _VALID_OUTCOMES = frozenset({"ok", "empty", "error", "ambiguous_unresolved"})
 
@@ -49,7 +52,7 @@ class ImpactPipeline:
         ]
 
         # Extract depth-based call hierarchy
-        call_hierarchy: List[Dict[str, Any]] = []
+        call_hierarchy: list[dict[str, Any]] = []
         by_depth = impact_data.get("byDepth") or {}
         if isinstance(by_depth, dict):
             for depth, items in by_depth.items():
@@ -71,7 +74,7 @@ class ImpactPipeline:
         cg_node_str = self.codegraph.get_node(target_symbol)
         cg_callers = self.codegraph.get_callers(target_symbol)
         cg_callees = self.codegraph.get_callees(target_symbol)
-        source_files: List[str] = []
+        source_files: list[str] = []
         target_meta = impact_data.get("target")
         if isinstance(target_meta, dict):
             file_path = target_meta.get("filePath")
@@ -88,7 +91,7 @@ class ImpactPipeline:
         graphify_explanation = self.graphify.explain_node(target_symbol)
 
         # Tier 4: Synthesis & Recommended Refactoring Steps
-        steps: List[str] = [
+        steps: list[str] = [
             f"Review `{target_symbol}` definition and internal logic before modifying.",
         ]
         if call_hierarchy:
@@ -163,17 +166,17 @@ class ImpactPipeline:
         risk: str,
         impacted_count: int,
         outcome: str,
-        resolved_uid: Optional[str],
-        affected_procs: List[str],
-        affected_mods: List[str],
-        call_hierarchy: List[Dict[str, Any]],
+        resolved_uid: str | None,
+        affected_procs: list[str],
+        affected_mods: list[str],
+        call_hierarchy: list[dict[str, Any]],
         cg_node_str: str,
-        cg_callers: List[Dict[str, Any]],
-        cg_callees: List[Dict[str, Any]],
-        affected_tests: List[str],
-        docs_and_schemas: List[CrossDomainEntity],
-        graphify_explanation: Optional[str],
-        steps: List[str],
+        cg_callers: list[dict[str, Any]],
+        cg_callees: list[dict[str, Any]],
+        affected_tests: list[str],
+        docs_and_schemas: list[CrossDomainEntity],
+        graphify_explanation: str | None,
+        steps: list[str],
     ) -> str:
         lines = []
         lines.append(f"# Refactor Blast Radius & Impact Report: `{target_symbol}`")
@@ -189,7 +192,8 @@ class ImpactPipeline:
             # GitNexus uses UNKNOWN when no callers resolved — not an alarm.
             risk_badge = f"**{risk_upper} RISK**"
         lines.append(
-            f"> Assessment: {risk_badge} | Blast Radius: **{impacted_count} dependent component(s)**"
+            f"> Assessment: {risk_badge} | Blast Radius: "
+            f"**{impacted_count} dependent component(s)**"
             f" | Outcome: `{outcome}`"
         )
         if resolved_uid:
@@ -268,7 +272,8 @@ class ImpactPipeline:
         elif docs_and_schemas:
             for d in docs_and_schemas:
                 lines.append(
-                    f"- **{d.name}** (`{d.source_path}`): Type `{d.entity_type}`, Degree `{d.degree}`"
+                    f"- **{d.name}** (`{d.source_path}`): Type `{d.entity_type}`, "
+                    f"Degree `{d.degree}`"
                 )
         else:
             lines.append("- *No external documents or schemas connected to this node.*")
