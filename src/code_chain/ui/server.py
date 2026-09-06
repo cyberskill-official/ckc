@@ -172,7 +172,13 @@ async def stream_indexing(
             (
                 "gitnexus",
                 "Tier 2: GitNexus Tree-sitter AST & Execution Flow",
-                [config.gitnexus_bin, "analyze", str(resolved), "--index-only"],
+                [
+                    config.gitnexus_bin,
+                    "analyze",
+                    str(resolved),
+                    "--index-only",
+                    "--skip-git",
+                ],
             ),
             (
                 "codegraph",

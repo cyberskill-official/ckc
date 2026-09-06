@@ -6,9 +6,71 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from code_chain.adapters.base import BaseGraphAdapter
 from code_chain.core.models import EngineStatus, CrossDomainEntity
+
+_NON_CODE_RESERVE = 2
+
+
+def classify_entity_type(source_file: str, file_type: str, label: str = "") -> str:
+    """Map Graphify nodes to CKC types. SQL files are schemas, not generic code."""
+    raw = (file_type or "code").strip().lower() or "code"
+    if raw in {"schema", "doc", "config"}:
+        return raw
+    if raw == "sql":
+        return "schema"
+    source = (source_file or "").replace("\\", "/").lower()
+    if source.endswith(".sql"):
+        return "schema"
+    if (label or "").lower().startswith("public."):
+        return "schema"
+    return raw
+
+
+def entity_match_score(
+    query_terms: List[str],
+    label: str,
+    node_id: str,
+    source_file: str,
+    entity_type: str,
+) -> int:
+    searchable = f"{label} {node_id} {source_file} {entity_type}".lower()
+    score = sum(1 for term in query_terms if term in searchable)
+    label_l = (label or "").lower()
+    if entity_type == "schema" and any(
+        term == label_l or label_l.endswith("." + term) for term in query_terms
+    ):
+        score += 2
+    return score
+
+
+def select_mixed_entities(
+    ranked: List[Tuple[int, CrossDomainEntity]], limit: int
+) -> List[CrossDomainEntity]:
+    """Keep match-score order, but reserve slots for docs/schemas when they hit."""
+    if limit <= 0 or not ranked:
+        return []
+    others = [entity for _score, entity in ranked if entity.entity_type != "code"]
+    code = [entity for _score, entity in ranked if entity.entity_type == "code"]
+    reserved = min(_NON_CODE_RESERVE, len(others), limit)
+    selected: List[CrossDomainEntity] = others[:reserved]
+    seen = {entity.id for entity in selected}
+    for entity in code:
+        if len(selected) >= limit:
+            break
+        if entity.id in seen:
+            continue
+        selected.append(entity)
+        seen.add(entity.id)
+    for entity in others[reserved:]:
+        if len(selected) >= limit:
+            break
+        if entity.id in seen:
+            continue
+        selected.append(entity)
+        seen.add(entity.id)
+    return selected
 
 
 class GraphifyAdapter(BaseGraphAdapter):
@@ -121,36 +183,40 @@ class GraphifyAdapter(BaseGraphAdapter):
         if not query_terms:
             query_terms = [query.lower()]
 
-        matched: List[CrossDomainEntity] = []
+        ranked: List[Tuple[int, CrossDomainEntity]] = []
 
         for n in nodes:
             label = n.get("label", "")
             node_id = n.get("id", "")
             source_file = n.get("source_file", "")
-            file_type = n.get("file_type", "code")
+            entity_type = classify_entity_type(
+                source_file, n.get("file_type", "code"), label
+            )
+            score = entity_match_score(
+                query_terms, label, node_id, source_file, entity_type
+            )
+            if score <= 0:
+                continue
+            entity = CrossDomainEntity(
+                id=node_id,
+                name=label,
+                entity_type=entity_type,
+                source_path=source_file,
+                line_number=int(n.get("source_location", "L0").replace("L", ""))
+                if "L" in str(n.get("source_location", ""))
+                else None,
+                community_id=n.get("community"),
+                degree=node_degrees.get(node_id, 0),
+                connections=node_connections.get(node_id, [])[:8],
+                description=(
+                    f"Community {n.get('community')}, {entity_type} artifact "
+                    f"in {source_file}"
+                ),
+            )
+            ranked.append((score, entity))
 
-            searchable = f"{label} {node_id} {source_file} {file_type}".lower()
-            score = sum(1 for term in query_terms if term in searchable)
-
-            if score > 0:
-                entity = CrossDomainEntity(
-                    id=node_id,
-                    name=label,
-                    entity_type=file_type,
-                    source_path=source_file,
-                    line_number=int(n.get("source_location", "L0").replace("L", ""))
-                    if "L" in str(n.get("source_location", ""))
-                    else None,
-                    community_id=n.get("community"),
-                    degree=node_degrees.get(node_id, 0),
-                    connections=node_connections.get(node_id, [])[:8],
-                    description=f"Community {n.get('community')}, {file_type} artifact in {source_file}",
-                )
-                matched.append(entity)
-
-        # Sort by degree and match relevance
-        matched.sort(key=lambda x: x.degree, reverse=True)
-        return matched[:limit]
+        ranked.sort(key=lambda pair: (pair[0], pair[1].degree), reverse=True)
+        return select_mixed_entities(ranked, limit)
 
     def explain_node(self, node_label: str) -> Optional[str]:
         """Calls `graphify explain` CLI for deep neighborhood explanation."""

@@ -109,6 +109,7 @@ class GitNexusAdapter(BaseGraphAdapter):
             "analyze",
             str(self.project_path),
             "--index-only",
+            "--skip-git",
         ]
         return cmd
 
