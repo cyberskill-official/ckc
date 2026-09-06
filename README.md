@@ -1,5 +1,5 @@
 # Code Knowledge Chain (CKC)
-### Unified 3-Tier Knowledge Graph Orchestrator for Codebases
+### Unified 3-Tier Knowledge Graph Orchestrator & Interactive UI for Codebases
 *Based on the architecture from [Graphify vs GitNexus vs CodeGraph](https://vijayasekhar-deepak.beehiiv.com/p/graphify-vs-gitnexus-vs-codegraph) by Vijayasekhar Deepak.*
 
 ---
@@ -61,13 +61,13 @@ Modern software systems are **networks, not flat documents**. This framework cha
 
 ---
 
-## Installation
+## Installation & Setup
 
 ```bash
 # Clone or navigate to the repository
 cd /Users/stephencheng/Projects/Playground/code-knowledge-chain
 
-# Install locally in editable mode
+# Install locally in editable mode (installs CLI and UI server)
 pip install -e .
 ```
 
@@ -78,12 +78,56 @@ Prerequisites (installed globally on your system):
 
 ---
 
+## Web UI Dashboard
+
+The package includes a full-featured, interactive single-page application dashboard built with FastAPI, Server-Sent Events (SSE), Mermaid.js, and Marked.
+
+### Starting the Web UI
+```bash
+# Start the web UI on default port 8000
+code-chain ui
+
+# Or specify a custom port / host and open browser automatically
+code-chain ui --port 8080 --open
+```
+
+Once running, navigate to `http://localhost:8000`.
+
+### UI Features
+1. **Sticky Repository Bar**:
+   - Live repository path validation (rejects invalid paths or traversal attempts).
+   - Instant quick-load chips for preset sample projects (`test-project` and `sample-service`).
+   - Overall Readiness indicator badge (🟢 3/3 Engines Ready, 🟡 Partial, 🔴 Missing).
+2. **Dashboard & Streaming Indexing Panel**:
+   - Real-time status cards for each engine: node counts, edge counts, community clusters, and storage locations.
+   - Option to toggle Fast AST indexing (`--code-only`) or Full Multi-modal extraction (ADRs, schemas, PDFs).
+   - Live streaming terminal log powered by Server-Sent Events (SSE) with elapsed timer and auto-scroll.
+   - **Cancellation Support**: "Cancel Indexing" button cleanly terminates active background analyzer jobs.
+3. **Architecture & Feature Query Explorer**:
+   - Search input with pre-populated architectural suggestion chips.
+   - Grounded context synthesis formatted in rendered GitHub-flavored markdown.
+   - One-click copy button (`📋 Copy LLM Prompt Context`) to immediately paste grounded context into Claude, ChatGPT, Cursor, or Gemini.
+4. **Refactoring & Blast Radius Studio**:
+   - Evaluates any function, method, or class.
+   - Visual Risk Meter (LOW, MEDIUM, HIGH, CRITICAL).
+   - Upstream Call Hierarchy tree (depth 1, 2, ...).
+   - Affected test suites list.
+   - Actionable 4-step refactoring checklist.
+5. **Directed Execution Flow Tracer**:
+   - Specify source and target symbols (`from_symbol` ➔ `to_symbol`).
+   - Live interactive **Mermaid.js diagram** rendered directly in browser.
+   - Step-by-step hop cards with file locations and domain tags.
+6. **Artifacts Inspector**:
+   - Lists generated graph outputs (`graphify-out/graph.json`, `GRAPH_REPORT.md`, `index_manifest.json`).
+   - In-browser safe file reader with syntax formatting.
+
+---
+
 ## CLI Usage
 
 ### 1. Indexing a Repository
-To initialize and build all 3 knowledge graphs for any target repository:
 ```bash
-# Index current directory
+# Index current directory across Graphify, GitNexus, and CodeGraph
 code-chain init
 
 # Index a specific target project
@@ -97,40 +141,23 @@ code-chain -p /path/to/project init --multimodal
 ```bash
 code-chain -p /path/to/project status
 ```
-Output:
-```markdown
-# Code Knowledge Chain Status: `my-project`
-**Path:** `/path/to/project`
-
-| Engine | Layer | Status | Nodes | Details |
-| :--- | :--- | :--- | :--- | :--- |
-| **Graphify** | Multi-Modal & Architecture | ✅ Ready | 24 | 3 communities |
-| **GitNexus** | AST & Execution Flows | ✅ Ready | 38 | KuzuDB graph |
-| **CodeGraph** | Symbols & Test Impact | ✅ Ready | 42 | Fast symbol cache |
-
-**Overall Readiness:** 3/3 engines indexed.
-```
 
 ### 3. Architecture & Feature Queries ("How does X work?")
-Performs cross-domain doc matching, maps execution flows, and retrieves verbatim source blocks:
 ```bash
 code-chain -p /path/to/project query "user authentication and session validation"
 ```
 
 ### 4. Blast Radius & Refactor Analysis ("What breaks if I touch X?")
-Calculates exact risk level, upstream caller hierarchy, affected business processes, and affected test suites:
 ```bash
 code-chain -p /path/to/project impact UserService.updateProfile
 ```
 
 ### 5. Deterministic Execution Tracing ("Trace execution from A to B")
-Computes the shortest directed call chain between two functions and emits a Mermaid diagram:
 ```bash
 code-chain -p /path/to/project trace handle_order_request process_payment
 ```
 
 ### 6. Git Diff Change Detection
-Maps uncommitted git hunks directly to indexed knowledge graph entities:
 ```bash
 code-chain -p /path/to/project diff
 ```
@@ -189,7 +216,7 @@ code-chain -p /path/to/project mcp
 }
 ```
 
-### Exposed MCP Tools:
+Exposed MCP Tools:
 - `chain_status`: Check indexing health across Graphify, GitNexus, and CodeGraph.
 - `chain_init`: Index a project across all 3 engines.
 - `chain_query`: Query the 3-tier chained graph for feature understanding and architecture.
@@ -198,36 +225,25 @@ code-chain -p /path/to/project mcp
 
 ---
 
-## Real-World Workflow Scenarios
+## Fallback Behavior & Engine Resilience
 
-### Scenario A: Architectural Onboarding
-*   **Challenge:** A new developer or AI agent joins a 500k-line repo.
-*   **Without CKC:** Searches filenames, opens 30 files, burns 80,000 tokens guessing relations.
-*   **With CKC:** Runs `code-chain query "authentication workflow"`. In seconds, receives the matching architecture docs (Graphify), the execution call chain (GitNexus), and the exact line-numbered source code (CodeGraph).
-
-### Scenario B: Refactoring with Confidence
-*   **Challenge:** Modifying a core database model or shared service.
-*   **Without CKC:** Unseen downstream regressions discovered only after staging deployment.
-*   **With CKC:** Runs `code-chain impact PaymentService.charge`. Receives a deterministic blast radius report, all upstream callers by depth, impacted business processes, and the exact unit test files to run.
-
-### Scenario C: Production Incident Tracing
-*   **Challenge:** Sentry alerts show an error deep in the database layer initiated from a public API route.
-*   **Without CKC:** Detective work manually tracing 10+ intermediate function calls.
-*   **With CKC:** Runs `code-chain trace ApiRouter.handlePost DatabaseClient.save`. Receives the exact 4-hop execution chain with an interactive Mermaid sequence diagram.
+The system is designed with graceful degradation:
+- **If Graphify is missing or indexing is partial**: The pipeline still performs AST call graph exploration (GitNexus) and symbol exploration (CodeGraph), providing code-level context even without high-level documentation clusters.
+- **If GitNexus is missing**: The pipeline falls back to Graphify's neighbor degree analysis and CodeGraph's direct callers/callees to estimate blast radius.
+- **If CodeGraph is missing**: The pipeline relies on GitNexus AST symbol context and Graphify source links to locate code definitions.
+- **UI Status Grid**: Clearly highlights partial readiness with color-coded badges (🟢 Ready, 🟡 Partial, 🔴 Missing) and detailed error diagnostics.
 
 ---
 
-## Verification & Testing
+## Automated Test Suite
 
-To run the automated test suite:
+Run the full automated test suite (adapters, pipelines, MCP server, Web UI API, SSE streaming):
+
 ```bash
-cd /Users/stephencheng/Projects/Playground/code-knowledge-chain
 pytest tests -v
 ```
-All tests verify:
-- Individual adapter operations (`GraphifyAdapter`, `GitNexusAdapter`, `CodeGraphAdapter`).
-- End-to-end multi-engine indexing (`IndexPipeline`).
-- 3-tier chained querying (`QueryPipeline`).
-- Blast radius and refactor reporting (`ImpactPipeline`).
-- Execution path tracing (`TracePipeline`).
-- MCP JSON-RPC 2.0 handshake and tool execution.
+
+Output:
+```
+============================= 23 passed in 19.01s ==============================
+```

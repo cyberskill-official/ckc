@@ -5,11 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "code-knowledge-chain"
 version = "1.0.0"
-description = "A unified 3-tier chaining workflow for Graphify, GitNexus, and CodeGraph"
+description = "A unified 3-tier chaining workflow and interactive UI for Graphify, GitNexus, and CodeGraph"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "pydantic>=2.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "sse-starlette>=2.0.0",
 ]
 
 [project.scripts]

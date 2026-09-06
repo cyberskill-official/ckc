@@ -5,6 +5,7 @@ Command-Line Interface (CLI) for code-knowledge-chain.
 from __future__ import annotations
 import argparse
 import sys
+import webbrowser
 from pathlib import Path
 from code_chain.core.orchestrator import CodeKnowledgeChain
 from code_chain.core.config import ChainConfig
@@ -53,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
     # mcp
     subparsers.add_parser("mcp", help="Start Model Context Protocol (MCP) stdio server for AI agents")
 
+    # ui
+    p_ui = subparsers.add_parser("ui", help="Start the interactive web dashboard")
+    p_ui.add_argument("--host", default="127.0.0.1", help="Host interface (default: 127.0.0.1)")
+    p_ui.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
+    p_ui.add_argument("--open", action="store_true", help="Automatically open web browser")
+
     return parser
 
 
@@ -63,6 +70,15 @@ def main() -> None:
     if args.command == "mcp":
         from code_chain.mcp.server import run_mcp_server
         run_mcp_server(args.project)
+        return
+
+    if args.command == "ui":
+        import uvicorn
+        url = f"http://{args.host}:{args.port}"
+        print(f"Starting Code Knowledge Chain UI at: {url}")
+        if args.open:
+            webbrowser.open(url)
+        uvicorn.run("code_chain.ui.server:app", host=args.host, port=args.port, log_level="info")
         return
 
     try:
