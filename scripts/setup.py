@@ -89,10 +89,15 @@ def check_prerequisites() -> dict[str, bool]:
 
     if has_graphify:
         print_success("Graphify binary detected")
+        try:
+            run_cmd([sys.executable, "-m", "pip", "install", "graphifyy[sql]"])
+            print_success("Graphify SQL extra available (tree-sitter-sql)")
+        except Exception as e:
+            print_warn(f"Could not install graphifyy[sql]: {e}")
     else:
         print_warn("Graphify not detected on PATH. Installing via pip...")
         try:
-            run_cmd([sys.executable, "-m", "pip", "install", "graphifyy"])
+            run_cmd([sys.executable, "-m", "pip", "install", "graphifyy[sql]"])
             print_success("Graphify installed successfully")
             has_graphify = True
         except Exception as e:

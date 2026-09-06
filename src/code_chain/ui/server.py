@@ -18,6 +18,10 @@ from sse_starlette.sse import EventSourceResponse
 
 from code_chain.core.orchestrator import CodeKnowledgeChain
 from code_chain.core.config import ChainConfig
+from code_chain.core.paths import (
+    UnsafeProjectPathError,
+    assert_safe_project_path,
+)
 
 
 app = FastAPI(
@@ -41,26 +45,11 @@ _cancellation_flags: Dict[str, bool] = {}
 
 
 def validate_project_path(path_str: str) -> Path:
-    """Validates that path_str points to an existing directory without dangerous characters."""
-    if not path_str or not path_str.strip():
-        raise HTTPException(status_code=400, detail="Repository path cannot be empty.")
-
-    cleaned = path_str.strip()
+    """Validates that path_str is an existing project directory, not a system path."""
     try:
-        resolved = Path(cleaned).expanduser().resolve()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid path syntax: {e}")
-
-    if not resolved.exists():
-        raise HTTPException(
-            status_code=400, detail=f"Directory does not exist: {resolved}"
-        )
-    if not resolved.is_dir():
-        raise HTTPException(
-            status_code=400, detail=f"Path is not a directory: {resolved}"
-        )
-
-    return resolved
+        return assert_safe_project_path(path_str)
+    except UnsafeProjectPathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 class QueryPayload(BaseModel):
@@ -183,7 +172,7 @@ async def stream_indexing(
             (
                 "gitnexus",
                 "Tier 2: GitNexus Tree-sitter AST & Execution Flow",
-                [config.gitnexus_bin, "analyze", str(resolved)],
+                [config.gitnexus_bin, "analyze", str(resolved), "--index-only"],
             ),
             (
                 "codegraph",
@@ -343,7 +332,9 @@ def list_artifacts(project: str = Query(...)):
         ("Graphify Report", resolved / "graphify-out" / "GRAPH_REPORT.md"),
         ("Graphify Tree View", resolved / "graphify-out" / "GRAPH_TREE.html"),
         ("Chain Manifest", resolved / ".code_chain" / "index_manifest.json"),
+        ("GitNexus Meta", resolved / ".gitnexus" / "meta.json"),
         ("GitNexus Schema", resolved / ".gitnexus" / "schema.json"),
+        ("CodeGraph Database", resolved / ".codegraph" / "codegraph.db"),
     ]
 
     for label, path in candidates:
@@ -386,6 +377,20 @@ def get_artifact_content(
     if not target_file.exists() or not target_file.is_file():
         raise HTTPException(status_code=404, detail="Artifact file not found.")
 
+    binary_suffixes = {".db", ".sqlite", ".sqlite3"}
+    if (
+        target_file.suffix.lower() in binary_suffixes
+        or target_file.name in {"lbug", "codegraph.db"}
+    ):
+        return {
+            "file": clean_file,
+            "size": target_file.stat().st_size,
+            "content": "",
+            "is_json": False,
+            "is_binary": True,
+            "message": "Binary artifact listed only; contents are not displayed.",
+        }
+
     try:
         content = target_file.read_text(encoding="utf-8", errors="replace")
         return {
@@ -393,6 +398,7 @@ def get_artifact_content(
             "size": len(content),
             "content": content,
             "is_json": clean_file.endswith(".json"),
+            "is_binary": False,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading artifact: {e}")

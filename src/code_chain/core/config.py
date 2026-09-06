@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel, Field
+from code_chain.core.paths import assert_safe_project_path
 
 
 class ChainConfig(BaseModel):
@@ -34,12 +35,8 @@ class ChainConfig(BaseModel):
     max_tokens_budget: int = 4000
 
     def resolve_project_path(self, path: Optional[str] = None) -> Path:
-        target = Path(path).resolve() if path else Path.cwd().resolve()
-        if not target.exists() or not target.is_dir():
-            raise FileNotFoundError(
-                f"Target project directory does not exist: {target}"
-            )
-        return target
+        target = str(path) if path else str(Path.cwd())
+        return assert_safe_project_path(target)
 
     def get_graphify_index_path(self, project_path: Path) -> Path:
         return project_path / "graphify-out" / "graph.json"

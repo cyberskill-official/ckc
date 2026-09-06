@@ -72,6 +72,8 @@ ehthumbs.db
 Thumbs.db
 .idea/
 .vscode/
+.cursor/
+uv.lock
 *.swp
 *.swo
 *~

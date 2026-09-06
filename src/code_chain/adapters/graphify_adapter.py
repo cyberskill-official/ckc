@@ -59,14 +59,17 @@ class GraphifyAdapter(BaseGraphAdapter):
                 error_message=f"Error reading graph.json: {str(e)}",
             )
 
+    def _extract_cmd(self, code_only: bool = True) -> list:
+        cmd = [self.bin_path, "extract", str(self.project_path)]
+        if code_only:
+            cmd.append("--code-only")
+        return cmd
+
     def index_project(
         self, code_only: bool = True, timeout: int = 300
     ) -> Dict[str, Any]:
         """Runs graphify extraction on the target project."""
-        cmd = [self.bin_path, "extract", str(self.project_path)]
-        if code_only:
-            cmd.append("--code-only")
-
+        cmd = self._extract_cmd(code_only)
         result = subprocess.run(
             cmd,
             cwd=str(self.project_path),

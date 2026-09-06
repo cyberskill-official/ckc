@@ -35,6 +35,14 @@ class TestWebUIApi(unittest.TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertIn("Directory does not exist", res.json()["detail"])
 
+    def test_status_system_path_blocked(self):
+        res = self.client.get("/api/status?project=/etc")
+        self.assertEqual(res.status_code, 400)
+        detail = res.json()["detail"]
+        self.assertTrue(
+            "system directory" in detail or "does not look like a software project" in detail
+        )
+
     def test_status_empty_path(self):
         res = self.client.get("/api/status?project=")
         self.assertEqual(res.status_code, 400)

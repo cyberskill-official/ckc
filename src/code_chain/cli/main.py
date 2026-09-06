@@ -34,7 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument(
         "--multimodal",
         action="store_true",
-        help="Enable LLM multimodal extraction for Graphify (requires API key)",
+        help="Enable LLM multimodal extraction for Graphify docs/images (requires API key)",
+    )
+    p_init.add_argument(
+        "--code-only",
+        action="store_true",
+        help="Skip Graphify docs/images and use local AST only (default without --multimodal)",
     )
     p_init.add_argument(
         "--force", action="store_true", help="Force re-indexing even if already present"

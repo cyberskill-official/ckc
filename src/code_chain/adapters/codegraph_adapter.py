@@ -3,11 +3,15 @@ CodeGraph Adapter: Fine-grained symbol intelligence, line-accurate code blocks, 
 """
 
 from __future__ import annotations
+import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from code_chain.adapters.base import BaseGraphAdapter
 from code_chain.core.models import EngineStatus
+
+_LOCATION_RE = re.compile(r"\*\*Location:\*\*\s+(\S+)")
 
 
 class CodeGraphAdapter(BaseGraphAdapter):
@@ -31,18 +35,33 @@ class CodeGraphAdapter(BaseGraphAdapter):
 
         try:
             res = subprocess.run(
-                [self.bin_path, "status"],
+                [self.bin_path, "status", "-j", str(self.project_path)],
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,
                 timeout=15,
             )
+            parsed: Dict[str, Any] = {}
+            try:
+                parsed = json.loads(res.stdout) if res.stdout.strip() else {}
+            except Exception:
+                parsed = {}
+            node_count = int(parsed.get("nodeCount") or 0)
+            edge_count = int(parsed.get("edgeCount") or 0)
+            file_count = int(parsed.get("fileCount") or 0)
+            indexed = bool(parsed.get("initialized", self.codegraph_dir.exists()))
             return EngineStatus(
                 engine_name="codegraph",
                 available=True,
-                indexed=self.codegraph_dir.exists(),
+                indexed=indexed,
                 index_path=str(self.codegraph_dir),
-                details={"raw_status": res.stdout.strip()},
+                node_count=node_count,
+                edge_count=edge_count,
+                details={
+                    "status": "ready" if indexed else "not_indexed",
+                    "file_count": file_count,
+                    "languages": parsed.get("languages") or [],
+                },
             )
         except Exception as e:
             return EngineStatus(
@@ -211,11 +230,22 @@ class CodeGraphAdapter(BaseGraphAdapter):
         except Exception:
             return []
 
+    def extract_source_files(self, node_text: str) -> List[str]:
+        """Parse source file paths from `codegraph node` markdown output."""
+        if not node_text:
+            return []
+        match = _LOCATION_RE.search(node_text)
+        if not match:
+            return []
+        location = match.group(1)
+        file_path = location.split(":")[0]
+        return [file_path] if file_path else []
+
     def get_affected_tests(self, files: Optional[List[str]] = None) -> List[str]:
         """Finds test files affected by changed source files."""
-        cmd = [self.bin_path, "affected"]
-        if files:
-            cmd.extend(files)
+        if not files:
+            return []
+        cmd = [self.bin_path, "affected", "-j", *files]
         try:
             res = subprocess.run(
                 cmd,
@@ -224,13 +254,18 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 text=True,
                 timeout=15,
             )
-            tests = []
-            for line in res.stdout.splitlines():
-                sline = line.strip()
-                if sline and (
-                    "test_" in sline or ".test." in sline or ".spec." in sline
-                ):
-                    tests.append(sline)
+            tests: List[str] = []
+            try:
+                parsed = json.loads(res.stdout) if res.stdout.strip() else {}
+                raw_tests = parsed.get("affectedTests") or []
+                tests = [str(t) for t in raw_tests if t]
+            except Exception:
+                for line in res.stdout.splitlines():
+                    sline = line.strip()
+                    if sline and (
+                        "test_" in sline or ".test." in sline or ".spec." in sline
+                    ):
+                        tests.append(sline)
             return tests
         except Exception:
             return []

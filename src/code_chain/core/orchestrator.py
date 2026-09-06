@@ -68,8 +68,8 @@ class CodeKnowledgeChain:
             "| Engine | Layer | Status | Nodes | Details |",
             "| :--- | :--- | :--- | :--- | :--- |",
             f"| **Graphify** | Multi-Modal & Architecture | {'✅ Ready' if status.graphify.indexed else '❌ Missing'} | {status.graphify.node_count} | {status.graphify.details.get('communities_count', 0)} communities |",
-            f"| **GitNexus** | AST & Execution Flows | {'✅ Ready' if status.gitnexus.indexed else '❌ Missing'} | {status.gitnexus.node_count} | KuzuDB graph |",
-            f"| **CodeGraph** | Symbols & Test Impact | {'✅ Ready' if status.codegraph.indexed else '❌ Missing'} | {status.codegraph.node_count} | Fast symbol cache |",
+            f"| **GitNexus** | AST & Execution Flows | {'✅ Ready' if status.gitnexus.indexed else '❌ Missing'} | {status.gitnexus.node_count} | {status.gitnexus.edge_count} edges, {status.gitnexus.details.get('communities_count', 0)} clusters |",
+            f"| **CodeGraph** | Symbols & Test Impact | {'✅ Ready' if status.codegraph.indexed else '❌ Missing'} | {status.codegraph.node_count} | {status.codegraph.edge_count} edges |",
             "",
             f"**Overall Readiness:** {status.ready_count}/3 engines indexed.",
         ]

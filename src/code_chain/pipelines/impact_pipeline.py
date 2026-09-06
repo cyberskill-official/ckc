@@ -23,35 +23,55 @@ class ImpactPipeline:
     def run(self, target_symbol: str) -> ChainedImpactResult:
         # Tier 1: GitNexus AST Blast Radius Analysis
         impact_data = self.gitnexus.analyze_impact(target_symbol)
-        risk = impact_data.get("risk", "LOW")
-        impacted_count = impact_data.get("impactedCount", 0)
+        risk = impact_data.get("risk") or "UNKNOWN"
+        if not isinstance(risk, str):
+            risk = "UNKNOWN"
+        raw_count = impact_data.get("impactedCount", 0)
+        impacted_count = raw_count if isinstance(raw_count, int) else 0
 
+        raw_procs = impact_data.get("affected_processes") or []
         affected_procs = [
-            p.get("name", "") for p in impact_data.get("affected_processes", [])
+            (p.get("name") or "") if isinstance(p, dict) else str(p)
+            for p in raw_procs
         ]
+        raw_mods = impact_data.get("affected_modules") or []
         affected_mods = [
-            m.get("name", "") for m in impact_data.get("affected_modules", [])
+            (m.get("name") or "") if isinstance(m, dict) else str(m)
+            for m in raw_mods
         ]
 
         # Extract depth-based call hierarchy
         call_hierarchy: List[Dict[str, Any]] = []
-        by_depth = impact_data.get("byDepth", {})
-        for depth, items in by_depth.items():
-            for item in items:
-                call_hierarchy.append(
-                    {
-                        "depth": depth,
-                        "symbol": item.get("name"),
-                        "file": item.get("filePath"),
-                        "relation": item.get("relationType", "CALLS"),
-                    }
-                )
+        by_depth = impact_data.get("byDepth") or {}
+        if isinstance(by_depth, dict):
+            for depth, items in by_depth.items():
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    call_hierarchy.append(
+                        {
+                            "depth": depth,
+                            "symbol": item.get("name"),
+                            "file": item.get("filePath"),
+                            "relation": item.get("relationType", "CALLS"),
+                        }
+                    )
 
         # Tier 2: CodeGraph Precision Symbol, Callers/Callees & Affected Tests
         cg_node_str = self.codegraph.get_node(target_symbol)
         cg_callers = self.codegraph.get_callers(target_symbol)
         cg_callees = self.codegraph.get_callees(target_symbol)
-        affected_tests = self.codegraph.get_affected_tests()
+        source_files: List[str] = []
+        target_meta = impact_data.get("target")
+        if isinstance(target_meta, dict):
+            file_path = target_meta.get("filePath")
+            if isinstance(file_path, str) and file_path:
+                source_files.append(file_path)
+        source_files.extend(self.codegraph.extract_source_files(cg_node_str))
+        unique_files = list(dict.fromkeys(source_files))
+        affected_tests = self.codegraph.get_affected_tests(unique_files or None)
 
         # Tier 3: Graphify Documentation, Database Schemas & Community Coupling
         docs_and_schemas = self.graphify.find_cross_domain_entities(

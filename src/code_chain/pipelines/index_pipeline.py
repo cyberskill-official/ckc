@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Any
 from code_chain.core.config import ChainConfig
 from code_chain.core.models import ProjectGraphStatus
+from code_chain.core.paths import ensure_engine_gitignore
 from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
 
 
@@ -90,6 +91,8 @@ class IndexPipeline:
             "duration_seconds": round(t_codegraph, 2),
             "details": res_codegraph,
         }
+
+        results["gitignore_entries_added"] = ensure_engine_gitignore(self.project_path)
 
         # Save manifest
         self.manifest_dir.mkdir(parents=True, exist_ok=True)
