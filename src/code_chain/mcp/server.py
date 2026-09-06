@@ -10,7 +10,9 @@ from typing import Dict, Any
 from code_chain.core.orchestrator import CodeKnowledgeChain
 
 
-def make_tool_definition(name: str, description: str, input_schema: Dict[str, Any]) -> Dict[str, Any]:
+def make_tool_definition(
+    name: str, description: str, input_schema: Dict[str, Any]
+) -> Dict[str, Any]:
     return {
         "name": name,
         "description": description,
@@ -182,7 +184,9 @@ def run_mcp_server(default_project_path: str = ".") -> None:
             tool_name = params.get("name")
             tool_args = params.get("arguments", {})
             try:
-                text_result = handle_tool_call(tool_name, tool_args, default_project_path)
+                text_result = handle_tool_call(
+                    tool_name, tool_args, default_project_path
+                )
                 resp = {
                     "jsonrpc": "2.0",
                     "id": req_id,
@@ -196,7 +200,12 @@ def run_mcp_server(default_project_path: str = ".") -> None:
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "result": {
-                        "content": [{"type": "text", "text": f"Error executing {tool_name}: {str(e)}"}],
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Error executing {tool_name}: {str(e)}",
+                            }
+                        ],
                         "isError": True,
                     },
                 }

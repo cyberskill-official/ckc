@@ -5,7 +5,7 @@ Base adapter interface for code knowledge graph engines.
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from code_chain.core.models import EngineStatus
 
 

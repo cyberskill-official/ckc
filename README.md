@@ -61,20 +61,57 @@ Modern software systems are **networks, not flat documents**. This framework cha
 
 ---
 
-## Installation & Setup
+## Quickstart: One-Click Setup
 
+Code Knowledge Chain includes automated, cross-platform setup and cleanup scripts that validate prerequisites, configure dependencies, initialize sample repositories, index all three engines, run health checks, and start the Web UI.
+
+### Option A: One-Click Scripts
 ```bash
-# Clone or navigate to the repository
-cd /Users/stephencheng/Projects/Playground/code-knowledge-chain
+# macOS & Linux:
+./setup.sh
 
-# Install locally in editable mode (installs CLI and UI server)
+# Windows (PowerShell):
+./setup.ps1
+
+# Or run with Python directly (cross-platform):
+python3 scripts/setup.py
+```
+> **Flags**:
+> - `--no-ui`: Run prerequisites, editable install, sample indexing, and tests without launching the Web UI.
+> - `--port <PORT>`: Specify a custom port (default: 8000).
+> - `--force`: Force re-indexing of sample repositories.
+
+### Option B: Via CLI
+```bash
 pip install -e .
+code-chain setup --no-ui
 ```
 
-Prerequisites (installed globally on your system):
-- `graphify` (via `pip install graphifyy`)
-- `gitnexus` (via `npm install -g gitnexus`)
-- `codegraph` (via `npm install -g @colbymchenry/codegraph`)
+### One-Click Cleanup & Reset
+```bash
+# Light cleanup (removes caches, temporary test artifacts, and bytecode):
+./cleanup.sh -y
+
+# Full reset (stops background daemons, cleans all graph indexes, manifests, and temporary artifacts):
+./cleanup.sh --all -y
+
+# Windows (PowerShell):
+./cleanup.ps1 -All -Yes
+
+# Or via Python directly:
+python3 scripts/cleanup.py --all -y
+```
+
+---
+
+## Prerequisites (Graph Engines)
+
+Code Knowledge Chain orchestrates three engines installed globally on your machine:
+- **Graphify**: `pip install graphifyy`
+- **GitNexus**: `npm install -g gitnexus`
+- **CodeGraph**: `npm install -g @colbymchenry/codegraph`
+
+*The one-click setup script will detect and attempt to automatically install any missing engines.*
 
 ---
 
@@ -96,7 +133,7 @@ Once running, navigate to `http://localhost:8000`.
 ### UI Features
 1. **Sticky Repository Bar**:
    - Live repository path validation (rejects invalid paths or traversal attempts).
-   - Instant quick-load chips for preset sample projects (`test-project` and `sample-service`).
+   - Instant quick-load chips for preset sample projects (`python-auth-service` and `ts-billing-service`).
    - Overall Readiness indicator badge (🟢 3/3 Engines Ready, 🟡 Partial, 🔴 Missing).
 2. **Dashboard & Streaming Indexing Panel**:
    - Real-time status cards for each engine: node counts, edge counts, community clusters, and storage locations.

@@ -29,6 +29,7 @@ class ProjectGraphStatus(BaseModel):
 
 class CrossDomainEntity(BaseModel):
     """Tier 1 entity from Graphify: Multi-modal project artifacts (docs, schemas, code hubs)."""
+
     id: str
     name: str
     entity_type: str = "code"  # code, doc, schema, config, community
@@ -43,6 +44,7 @@ class CrossDomainEntity(BaseModel):
 
 class ExecutionFlow(BaseModel):
     """Tier 2 entity from GitNexus: Structural AST execution flows and blast radius."""
+
     id: str
     name: str
     entity_type: str = "Function"  # Function, Method, Class, Process
@@ -58,6 +60,7 @@ class ExecutionFlow(BaseModel):
 
 class SymbolDetail(BaseModel):
     """Tier 3 entity from CodeGraph: Precision symbol definitions, code blocks, test impacts."""
+
     name: str
     kind: str = "function"  # function, class, interface, type, variable
     file_path: str
@@ -70,6 +73,7 @@ class SymbolDetail(BaseModel):
 
 class ChainedQueryResult(BaseModel):
     """Combined 3-tier intelligence query result."""
+
     query: str
     project_path: str
     tier1_cross_domain: List[CrossDomainEntity] = Field(default_factory=list)
@@ -80,6 +84,7 @@ class ChainedQueryResult(BaseModel):
 
 class ChainedImpactResult(BaseModel):
     """Combined 3-tier blast radius and refactor impact result."""
+
     target_symbol: str
     project_path: str
     risk_level: str = "LOW"
@@ -104,6 +109,7 @@ class ChainedTraceStep(BaseModel):
 
 class ChainedTraceResult(BaseModel):
     """Combined 3-tier execution flow trace between two symbols."""
+
     from_symbol: str
     to_symbol: str
     project_path: str

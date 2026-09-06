@@ -59,8 +59,10 @@ class QueryPipeline:
                     name=symbol_info.get("name", sym),
                     entity_type=symbol_info.get("kind", "Symbol"),
                     file_path=symbol_info.get("filePath", ""),
-                    upstream_callers=incoming.get("calls", []) + incoming.get("imports", []),
-                    downstream_callees=outgoing.get("calls", []) + outgoing.get("has_method", []),
+                    upstream_callers=incoming.get("calls", [])
+                    + incoming.get("imports", []),
+                    downstream_callees=outgoing.get("calls", [])
+                    + outgoing.get("has_method", []),
                     affected_processes=processes,
                 )
                 tier2_flows.append(flow)
@@ -105,17 +107,31 @@ class QueryPipeline:
         lines = []
         lines.append(f"# Chained Code Intelligence: '{query}'")
         lines.append("")
-        lines.append("> Generated via 3-Tier Chained Knowledge Graph (Graphify + GitNexus + CodeGraph)")
+        lines.append(
+            "> Generated via 3-Tier Chained Knowledge Graph (Graphify + GitNexus + CodeGraph)"
+        )
         lines.append("")
 
         # 1. Broad Cross-Domain Knowledge (Graphify)
         lines.append("## 1. Project & Domain Architecture (Graphify)")
         if tier1:
             for ent in tier1:
-                icon = "📄" if ent.entity_type == "doc" else "🗄️" if ent.entity_type == "schema" else "🧩"
-                conn_str = ", ".join([f"{c['neighbor']} ({c['relation']})" for c in ent.connections[:3]])
-                lines.append(f"- {icon} **{ent.name}** (`{ent.source_path or 'unknown'}`)")
-                lines.append(f"  - Type: `{ent.entity_type}`, Community: `{ent.community_id}`, Degree: `{ent.degree}`")
+                icon = (
+                    "📄"
+                    if ent.entity_type == "doc"
+                    else "🗄️"
+                    if ent.entity_type == "schema"
+                    else "🧩"
+                )
+                conn_str = ", ".join(
+                    [f"{c['neighbor']} ({c['relation']})" for c in ent.connections[:3]]
+                )
+                lines.append(
+                    f"- {icon} **{ent.name}** (`{ent.source_path or 'unknown'}`)"
+                )
+                lines.append(
+                    f"  - Type: `{ent.entity_type}`, Community: `{ent.community_id}`, Degree: `{ent.degree}`"
+                )
                 if conn_str:
                     lines.append(f"  - Key Connections: {conn_str}")
         else:
@@ -126,18 +142,31 @@ class QueryPipeline:
         lines.append("## 2. Structural Execution Flows (GitNexus AST)")
         if tier2:
             for flow in tier2:
-                lines.append(f"### Flow: `{flow.name}` ({flow.entity_type} in `{flow.file_path}`)")
+                lines.append(
+                    f"### Flow: `{flow.name}` ({flow.entity_type} in `{flow.file_path}`)"
+                )
                 if flow.upstream_callers:
-                    callers = ", ".join([c.get("name", "unknown") for c in flow.upstream_callers[:4]])
+                    callers = ", ".join(
+                        [c.get("name", "unknown") for c in flow.upstream_callers[:4]]
+                    )
                     lines.append(f"- **Invoked By (Upstream):** {callers}")
                 if flow.downstream_callees:
-                    callees = ", ".join([c.get("name", "unknown") for c in flow.downstream_callees[:4]])
+                    callees = ", ".join(
+                        [c.get("name", "unknown") for c in flow.downstream_callees[:4]]
+                    )
                     lines.append(f"- **Invokes (Downstream):** {callees}")
                 if flow.affected_processes:
-                    procs = ", ".join([p.get("label", p.get("id", "proc")) for p in flow.affected_processes[:3]])
+                    procs = ", ".join(
+                        [
+                            p.get("label", p.get("id", "proc"))
+                            for p in flow.affected_processes[:3]
+                        ]
+                    )
                     lines.append(f"- **Business Processes:** {procs}")
         else:
-            lines.append("- *No multi-hop execution flow cycles detected for this query.*")
+            lines.append(
+                "- *No multi-hop execution flow cycles detected for this query.*"
+            )
         lines.append("")
 
         # 3. Precision Code Blocks & Source (CodeGraph)

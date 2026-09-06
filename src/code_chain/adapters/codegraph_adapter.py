@@ -4,11 +4,10 @@ CodeGraph Adapter: Fine-grained symbol intelligence, line-accurate code blocks, 
 
 from __future__ import annotations
 import subprocess
-import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from code_chain.adapters.base import BaseGraphAdapter
-from code_chain.core.models import EngineStatus, SymbolDetail
+from code_chain.core.models import EngineStatus
 
 
 class CodeGraphAdapter(BaseGraphAdapter):
@@ -85,16 +84,29 @@ class CodeGraphAdapter(BaseGraphAdapter):
             )
             lines = res.stdout.splitlines()
             results: List[Dict[str, Any]] = []
-            current_kind = "symbol"
 
             for line in lines:
                 sline = line.strip()
-                if not sline or sline.startswith("Search Results") or sline.startswith("─"):
+                if (
+                    not sline
+                    or sline.startswith("Search Results")
+                    or sline.startswith("─")
+                ):
                     continue
                 # e.g., "method      login"
                 parts = sline.split()
-                if len(parts) >= 2 and parts[0] in ["function", "method", "class", "interface", "type", "const", "var"]:
-                    results.append({"kind": parts[0], "name": parts[1], "file": "", "line": 0})
+                if len(parts) >= 2 and parts[0] in [
+                    "function",
+                    "method",
+                    "class",
+                    "interface",
+                    "type",
+                    "const",
+                    "var",
+                ]:
+                    results.append(
+                        {"kind": parts[0], "name": parts[1], "file": "", "line": 0}
+                    )
                 elif sline.startswith("src/") or sline.startswith("./") or ":" in sline:
                     if results and not results[-1]["file"]:
                         fparts = sline.split(":")
@@ -153,7 +165,11 @@ class CodeGraphAdapter(BaseGraphAdapter):
                     continue
                 parts = sline.split()
                 if len(parts) >= 2 and parts[0] in ["function", "method", "class"]:
-                    current_caller = {"kind": parts[0], "name": parts[1], "location": ""}
+                    current_caller = {
+                        "kind": parts[0],
+                        "name": parts[1],
+                        "location": "",
+                    }
                     callers.append(current_caller)
                 elif current_caller and (":" in sline or "/" in sline):
                     current_caller["location"] = sline
@@ -182,7 +198,11 @@ class CodeGraphAdapter(BaseGraphAdapter):
                     continue
                 parts = sline.split()
                 if len(parts) >= 2 and parts[0] in ["function", "method", "class"]:
-                    current_callee = {"kind": parts[0], "name": parts[1], "location": ""}
+                    current_callee = {
+                        "kind": parts[0],
+                        "name": parts[1],
+                        "location": "",
+                    }
                     callees.append(current_callee)
                 elif current_callee and (":" in sline or "/" in sline):
                     current_callee["location"] = sline
@@ -207,7 +227,9 @@ class CodeGraphAdapter(BaseGraphAdapter):
             tests = []
             for line in res.stdout.splitlines():
                 sline = line.strip()
-                if sline and ("test_" in sline or ".test." in sline or ".spec." in sline):
+                if sline and (
+                    "test_" in sline or ".test." in sline or ".spec." in sline
+                ):
                     tests.append(sline)
             return tests
         except Exception:

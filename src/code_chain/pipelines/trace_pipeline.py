@@ -49,7 +49,11 @@ class TracePipeline:
 
             # Check Graphify for domain artifacts
             domain_entities = self.graphify.find_cross_domain_entities(name, limit=2)
-            tags = [f"{e.entity_type}:{e.name}" for e in domain_entities if e.entity_type != "code"]
+            tags = [
+                f"{e.entity_type}:{e.name}"
+                for e in domain_entities
+                if e.entity_type != "code"
+            ]
             cross_domain_touchpoints.extend(tags)
 
             step = ChainedTraceStep(
@@ -68,7 +72,7 @@ class TracePipeline:
             s_next = steps[i + 1]
             rel_label = s_curr.relation_to_next or "CALLS"
             diagram_lines.append(
-                f'  n{i}["{s_curr.symbol_name} ({s_curr.file_path})"] -->|{rel_label}| n{i+1}["{s_next.symbol_name} ({s_next.file_path})"]'
+                f'  n{i}["{s_curr.symbol_name} ({s_curr.file_path})"] -->|{rel_label}| n{i + 1}["{s_next.symbol_name} ({s_next.file_path})"]'
             )
         diagram_lines.append("```")
 
@@ -84,9 +88,15 @@ class TracePipeline:
         ]
 
         for s in steps:
-            rel_str = f" ➔ *({s.relation_to_next})*" if s.relation_to_next else " 🏁 *(Terminal)*"
+            rel_str = (
+                f" ➔ *({s.relation_to_next})*"
+                if s.relation_to_next
+                else " 🏁 *(Terminal)*"
+            )
             tag_str = f" [Tags: {', '.join(s.domain_tags)}]" if s.domain_tags else ""
-            report_lines.append(f"{s.step_number}. **`{s.symbol_name}`** (`{s.file_path}`){rel_str}{tag_str}")
+            report_lines.append(
+                f"{s.step_number}. **`{s.symbol_name}`** (`{s.file_path}`){rel_str}{tag_str}"
+            )
 
         report_lines.append("")
 

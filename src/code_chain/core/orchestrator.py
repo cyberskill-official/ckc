@@ -3,7 +3,6 @@ Orchestrator: The main entry point coordinating Graphify, GitNexus, and CodeGrap
 """
 
 from __future__ import annotations
-from pathlib import Path
 from typing import Optional, Dict, Any
 from code_chain.core.config import ChainConfig
 from code_chain.core.models import (
@@ -24,7 +23,9 @@ from code_chain.adapters import GitNexusAdapter
 class CodeKnowledgeChain:
     """The central unified orchestrator for the 3-engine code knowledge graph chain."""
 
-    def __init__(self, project_path: Optional[str] = None, config: Optional[ChainConfig] = None):
+    def __init__(
+        self, project_path: Optional[str] = None, config: Optional[ChainConfig] = None
+    ):
         self.config = config or ChainConfig()
         self.project_path = self.config.resolve_project_path(project_path)
         self.index_pipe = IndexPipeline(self.project_path, self.config)

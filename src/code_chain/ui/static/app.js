@@ -21,15 +21,10 @@ const state = {
   lastQueryResult: "",
   lastImpactResult: "",
   lastTraceResult: "",
+  samples: {},
 };
 
-// Preset demo projects for immediate verification
-const PRESET_PATHS = {
-  "test-project": "/Users/stephencheng/.gemini/antigravity/brain/bbdb8b5b-335f-4365-9a0f-e9a7b788bcf7/scratch/test-project",
-  "sample-service": "/Users/stephencheng/.gemini/antigravity/brain/bbdb8b5b-335f-4365-9a0f-e9a7b788bcf7/scratch/sample-service",
-};
-
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   setupNavigation();
   setupRepoBar();
   setupIndexing();
@@ -38,10 +33,17 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTraceTab();
   setupArtifactsTab();
 
+  // Dynamically load bundled samples
+  await loadBundledSamples();
+
   // Load saved or default repo
-  const savedRepo = localStorage.getItem("ckc_current_repo") || PRESET_PATHS["test-project"];
-  document.getElementById("repoPathInput").value = savedRepo;
-  loadProjectStatus(savedRepo);
+  const input = document.getElementById("repoPathInput");
+  const savedRepo = localStorage.getItem("ckc_current_repo");
+  const initialRepo = savedRepo || Object.values(state.samples)[0] || "";
+  if (initialRepo) {
+    input.value = initialRepo;
+    loadProjectStatus(initialRepo);
+  }
 });
 
 /* Navigation & Tabs */
@@ -78,6 +80,33 @@ function dismissError() {
 }
 
 /* Repository Bar */
+async function loadBundledSamples() {
+  try {
+    const res = await fetch("/api/samples");
+    if (!res.ok) return;
+    const data = await res.json();
+    const container = document.querySelector(".quick-links");
+    if (!container) return;
+
+    // Clear static presets and render dynamic ones
+    container.innerHTML = "<span>Quick Load:</span>";
+    (data.samples || []).forEach(sample => {
+      state.samples[sample.id] = sample.path;
+      const chip = document.createElement("span");
+      chip.className = "link-chip";
+      chip.textContent = `${sample.name}`;
+      chip.title = sample.path;
+      chip.addEventListener("click", () => {
+        document.getElementById("repoPathInput").value = sample.path;
+        loadProjectStatus(sample.path);
+      });
+      container.appendChild(chip);
+    });
+  } catch (e) {
+    console.warn("Could not load bundled samples:", e);
+  }
+}
+
 function setupRepoBar() {
   const input = document.getElementById("repoPathInput");
   const btnLoad = document.getElementById("btnLoadRepo");
@@ -95,15 +124,6 @@ function setupRepoBar() {
     if (e.key === "Enter") {
       btnLoad.click();
     }
-  });
-
-  document.querySelectorAll(".link-chip[data-path]").forEach(chip => {
-    chip.addEventListener("click", () => {
-      const alias = chip.getAttribute("data-path");
-      const fullPath = PRESET_PATHS[alias] || alias;
-      input.value = fullPath;
-      loadProjectStatus(fullPath);
-    });
   });
 }
 

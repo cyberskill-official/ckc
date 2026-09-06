@@ -6,9 +6,9 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from code_chain.adapters.base import BaseGraphAdapter
-from code_chain.core.models import EngineStatus, ExecutionFlow
+from code_chain.core.models import EngineStatus
 
 
 def _extract_json(raw_text: str) -> Optional[Dict[str, Any]]:

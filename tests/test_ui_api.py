@@ -12,7 +12,9 @@ class TestWebUIApi(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(app)
-        cls.test_repo = "/Users/stephencheng/.gemini/antigravity/brain/bbdb8b5b-335f-4365-9a0f-e9a7b788bcf7/scratch/test-project"
+        cls.test_repo = str(
+            Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
+        )
 
     def test_health(self):
         res = self.client.get("/api/health")
@@ -84,18 +86,24 @@ class TestWebUIApi(unittest.TestCase):
         self.assertIn("Graphify Graph", labels)
 
     def test_artifacts_content_valid(self):
-        res = self.client.get(f"/api/artifacts/content?project={self.test_repo}&file=graphify-out/graph.json")
+        res = self.client.get(
+            f"/api/artifacts/content?project={self.test_repo}&file=graphify-out/graph.json"
+        )
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertTrue(data["is_json"])
         self.assertIn("nodes", data["content"])
 
     def test_artifacts_content_traversal_blocked(self):
-        res = self.client.get(f"/api/artifacts/content?project={self.test_repo}&file=../../etc/passwd")
+        res = self.client.get(
+            f"/api/artifacts/content?project={self.test_repo}&file=../../etc/passwd"
+        )
         self.assertEqual(res.status_code, 400)
 
     def test_artifacts_content_unauthorized_folder(self):
-        res = self.client.get(f"/api/artifacts/content?project={self.test_repo}&file=src/auth.py")
+        res = self.client.get(
+            f"/api/artifacts/content?project={self.test_repo}&file=src/auth.py"
+        )
         self.assertEqual(res.status_code, 403)
 
     def test_cancel_indexing(self):

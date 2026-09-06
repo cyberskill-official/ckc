@@ -12,7 +12,9 @@ class TestAdapters(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.config = ChainConfig()
-        cls.test_repo = Path("/Users/stephencheng/.gemini/antigravity/brain/bbdb8b5b-335f-4365-9a0f-e9a7b788bcf7/scratch/test-project")
+        cls.test_repo = (
+            Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
+        )
 
     def test_graphify_adapter_status_and_entities(self):
         adapter = GraphifyAdapter(self.config.graphify_bin, self.test_repo)

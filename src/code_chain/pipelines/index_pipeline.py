@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Dict, Any
 from code_chain.core.config import ChainConfig
-from code_chain.core.models import EngineStatus, ProjectGraphStatus
+from code_chain.core.models import ProjectGraphStatus
 from code_chain.adapters import GraphifyAdapter, GitNexusAdapter, CodeGraphAdapter
 
 
@@ -30,7 +30,9 @@ class IndexPipeline:
         s_gitnexus = self.gitnexus.get_status()
         s_codegraph = self.codegraph.get_status()
 
-        ready_count = sum([1 for s in [s_graphify, s_gitnexus, s_codegraph] if s.indexed])
+        ready_count = sum(
+            [1 for s in [s_graphify, s_gitnexus, s_codegraph] if s.indexed]
+        )
         return ProjectGraphStatus(
             project_path=str(self.project_path),
             graphify=s_graphify,
@@ -50,7 +52,9 @@ class IndexPipeline:
         }
 
         # 1. Index Graphify (Broad multi-modal & community graph)
-        print("[1/3] Indexing with Graphify (Holistic multi-modal & community layer)...")
+        print(
+            "[1/3] Indexing with Graphify (Holistic multi-modal & community layer)..."
+        )
         t0 = time.time()
         res_graphify = self.graphify.index_project(
             code_only=code_only,
@@ -75,7 +79,9 @@ class IndexPipeline:
         }
 
         # 3. Index CodeGraph (Fine-grained symbol index & fast code exploration)
-        print("[3/3] Indexing with CodeGraph (Symbol intelligence & test impact layer)...")
+        print(
+            "[3/3] Indexing with CodeGraph (Symbol intelligence & test impact layer)..."
+        )
         t0 = time.time()
         res_codegraph = self.codegraph.index_project(timeout=self.config.index_timeout)
         t_codegraph = time.time() - t0

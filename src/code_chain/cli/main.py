@@ -4,11 +4,11 @@ Command-Line Interface (CLI) for code-knowledge-chain.
 
 from __future__ import annotations
 import argparse
+import subprocess
 import sys
 import webbrowser
 from pathlib import Path
 from code_chain.core.orchestrator import CodeKnowledgeChain
-from code_chain.core.config import ChainConfig
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,7 +17,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generic Knowledge Graph Chaining Workflow (Graphify + GitNexus + CodeGraph)",
     )
     parser.add_argument(
-        "-p", "--project",
+        "-p",
+        "--project",
         default=".",
         help="Path to target project repository (default: current directory)",
     )
@@ -25,40 +26,102 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # init / index
-    p_init = subparsers.add_parser("init", aliases=["index"], help="Index a project across Graphify, GitNexus, and CodeGraph")
-    p_init.add_argument("--multimodal", action="store_true", help="Enable LLM multimodal extraction for Graphify (requires API key)")
-    p_init.add_argument("--force", action="store_true", help="Force re-indexing even if already present")
+    p_init = subparsers.add_parser(
+        "init",
+        aliases=["index"],
+        help="Index a project across Graphify, GitNexus, and CodeGraph",
+    )
+    p_init.add_argument(
+        "--multimodal",
+        action="store_true",
+        help="Enable LLM multimodal extraction for Graphify (requires API key)",
+    )
+    p_init.add_argument(
+        "--force", action="store_true", help="Force re-indexing even if already present"
+    )
 
     # status
-    subparsers.add_parser("status", help="Check indexing status across all three engines")
+    subparsers.add_parser(
+        "status", help="Check indexing status across all three engines"
+    )
 
     # query
-    p_query = subparsers.add_parser("query", help="Run 3-tier chained concept or architecture query")
-    p_query.add_argument("query_text", help="The question or architectural concept to investigate")
-    p_query.add_argument("--json", action="store_true", help="Output raw JSON instead of markdown")
+    p_query = subparsers.add_parser(
+        "query", help="Run 3-tier chained concept or architecture query"
+    )
+    p_query.add_argument(
+        "query_text", help="The question or architectural concept to investigate"
+    )
+    p_query.add_argument(
+        "--json", action="store_true", help="Output raw JSON instead of markdown"
+    )
 
     # impact
-    p_impact = subparsers.add_parser("impact", help="Analyze blast radius and refactoring impact of a symbol")
+    p_impact = subparsers.add_parser(
+        "impact", help="Analyze blast radius and refactoring impact of a symbol"
+    )
     p_impact.add_argument("symbol", help="Target symbol or function to analyze")
-    p_impact.add_argument("--json", action="store_true", help="Output raw JSON instead of markdown")
+    p_impact.add_argument(
+        "--json", action="store_true", help="Output raw JSON instead of markdown"
+    )
 
     # trace
-    p_trace = subparsers.add_parser("trace", help="Trace execution flow between two symbols")
+    p_trace = subparsers.add_parser(
+        "trace", help="Trace execution flow between two symbols"
+    )
     p_trace.add_argument("from_symbol", help="Source symbol name")
     p_trace.add_argument("to_symbol", help="Destination symbol name")
-    p_trace.add_argument("--json", action="store_true", help="Output raw JSON instead of markdown")
+    p_trace.add_argument(
+        "--json", action="store_true", help="Output raw JSON instead of markdown"
+    )
 
     # diff
-    subparsers.add_parser("diff", help="Map current git diff hunks to indexed symbols and affected flows")
+    subparsers.add_parser(
+        "diff", help="Map current git diff hunks to indexed symbols and affected flows"
+    )
 
     # mcp
-    subparsers.add_parser("mcp", help="Start Model Context Protocol (MCP) stdio server for AI agents")
+    subparsers.add_parser(
+        "mcp", help="Start Model Context Protocol (MCP) stdio server for AI agents"
+    )
 
     # ui
     p_ui = subparsers.add_parser("ui", help="Start the interactive web dashboard")
-    p_ui.add_argument("--host", default="127.0.0.1", help="Host interface (default: 127.0.0.1)")
-    p_ui.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
-    p_ui.add_argument("--open", action="store_true", help="Automatically open web browser")
+    p_ui.add_argument(
+        "--host", default="127.0.0.1", help="Host interface (default: 127.0.0.1)"
+    )
+    p_ui.add_argument(
+        "--port", type=int, default=8000, help="Port to listen on (default: 8000)"
+    )
+    p_ui.add_argument(
+        "--open", action="store_true", help="Automatically open web browser"
+    )
+
+    # setup
+    p_setup = subparsers.add_parser(
+        "setup", help="Run one-click environment setup and verification"
+    )
+    p_setup.add_argument(
+        "--no-ui", action="store_true", help="Do not launch the Web UI after setup"
+    )
+    p_setup.add_argument(
+        "--force", action="store_true", help="Force re-indexing sample repositories"
+    )
+
+    # clean / cleanup
+    p_clean = subparsers.add_parser(
+        "clean",
+        aliases=["cleanup"],
+        help="Clean generated caches, manifests, or reset indexes",
+    )
+    p_clean.add_argument(
+        "--all",
+        action="store_true",
+        help="Full reset: removes generated graph indexes and stops background daemons",
+    )
+    p_clean.add_argument(
+        "-y", "--yes", action="store_true", help="Skip interactive confirmation"
+    )
 
     return parser
 
@@ -69,16 +132,48 @@ def main() -> None:
 
     if args.command == "mcp":
         from code_chain.mcp.server import run_mcp_server
+
         run_mcp_server(args.project)
         return
 
     if args.command == "ui":
         import uvicorn
+
         url = f"http://{args.host}:{args.port}"
         print(f"Starting Code Knowledge Chain UI at: {url}")
         if args.open:
             webbrowser.open(url)
-        uvicorn.run("code_chain.ui.server:app", host=args.host, port=args.port, log_level="info")
+        uvicorn.run(
+            "code_chain.ui.server:app", host=args.host, port=args.port, log_level="info"
+        )
+        return
+
+    if args.command == "setup":
+        script = (
+            Path(__file__).resolve().parent.parent.parent.parent
+            / "scripts"
+            / "setup.py"
+        )
+        cmd = [sys.executable, str(script)]
+        if args.no_ui:
+            cmd.append("--no-ui")
+        if args.force:
+            cmd.append("--force")
+        subprocess.run(cmd)
+        return
+
+    if args.command in ["clean", "cleanup"]:
+        script = (
+            Path(__file__).resolve().parent.parent.parent.parent
+            / "scripts"
+            / "cleanup.py"
+        )
+        cmd = [sys.executable, str(script)]
+        if args.all:
+            cmd.append("--all")
+        if args.yes:
+            cmd.append("--yes")
+        subprocess.run(cmd)
         return
 
     try:
@@ -121,6 +216,7 @@ def main() -> None:
     elif args.command == "diff":
         res = chain.detect_changes()
         import json
+
         print(json.dumps(res, indent=2))
 
 

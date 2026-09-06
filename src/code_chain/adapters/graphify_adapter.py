@@ -59,7 +59,9 @@ class GraphifyAdapter(BaseGraphAdapter):
                 error_message=f"Error reading graph.json: {str(e)}",
             )
 
-    def index_project(self, code_only: bool = True, timeout: int = 300) -> Dict[str, Any]:
+    def index_project(
+        self, code_only: bool = True, timeout: int = 300
+    ) -> Dict[str, Any]:
         """Runs graphify extraction on the target project."""
         cmd = [self.bin_path, "extract", str(self.project_path)]
         if code_only:
@@ -91,7 +93,9 @@ class GraphifyAdapter(BaseGraphAdapter):
         except Exception:
             return {"nodes": [], "links": []}
 
-    def find_cross_domain_entities(self, query: str, limit: int = 10) -> List[CrossDomainEntity]:
+    def find_cross_domain_entities(
+        self, query: str, limit: int = 10
+    ) -> List[CrossDomainEntity]:
         """Search for cross-domain entities (docs, schemas, code hubs) matching the query."""
         data = self.load_graph_data()
         nodes = data.get("nodes", [])
@@ -131,7 +135,9 @@ class GraphifyAdapter(BaseGraphAdapter):
                     name=label,
                     entity_type=file_type,
                     source_path=source_file,
-                    line_number=int(n.get("source_location", "L0").replace("L", "")) if "L" in str(n.get("source_location", "")) else None,
+                    line_number=int(n.get("source_location", "L0").replace("L", ""))
+                    if "L" in str(n.get("source_location", ""))
+                    else None,
                     community_id=n.get("community"),
                     degree=node_degrees.get(node_id, 0),
                     connections=node_connections.get(node_id, [])[:8],
@@ -149,7 +155,13 @@ class GraphifyAdapter(BaseGraphAdapter):
             return None
         try:
             res = subprocess.run(
-                [self.bin_path, "explain", node_label, "--graph", str(self.graph_json_path)],
+                [
+                    self.bin_path,
+                    "explain",
+                    node_label,
+                    "--graph",
+                    str(self.graph_json_path),
+                ],
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,
@@ -167,7 +179,14 @@ class GraphifyAdapter(BaseGraphAdapter):
             return None
         try:
             res = subprocess.run(
-                [self.bin_path, "path", from_node, to_node, "--graph", str(self.graph_json_path)],
+                [
+                    self.bin_path,
+                    "path",
+                    from_node,
+                    to_node,
+                    "--graph",
+                    str(self.graph_json_path),
+                ],
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,

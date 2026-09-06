@@ -6,14 +6,12 @@ Provides REST and Server-Sent Events (SSE) endpoints for indexing, status, query
 from __future__ import annotations
 import asyncio
 import json
-import os
 import subprocess
 import threading
 from pathlib import Path
-from typing import Dict, Any, Optional, AsyncGenerator
+from typing import Dict, Any, AsyncGenerator
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
@@ -46,7 +44,7 @@ def validate_project_path(path_str: str) -> Path:
     """Validates that path_str points to an existing directory without dangerous characters."""
     if not path_str or not path_str.strip():
         raise HTTPException(status_code=400, detail="Repository path cannot be empty.")
-    
+
     cleaned = path_str.strip()
     try:
         resolved = Path(cleaned).expanduser().resolve()
@@ -54,9 +52,13 @@ def validate_project_path(path_str: str) -> Path:
         raise HTTPException(status_code=400, detail=f"Invalid path syntax: {e}")
 
     if not resolved.exists():
-        raise HTTPException(status_code=400, detail=f"Directory does not exist: {resolved}")
+        raise HTTPException(
+            status_code=400, detail=f"Directory does not exist: {resolved}"
+        )
     if not resolved.is_dir():
-        raise HTTPException(status_code=400, detail=f"Path is not a directory: {resolved}")
+        raise HTTPException(
+            status_code=400, detail=f"Path is not a directory: {resolved}"
+        )
 
     return resolved
 
@@ -86,12 +88,32 @@ def health() -> Dict[str, str]:
     return {"status": "ok", "service": "code-knowledge-chain-ui"}
 
 
+@app.get("/api/samples")
+def get_samples() -> Dict[str, Any]:
+    """Returns bundled sample repositories with resolved absolute paths."""
+    base_dir = Path(__file__).resolve().parent.parent.parent.parent / "examples"
+    samples = []
+    if base_dir.exists():
+        for item in sorted(base_dir.iterdir()):
+            if item.is_dir() and not item.name.startswith("."):
+                samples.append(
+                    {
+                        "id": item.name,
+                        "name": item.name.replace("-", " ").title(),
+                        "path": str(item.resolve()),
+                    }
+                )
+    return {"samples": samples}
+
+
 @app.get("/api/status")
-def get_status(project: str = Query(..., description="Absolute path to target project")):
+def get_status(
+    project: str = Query(..., description="Absolute path to target project"),
+):
     resolved = validate_project_path(project)
     chain = CodeKnowledgeChain(project_path=str(resolved))
     status = chain.status()
-    
+
     # Check git metadata if present
     git_dir = resolved / ".git"
     git_info = {"is_git": git_dir.exists()}
@@ -120,7 +142,10 @@ def cancel_indexing(payload: CancelPayload):
         if proc and proc.poll() is None:
             try:
                 proc.terminate()
-                return {"success": True, "message": "Indexing process termination signal sent."}
+                return {
+                    "success": True,
+                    "message": "Indexing process termination signal sent.",
+                }
             except Exception as e:
                 return {"success": False, "message": f"Error terminating process: {e}"}
     return {"success": True, "message": "No active process or already finished."}
@@ -140,16 +165,31 @@ async def stream_indexing(
         with _active_indexing_lock:
             _cancellation_flags[proj_key] = False
 
-        yield json.dumps({
-            "event": "start",
-            "message": f"Starting 3-tier indexing on {resolved}",
-            "multimodal": multimodal,
-        })
+        yield json.dumps(
+            {
+                "event": "start",
+                "message": f"Starting 3-tier indexing on {resolved}",
+                "multimodal": multimodal,
+            }
+        )
 
         steps = [
-            ("graphify", "Tier 1: Graphify Multi-modal & Architecture", [config.graphify_bin, "extract", str(resolved)] + ([] if multimodal else ["--code-only"])),
-            ("gitnexus", "Tier 2: GitNexus Tree-sitter AST & Execution Flow", [config.gitnexus_bin, "analyze", str(resolved)]),
-            ("codegraph", "Tier 3: CodeGraph Symbol Intelligence & Test Impact", [config.codegraph_bin, "init", str(resolved)]),
+            (
+                "graphify",
+                "Tier 1: Graphify Multi-modal & Architecture",
+                [config.graphify_bin, "extract", str(resolved)]
+                + ([] if multimodal else ["--code-only"]),
+            ),
+            (
+                "gitnexus",
+                "Tier 2: GitNexus Tree-sitter AST & Execution Flow",
+                [config.gitnexus_bin, "analyze", str(resolved)],
+            ),
+            (
+                "codegraph",
+                "Tier 3: CodeGraph Symbol Intelligence & Test Impact",
+                [config.codegraph_bin, "init", str(resolved)],
+            ),
         ]
 
         overall_success = True
@@ -157,16 +197,20 @@ async def stream_indexing(
 
         for step_idx, (engine, step_label, cmd) in enumerate(steps, 1):
             if _cancellation_flags.get(proj_key, False):
-                yield json.dumps({"event": "cancelled", "message": "Indexing was cancelled by user."})
+                yield json.dumps(
+                    {"event": "cancelled", "message": "Indexing was cancelled by user."}
+                )
                 return
 
-            yield json.dumps({
-                "event": "step_start",
-                "step": step_idx,
-                "total_steps": 3,
-                "engine": engine,
-                "label": step_label,
-            })
+            yield json.dumps(
+                {
+                    "event": "step_start",
+                    "step": step_idx,
+                    "total_steps": 3,
+                    "engine": engine,
+                    "label": step_label,
+                }
+            )
 
             try:
                 proc = subprocess.Popen(
@@ -184,7 +228,12 @@ async def stream_indexing(
                 while True:
                     if _cancellation_flags.get(proj_key, False):
                         proc.terminate()
-                        yield json.dumps({"event": "cancelled", "message": f"Cancelled during {engine}."})
+                        yield json.dumps(
+                            {
+                                "event": "cancelled",
+                                "message": f"Cancelled during {engine}.",
+                            }
+                        )
                         return
 
                     line = proc.stdout.readline()
@@ -192,11 +241,13 @@ async def stream_indexing(
                         break
                     if line:
                         clean_line = line.rstrip()
-                        yield json.dumps({
-                            "event": "log",
-                            "engine": engine,
-                            "line": clean_line,
-                        })
+                        yield json.dumps(
+                            {
+                                "event": "log",
+                                "engine": engine,
+                                "line": clean_line,
+                            }
+                        )
                     await asyncio.sleep(0.01)
 
                 rc = proc.poll()
@@ -204,27 +255,31 @@ async def stream_indexing(
                     if proj_key in _active_indexing_processes:
                         del _active_indexing_processes[proj_key]
 
-                success = (rc == 0)
+                success = rc == 0
                 step_results[engine] = {"success": success, "returncode": rc}
                 if not success:
                     overall_success = False
 
-                yield json.dumps({
-                    "event": "step_finish",
-                    "step": step_idx,
-                    "engine": engine,
-                    "success": success,
-                    "returncode": rc,
-                })
+                yield json.dumps(
+                    {
+                        "event": "step_finish",
+                        "step": step_idx,
+                        "engine": engine,
+                        "success": success,
+                        "returncode": rc,
+                    }
+                )
 
             except Exception as e:
                 overall_success = False
-                yield json.dumps({
-                    "event": "step_error",
-                    "step": step_idx,
-                    "engine": engine,
-                    "error": str(e),
-                })
+                yield json.dumps(
+                    {
+                        "event": "step_error",
+                        "step": step_idx,
+                        "engine": engine,
+                        "error": str(e),
+                    }
+                )
 
         # Save manifest
         chain = CodeKnowledgeChain(project_path=str(resolved))
@@ -241,12 +296,14 @@ async def stream_indexing(
         with open(manifest_file, "w", encoding="utf-8") as f:
             json.dump(manifest_data, f, indent=2)
 
-        yield json.dumps({
-            "event": "complete",
-            "overall_success": overall_success,
-            "status": status.model_dump(),
-            "summary": chain.export_summary(),
-        })
+        yield json.dumps(
+            {
+                "event": "complete",
+                "overall_success": overall_success,
+                "status": status.model_dump(),
+                "summary": chain.export_summary(),
+            }
+        )
 
     return EventSourceResponse(event_generator())
 
@@ -293,12 +350,14 @@ def list_artifacts(project: str = Query(...)):
         if path.exists():
             try:
                 rel_path = path.relative_to(resolved)
-                artifacts.append({
-                    "label": label,
-                    "relative_path": str(rel_path),
-                    "size_bytes": path.stat().st_size,
-                    "modified_time": path.stat().st_mtime,
-                })
+                artifacts.append(
+                    {
+                        "label": label,
+                        "relative_path": str(rel_path),
+                        "size_bytes": path.stat().st_size,
+                        "modified_time": path.stat().st_mtime,
+                    }
+                )
             except Exception:
                 pass
 
@@ -311,15 +370,17 @@ def get_artifact_content(
     file: str = Query(...),
 ):
     resolved = validate_project_path(project)
-    
+
     # Path traversal protection: only allow relative paths inside specific folders
     clean_file = file.strip().lstrip("/")
     if ".." in clean_file:
         raise HTTPException(status_code=400, detail="Path traversal not permitted.")
-    
+
     allowed_prefixes = ("graphify-out", ".code_chain", ".gitnexus", ".codegraph")
     if not clean_file.startswith(allowed_prefixes):
-        raise HTTPException(status_code=403, detail="File is not in an authorized artifact directory.")
+        raise HTTPException(
+            status_code=403, detail="File is not in an authorized artifact directory."
+        )
 
     target_file = (resolved / clean_file).resolve()
     if not target_file.exists() or not target_file.is_file():

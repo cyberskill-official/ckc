@@ -10,7 +10,9 @@ from code_chain.core.orchestrator import CodeKnowledgeChain
 class TestChainPipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.test_repo = Path("/Users/stephencheng/.gemini/antigravity/brain/bbdb8b5b-335f-4365-9a0f-e9a7b788bcf7/scratch/test-project")
+        cls.test_repo = (
+            Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
+        )
         cls.chain = CodeKnowledgeChain(project_path=str(cls.test_repo))
 
     def test_overall_status(self):
