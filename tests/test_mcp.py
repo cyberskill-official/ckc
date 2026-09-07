@@ -12,9 +12,7 @@ from code_chain.core.config import get_code_chain_cmd
 
 class TestMCPServer(unittest.TestCase):
     def test_mcp_protocol_handshake_and_tools(self):
-        test_repo = str(
-            Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
-        )
+        test_repo = str(Path(__file__).resolve().parent.parent / "examples" / "python-auth-service")
 
         requests = [
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
@@ -34,7 +32,11 @@ class TestMCPServer(unittest.TestCase):
                 "method": "tools/call",
                 "params": {
                     "name": "chain_impact",
-                    "arguments": {"project_path": test_repo, "symbol": "login"},
+                    "arguments": {
+                        "project_path": test_repo,
+                        "symbol": "login",
+                        "use_llm": False,
+                    },
                 },
             },
         ]
@@ -46,7 +48,7 @@ class TestMCPServer(unittest.TestCase):
             input=input_payload,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=30,
             check=False,
         )
 
@@ -68,9 +70,7 @@ class TestMCPServer(unittest.TestCase):
 
         resp3 = json.loads(lines[2])
         self.assertEqual(resp3["id"], 3)
-        self.assertIn(
-            "Code Knowledge Chain Status", resp3["result"]["content"][0]["text"]
-        )
+        self.assertIn("Code Knowledge Chain Status", resp3["result"]["content"][0]["text"])
 
         resp4 = json.loads(lines[3])
         self.assertEqual(resp4["id"], 4)

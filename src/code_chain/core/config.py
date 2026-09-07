@@ -56,18 +56,13 @@ def get_code_chain_cmd() -> list[str]:
 class ChainConfig(BaseModel):
     """Global configuration for the chaining pipeline."""
 
-    graphify_bin: str = Field(
-        default_factory=lambda: resolve_binary("graphify")
-    )
-    gitnexus_bin: str = Field(
-        default_factory=lambda: resolve_binary("gitnexus")
-    )
-    codegraph_bin: str = Field(
-        default_factory=lambda: resolve_binary("codegraph")
-    )
+    graphify_bin: str = Field(default_factory=lambda: resolve_binary("graphify"))
+    gitnexus_bin: str = Field(default_factory=lambda: resolve_binary("gitnexus"))
+    codegraph_bin: str = Field(default_factory=lambda: resolve_binary("codegraph"))
 
     # Timeouts in seconds
     index_timeout: int = 300
+    multimodal_index_timeout: int = 900
     # Soft upper bound for interactive query/impact/trace work (UI messaging / future caps).
     query_timeout: int = 60
 

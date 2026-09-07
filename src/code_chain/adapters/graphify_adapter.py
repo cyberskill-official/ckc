@@ -6,6 +6,7 @@ schemas, code hubs).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -34,6 +35,7 @@ def classify_entity_type(source_file: str, file_type: str, label: str = "") -> s
     if (label or "").lower().startswith("public."):
         return "schema"
     return raw
+
 
 def entity_match_score(
     query_terms: list[str],
@@ -142,11 +144,34 @@ class GraphifyAdapter(BaseGraphAdapter):
         cmd = [self.bin_path, "extract", str(self.project_path)]
         if code_only:
             cmd.append("--code-only")
+        else:
+            from code_chain.core.llm import resolve_llm_config
+
+            llm_cfg = resolve_llm_config()
+            has_cloud_key = any(
+                os.getenv(k)
+                for k in (
+                    "GEMINI_API_KEY",
+                    "GOOGLE_API_KEY",
+                    "ANTHROPIC_API_KEY",
+                    "OPENAI_API_KEY",
+                    "DEEPSEEK_API_KEY",
+                    "MOONSHOT_API_KEY",
+                )
+            )
+            if llm_cfg:
+                base_url, model, api_key = llm_cfg
+                cmd.extend(["--backend", "openai", "--max-concurrency", "1"])
+                if model and model != "local-model":
+                    cmd.extend(["--model", model])
+                os.environ.setdefault("OPENAI_BASE_URL", base_url)
+                os.environ.setdefault("OPENAI_MODEL", model)
+                os.environ.setdefault("OPENAI_API_KEY", api_key)
+            elif not has_cloud_key:
+                cmd.append("--code-only")
         return cmd
 
-    def index_project(
-        self, code_only: bool = True, timeout: int = 300
-    ) -> dict[str, Any]:
+    def index_project(self, code_only: bool = True, timeout: int = 300) -> dict[str, Any]:
         """Runs graphify extraction on the target project."""
         cmd = self._extract_cmd(code_only)
         result = subprocess.run(
@@ -155,8 +180,9 @@ class GraphifyAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=timeout,
-                check=False,
-            )
+            check=False,
+            env=os.environ,
+        )
 
         success = result.returncode == 0 and self.graph_json_path.exists()
         return {
@@ -176,9 +202,7 @@ class GraphifyAdapter(BaseGraphAdapter):
         except Exception:
             return {"nodes": [], "links": []}
 
-    def find_cross_domain_entities(
-        self, query: str, limit: int = 10
-    ) -> list[CrossDomainEntity]:
+    def find_cross_domain_entities(self, query: str, limit: int = 10) -> list[CrossDomainEntity]:
         """Search for cross-domain entities (docs, schemas, code hubs) matching the query."""
         data = self.load_graph_data()
         nodes = data.get("nodes", [])
@@ -207,12 +231,8 @@ class GraphifyAdapter(BaseGraphAdapter):
             label = n.get("label", "")
             node_id = n.get("id", "")
             source_file = n.get("source_file", "")
-            entity_type = classify_entity_type(
-                source_file, n.get("file_type", "code"), label
-            )
-            score = entity_match_score(
-                query_terms, label, node_id, source_file, entity_type
-            )
+            entity_type = classify_entity_type(source_file, n.get("file_type", "code"), label)
+            score = entity_match_score(query_terms, label, node_id, source_file, entity_type)
             if score <= 0:
                 continue
             entity = CrossDomainEntity(
@@ -227,8 +247,7 @@ class GraphifyAdapter(BaseGraphAdapter):
                 degree=node_degrees.get(node_id, 0),
                 connections=node_connections.get(node_id, [])[:8],
                 description=(
-                    f"Community {n.get('community')}, {entity_type} artifact "
-                    f"in {source_file}"
+                    f"Community {n.get('community')}, {entity_type} artifact in {source_file}"
                 ),
             )
             ranked.append((score, entity))
@@ -236,8 +255,7 @@ class GraphifyAdapter(BaseGraphAdapter):
         # Merge local markdown overlay (code-only Graphify skips docs).
         overlay = load_docs_index(self.project_path)
         seen_paths = {
-            (entity.source_path or "").replace("\\", "/").lower()
-            for _score, entity in ranked
+            (entity.source_path or "").replace("\\", "/").lower() for _score, entity in ranked
         }
         for doc in overlay.get("docs") or []:
             if not isinstance(doc, dict):
@@ -246,9 +264,7 @@ class GraphifyAdapter(BaseGraphAdapter):
             label = str(doc.get("name") or source_file)
             node_id = str(doc.get("id") or f"local-doc:{source_file}")
             entity_type = "doc"
-            score = entity_match_score(
-                query_terms, label, node_id, source_file, entity_type
-            )
+            score = entity_match_score(query_terms, label, node_id, source_file, entity_type)
             excerpt = str(doc.get("excerpt") or "")
             if score <= 0 and excerpt:
                 searchable = excerpt.lower()

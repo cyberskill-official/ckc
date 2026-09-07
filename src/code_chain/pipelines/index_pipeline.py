@@ -36,9 +36,7 @@ class IndexPipeline:
         s_gitnexus = self.gitnexus.get_status()
         s_codegraph = self.codegraph.get_status()
 
-        ready_count = sum(
-            [1 for s in [s_graphify, s_gitnexus, s_codegraph] if s.indexed]
-        )
+        ready_count = sum([1 for s in [s_graphify, s_gitnexus, s_codegraph] if s.indexed])
         return ProjectGraphStatus(
             project_path=str(self.project_path),
             graphify=s_graphify,
@@ -66,9 +64,7 @@ class IndexPipeline:
                 with contextlib.suppress(OSError):
                     target.unlink()
 
-    def run(
-        self, code_only: bool | None = None, force: bool = False
-    ) -> dict[str, Any]:
+    def run(self, code_only: bool | None = None, force: bool = False) -> dict[str, Any]:
         """Runs the full 3-engine indexing pipeline."""
         if code_only is None:
             code_only = self.config.graphify_code_only
@@ -87,17 +83,14 @@ class IndexPipeline:
         }
 
         # 1. Index Graphify (Broad multi-modal & community graph)
-        print(
-            "[1/3] Indexing with Graphify (Holistic multi-modal & community layer)..."
-        )
+        print("[1/3] Indexing with Graphify (Holistic multi-modal & community layer)...")
         t0 = time.time()
+        timeout = self.config.index_timeout if code_only else self.config.multimodal_index_timeout
         res_graphify = self.graphify.index_project(
             code_only=code_only,
-            timeout=self.config.index_timeout,
+            timeout=timeout,
         )
-        docs_overlay = index_docs_overlay(
-            self.project_path, code_only=code_only, announce=True
-        )
+        docs_overlay = index_docs_overlay(self.project_path, code_only=code_only, announce=True)
         res_graphify = {
             **res_graphify,
             "local_docs_count": docs_overlay.get("doc_count", 0),
@@ -122,9 +115,7 @@ class IndexPipeline:
         }
 
         # 3. Index CodeGraph (Fine-grained symbol index & fast code exploration)
-        print(
-            "[3/3] Indexing with CodeGraph (Symbol intelligence & test impact layer)..."
-        )
+        print("[3/3] Indexing with CodeGraph (Symbol intelligence & test impact layer)...")
         t0 = time.time()
         res_codegraph = self.codegraph.index_project(timeout=self.config.index_timeout)
         t_codegraph = time.time() - t0
