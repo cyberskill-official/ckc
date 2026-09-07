@@ -16,13 +16,24 @@ Please review and adhere to our [Code of Conduct](CODE_OF_CONDUCT.md) in all pro
 
 ### Prerequisites
 
-1. **Python 3.9+**
+1. **Python 3.10+**
 2. **Git**
 3. **Node.js 18+** and **npm**
 4. The three underlying graph engines:
    - **Graphify**: `pip install graphifyy`
    - **GitNexus**: `npm install -g gitnexus`
    - **CodeGraph**: `npm install -g @colbymchenry/codegraph`
+
+### Editable install (recommended for contributors)
+
+```bash
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+ruff check .
+pytest tests -q
+```
+
+Dev extras install `pytest`, `ruff`, and `httpx` (see `pyproject.toml`).
 
 ### One-Click Setup
 
@@ -43,6 +54,18 @@ To run the setup without automatically launching the Web UI:
 ```bash
 python3 scripts/setup.py --no-ui
 ```
+
+---
+
+## CI & branch protection
+
+GitHub Actions runs Ruff + the pytest matrix on every push/PR to `main` (see `.github/workflows/ci.yml`).
+
+**Recommended repository settings** (GitHub → Settings → Branches → Branch protection rules for `main`):
+
+- Require a pull request before merging
+- Require status checks to pass: `Lint (Ruff)` and the `Test (...)` matrix jobs
+- Do not allow force pushes to `main`
 
 ---
 

@@ -2,6 +2,8 @@
 ### Unified 3-Tier Knowledge Graph Orchestrator & Interactive UI for Codebases
 *Based on the architecture from [Graphify vs GitNexus vs CodeGraph](https://vijayasekhar-deepak.beehiiv.com/p/graphify-vs-gitnexus-vs-codegraph) by Vijayasekhar Deepak.*
 
+[![CI](https://github.com/cyberskill-official/ckc/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberskill-official/ckc/actions/workflows/ci.yml)
+
 ---
 
 ## The Core Philosophy: "Traverse ➔ Reason ➔ Explain"
@@ -124,48 +126,33 @@ Code Knowledge Chain orchestrates three engines installed globally on your machi
 
 ---
 
-## Web UI Dashboard
+## Web UI — Graph-First Explorer
 
-The package includes a full-featured, interactive single-page application dashboard built with FastAPI, Server-Sent Events (SSE), Mermaid.js, and Marked.
+The package includes an interactive **Graph-First Explorer** (FastAPI + Server-Sent Events + Cytoscape.js) for browsing architecture communities, running grounded query / impact / trace, and streaming 3-tier indexing.
 
 ### Starting the Web UI
 ```bash
-# Start the web UI on default port 8000
+# Start on default loopback bind (safe CORS default)
 code-chain ui
 
-# Or specify a custom port / host and open browser automatically
+# Custom port / host and open browser
 code-chain ui --port 8080 --open
+
+# Non-loopback binds require CKC_UI_TOKEN for mutating routes
+# export CKC_UI_TOKEN=change-me
+# code-chain ui --host 0.0.0.0
 ```
 
-Once running, navigate to `http://localhost:8000`.
+Once running, navigate to `http://127.0.0.1:8000`.
 
 ### UI Features
-1. **Sticky Repository Bar**:
-   - Live repository path validation (rejects invalid paths or traversal attempts).
-   - Instant quick-load chips for preset sample projects (`python-auth-service` and `ts-billing-service`).
-   - Overall Readiness indicator badge (🟢 3/3 Engines Ready, 🟡 Partial, 🔴 Missing).
-2. **Dashboard & Streaming Indexing Panel**:
-   - Real-time status cards for each engine: node counts, edge counts, community clusters, and storage locations.
-   - Option to toggle Fast AST indexing (`--code-only`) or Full Multi-modal extraction (ADRs, schemas, PDFs).
-   - Live streaming terminal log powered by Server-Sent Events (SSE) with elapsed timer and auto-scroll.
-   - **Cancellation Support**: "Cancel Indexing" button cleanly terminates active background analyzer jobs.
-3. **Architecture & Feature Query Explorer**:
-   - Search input with pre-populated architectural suggestion chips.
-   - Grounded context synthesis formatted in rendered GitHub-flavored markdown.
-   - One-click copy button (`📋 Copy LLM Prompt Context`) to immediately paste grounded context into Claude, ChatGPT, Cursor, or Gemini.
-4. **Refactoring & Blast Radius Studio**:
-   - Evaluates any function, method, or class.
-   - Visual Risk Meter (LOW, MEDIUM, HIGH, CRITICAL).
-   - Upstream Call Hierarchy tree (depth 1, 2, ...).
-   - Affected test suites list.
-   - Actionable 4-step refactoring checklist.
-5. **Directed Execution Flow Tracer**:
-   - Specify source and target symbols (`from_symbol` ➔ `to_symbol`).
-   - Live interactive **Mermaid.js diagram** rendered directly in browser.
-   - Step-by-step hop cards with file locations and domain tags.
-6. **Artifacts Inspector**:
-   - Lists generated graph outputs (`graphify-out/graph.json`, `GRAPH_REPORT.md`, `index_manifest.json`).
-   - In-browser safe file reader with syntax formatting.
+1. **Header project bar**: absolute path input, sample project picker (`/api/samples`), readiness badge, local docs count, and LLM chip.
+2. **Cytoscape graph canvas**: community-colored nodes, category filters (code / docs / schema / tests), fit/clear overlays, command bar (`/` focus).
+3. **Streaming indexing**: SSE terminal drawer with force / multimodal toggles, cancel (terminate→kill), and per-project job serialization.
+4. **Query / Impact / Trace**: results drawer with DOMPurify-sanitized markdown; Mermaid diagrams render with `securityLevel: 'strict'`.
+5. **Security defaults**: loopback-only CORS wildcard; optional `CKC_UI_TOKEN`; path-safe artifact APIs with size caps.
+
+See `.env.example` for `CKC_UI_TOKEN`, `CKC_CORS_ORIGINS`, and the LM Studio / `OPENAI_BASE_URL` SSRF threat model.
 
 ---
 
@@ -221,6 +208,8 @@ export CKC_LLM_MODEL=your-loaded-model
 export CKC_LLM_API_KEY=lm-studio
 ```
 When configured, `query` / `impact` / `trace` append a **Local model synthesis** section. Soft-fails if the server is down; use `--no-llm` to disable.
+
+**SSRF note:** CKC POSTs to whatever `CKC_LLM_BASE_URL` / `OPENAI_BASE_URL` you configure. Treat that URL as a trusted endpoint. Auto-detection only probes loopback LM Studio (`127.0.0.1` / `localhost` / `::1`) and never remote hosts. See `.env.example` for the full threat-model notes.
 
 ---
 
@@ -291,7 +280,7 @@ The system is designed with graceful degradation:
 - **If Graphify is missing or indexing is partial**: The pipeline still performs AST call graph exploration (GitNexus) and symbol exploration (CodeGraph), providing code-level context even without high-level documentation clusters.
 - **If GitNexus is missing**: The pipeline falls back to Graphify's neighbor degree analysis and CodeGraph's direct callers/callees to estimate blast radius.
 - **If CodeGraph is missing**: The pipeline relies on GitNexus AST symbol context and Graphify source links to locate code definitions.
-- **UI Status Grid**: Clearly highlights partial readiness with color-coded badges (🟢 Ready, 🟡 Partial, 🔴 Missing) and detailed error diagnostics.
+- **UI Status**: readiness badge, local docs count, LLM chip, and structured `engine_errors` on `/api/status` for partial graphs.
 
 ---
 
