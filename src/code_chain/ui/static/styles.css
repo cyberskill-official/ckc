@@ -64,6 +64,21 @@ body {
     max-width: 160px;
 }
 
+#ui-token {
+    max-width: 140px;
+    flex: 0 0 140px;
+}
+
+input[type="password"] {
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    width: 100%;
+}
+
 button:disabled {
     opacity: 0.5;
     cursor: not-allowed;

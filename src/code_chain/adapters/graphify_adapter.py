@@ -173,15 +173,32 @@ class GraphifyAdapter(BaseGraphAdapter):
     def index_project(self, code_only: bool = True, timeout: int = 300) -> dict[str, Any]:
         """Runs graphify extraction on the target project."""
         cmd = self._extract_cmd(code_only)
-        result = subprocess.run(
-            cmd,
-            cwd=str(self.project_path),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-            env=os.environ,
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(self.project_path),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=os.environ,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or ""
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode("utf-8", errors="replace")
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
+            return {
+                "success": False,
+                "returncode": None,
+                "timeout": True,
+                "error": f"graphify index timed out after {timeout}s",
+                "stdout": stdout,
+                "stderr": stderr,
+                "graph_json_path": str(self.graph_json_path),
+            }
 
         success = result.returncode == 0 and self.graph_json_path.exists()
         return {

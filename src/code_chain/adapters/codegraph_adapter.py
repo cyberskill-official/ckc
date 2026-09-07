@@ -94,14 +94,31 @@ class CodeGraphAdapter(BaseGraphAdapter):
     def index_project(self, timeout: int = 300) -> dict[str, Any]:
         """Runs codegraph init or index on the target project."""
         cmd = self._init_cmd()
-        result = subprocess.run(
-            cmd,
-            cwd=str(self.project_path),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(self.project_path),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or ""
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode("utf-8", errors="replace")
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
+            return {
+                "success": False,
+                "returncode": None,
+                "timeout": True,
+                "error": f"codegraph index timed out after {timeout}s",
+                "stdout": stdout,
+                "stderr": stderr,
+                "codegraph_dir": str(self.codegraph_dir),
+            }
         success = result.returncode == 0 and self.codegraph_dir.exists()
         return {
             "success": success,

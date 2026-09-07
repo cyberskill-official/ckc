@@ -8,6 +8,7 @@ writes `.code_chain/docs_index.json` so docs still surface in search/synthesis.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -35,6 +36,8 @@ _HEADING_RE = re.compile(
     r"^(?:=+\s+(.+?)\s*=+\s*$|#{1,6}\s+(.+))$", re.MULTILINE
 )
 _FRONTMATTER_RE = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
+
+logger = logging.getLogger("code_chain.docs_index")
 
 
 def docs_index_path(project_path: Path) -> Path:
@@ -210,8 +213,9 @@ def index_docs_overlay(
     discovered = int(result.get("discovered_files") or 0)
     indexed = int(result.get("doc_count") or 0)
     if announce and code_only:
-        print(
-            f"Graphify --code-only skipped {discovered} doc file(s); "
-            f"indexed {indexed} local chunk(s)"
+        logger.info(
+            "Graphify --code-only skipped %s doc file(s); indexed %s local chunk(s)",
+            discovered,
+            indexed,
         )
     return result

@@ -32,6 +32,7 @@ if (window.mermaid) {
 
 const els = {
     projectInput: document.getElementById('project-path'),
+    uiTokenInput: document.getElementById('ui-token'),
     samplePicker: document.getElementById('sample-picker'),
     loadBtn: document.getElementById('load-btn'),
     readyBadge: document.getElementById('ready-badge'),
@@ -66,11 +67,24 @@ const els = {
 
 function init() {
     els.projectInput.value = state.currentProject;
+    if (els.uiTokenInput) {
+        els.uiTokenInput.value = state.uiToken;
+    }
     initCytoscape();
     setupEventListeners();
     loadSamples();
     if (state.currentProject) {
         loadProject();
+    }
+}
+
+function persistUiTokenFromInput() {
+    if (!els.uiTokenInput) return;
+    state.uiToken = (els.uiTokenInput.value || '').trim();
+    if (state.uiToken) {
+        localStorage.setItem('ckc_ui_token', state.uiToken);
+    } else {
+        localStorage.removeItem('ckc_ui_token');
     }
 }
 
@@ -262,6 +276,7 @@ function initCytoscape() {
 
 function setupEventListeners() {
     els.loadBtn.addEventListener('click', () => {
+        persistUiTokenFromInput();
         state.currentProject = els.projectInput.value;
         localStorage.setItem('ckc_project_path', state.currentProject);
         loadProject();
@@ -269,6 +284,7 @@ function setupEventListeners() {
 
     els.samplePicker.addEventListener('change', () => {
         if (!els.samplePicker.value) return;
+        persistUiTokenFromInput();
         els.projectInput.value = els.samplePicker.value;
         state.currentProject = els.samplePicker.value;
         localStorage.setItem('ckc_project_path', state.currentProject);
@@ -278,6 +294,16 @@ function setupEventListeners() {
     els.projectInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') els.loadBtn.click();
     });
+
+    if (els.uiTokenInput) {
+        els.uiTokenInput.addEventListener('change', persistUiTokenFromInput);
+        els.uiTokenInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                persistUiTokenFromInput();
+                els.loadBtn.click();
+            }
+        });
+    }
 
     els.fitBtn.addEventListener('click', () => state.cy.fit(50));
 
@@ -329,17 +355,12 @@ function setupEventListeners() {
 
 async function loadProject() {
     if (!state.currentProject || state.inFlight) return;
+    persistUiTokenFromInput();
     setBusy(true);
     try {
         const [statusRes, graphRes] = await Promise.all([
             apiFetch(`/api/status?project=${encodeURIComponent(state.currentProject)}`),
-            fetch(`/api/graph?project=${encodeURIComponent(state.currentProject)}`).then(async (r) => {
-                const body = await r.json().catch(() => ({}));
-                if (!r.ok) {
-                    throw new Error(formatApiDetail(body.detail) || 'Graph not available');
-                }
-                return body;
-            })
+            apiFetch(`/api/graph?project=${encodeURIComponent(state.currentProject)}`),
         ]);
 
         updateStatus(statusRes);
@@ -785,6 +806,7 @@ async function maybeRenderMermaid(container) {
 function runIndexing() {
     if (!state.currentProject) return alert('Please load a project first.');
     if (state.inFlight) return;
+    persistUiTokenFromInput();
     openDrawer('terminal');
     els.terminalOutput.textContent = '';
     setBusy(true);

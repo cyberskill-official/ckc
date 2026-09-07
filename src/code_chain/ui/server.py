@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -19,6 +21,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.responses import Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
@@ -42,13 +45,9 @@ load_dotenv()
 logger = logging.getLogger("code_chain.ui")
 
 _MAX_ARTIFACT_BYTES = 2 * 1024 * 1024  # 2 MiB
-_MUTATING_PREFIXES = (
-    "/api/query",
-    "/api/impact",
-    "/api/trace",
-    "/api/index/cancel",
-    "/api/index/stream",
-)
+_MAX_GRAPH_BYTES = 20 * 1024 * 1024  # 20 MiB raw graph.json
+_GRAPH_SUBSAMPLE_NODE_CAP = 2500
+_ARTIFACT_ALLOWED_ROOTS = ("graphify-out", ".code_chain", ".gitnexus", ".codegraph")
 
 
 def _bind_host() -> str:
@@ -87,28 +86,47 @@ def ui_token() -> str | None:
     return token or None
 
 
-def auth_required_for_mutations() -> bool:
+def auth_required() -> bool:
     """Enforce shared secret when configured, or when listening beyond loopback."""
     if ui_token():
         return True
     return not is_loopback_host()
 
 
+# Backward-compatible alias used by older callers / docs snippets.
+auth_required_for_mutations = auth_required
+
+
+def tokens_match(provided: str, expected: str) -> bool:
+    """Constant-time token compare; unequal lengths never raise."""
+    try:
+        return hmac.compare_digest(provided, expected)
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_public_api_path(path: str) -> bool:
+    return path == "/api/health" or path.startswith("/api/health/")
+
+
+def _artifact_path_allowed(clean_file: str) -> bool:
+    """True when clean_file is under an allowlisted root as a path component."""
+    first = clean_file.split("/", 1)[0]
+    return first in _ARTIFACT_ALLOWED_ROOTS
+
+
 class UIAuthMiddleware(BaseHTTPMiddleware):
-    """Optional shared-secret gate for mutating UI endpoints."""
+    """Shared-secret gate for all /api/* routes except health (static is exempt)."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         path = request.url.path
-        is_mutating = any(path == p or path.startswith(p + "/") for p in _MUTATING_PREFIXES)
-        # Index stream is GET but mutates disk state
-        if path.startswith("/api/index/stream"):
-            is_mutating = True
-        if not is_mutating:
+        if not path.startswith("/api/") or _is_public_api_path(path):
+            return await call_next(request)
+
+        if not auth_required():
             return await call_next(request)
 
         token = ui_token()
-        if not auth_required_for_mutations():
-            return await call_next(request)
         if not token:
             return JSONResponse(
                 status_code=503,
@@ -133,7 +151,7 @@ class UIAuthMiddleware(BaseHTTPMiddleware):
         if not provided and path.startswith("/api/index/stream"):
             provided = (request.query_params.get("token") or "").strip()
 
-        if provided != token:
+        if not tokens_match(provided, token):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing UI auth token."},
@@ -162,7 +180,7 @@ app.add_middleware(UIAuthMiddleware)
 if not is_loopback_host() and not ui_token():
     logger.warning(
         "CKC UI is binding to non-loopback host %s without CKC_UI_TOKEN; "
-        "mutating routes will return 503 until a token is configured.",
+        "API routes will return 503 until a token is configured.",
         _bind_host(),
     )
 
@@ -480,6 +498,7 @@ async def stream_indexing(
                         _active_indexing_processes[proj_key] = proc
 
                     assert proc.stdout is not None
+                    step_aborted = False
                     while True:
                         if _cancellation_flags.get(proj_key, False):
                             await _terminate_process(proc)
@@ -499,6 +518,7 @@ async def stream_indexing(
                             with _active_indexing_lock:
                                 _active_indexing_processes.pop(proj_key, None)
                             overall_success = False
+                            step_aborted = True
                             yield json.dumps(
                                 {
                                     "event": "step_error",
@@ -531,6 +551,9 @@ async def stream_indexing(
                             }
                         )
 
+                    if step_aborted:
+                        break
+
                     if _cancellation_flags.get(proj_key, False):
                         await _terminate_process(proc)
                         with _active_indexing_lock:
@@ -544,7 +567,19 @@ async def stream_indexing(
                         return
 
                     if time.monotonic() > deadline and proc.returncode is None:
-                        continue
+                        await _terminate_process(proc)
+                        with _active_indexing_lock:
+                            _active_indexing_processes.pop(proj_key, None)
+                        overall_success = False
+                        yield json.dumps(
+                            {
+                                "event": "step_error",
+                                "step": step_idx,
+                                "engine": engine,
+                                "error": f"Index timeout ({index_timeout}s) exceeded.",
+                            }
+                        )
+                        break
 
                     rc = await proc.wait()
                     with _active_indexing_lock:
@@ -630,9 +665,12 @@ async def stream_indexing(
                 }
             )
         finally:
+            orphan: asyncio.subprocess.Process | None = None
             with _active_indexing_lock:
                 _active_index_jobs.discard(proj_key)
-                _active_indexing_processes.pop(proj_key, None)
+                orphan = _active_indexing_processes.pop(proj_key, None)
+            if orphan is not None:
+                await _terminate_process(orphan)
 
     return EventSourceResponse(event_generator())
 
@@ -684,15 +722,51 @@ async def run_trace(payload: TracePayload):
     return await _run_with_query_timeout(_work)
 
 
-@app.get("/api/graph")
-def get_graph(project: str = Query(...)):
-    """Returns the Graphify knowledge graph in Cytoscape.js elements format."""
-    resolved = validate_project_path(project)
-    graph_file = resolved / "graphify-out" / "graph.json"
-    if not graph_file.exists():
+def _subsample_graph_nodes(
+    raw_nodes: list[dict[str, Any]],
+    raw_links: list[dict[str, Any]],
+    *,
+    cap: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+    """Keep highest-degree nodes when over cap; filter edges to retained set."""
+    if len(raw_nodes) <= cap:
+        return raw_nodes, raw_links, False
+
+    degree_map: dict[str, int] = {}
+    for link in raw_links:
+        src = str(link.get("source", ""))
+        tgt = str(link.get("target", ""))
+        degree_map[src] = degree_map.get(src, 0) + 1
+        degree_map[tgt] = degree_map.get(tgt, 0) + 1
+
+    ranked = sorted(
+        raw_nodes,
+        key=lambda n: degree_map.get(str(n.get("id", "")), 0),
+        reverse=True,
+    )
+    kept = ranked[:cap]
+    kept_ids = {str(n.get("id", "")) for n in kept}
+    kept_links = [
+        link
+        for link in raw_links
+        if str(link.get("source", "")) in kept_ids
+        and str(link.get("target", "")) in kept_ids
+    ]
+    return kept, kept_links, True
+
+
+def _build_cytoscape_graph(
+    resolved: Path, graph_file: Path
+) -> tuple[dict[str, Any], float, int]:
+    """Read/transform graph.json off the event loop. Returns (payload, mtime, size)."""
+    st = graph_file.stat()
+    size = st.st_size
+    if size > _MAX_GRAPH_BYTES:
         raise HTTPException(
-            status_code=404,
-            detail="Graph not yet indexed. Run indexing first.",
+            status_code=413,
+            detail=(
+                f"Graph exceeds size limit ({size} bytes > {_MAX_GRAPH_BYTES} bytes)."
+            ),
         )
 
     try:
@@ -700,10 +774,15 @@ def get_graph(project: str = Query(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading graph: {e}") from e
 
-    raw_nodes = raw.get("nodes", [])
-    raw_links = raw.get("links", [])
+    raw_nodes = list(raw.get("nodes", []))
+    raw_links = list(raw.get("links", []))
+    total_nodes = len(raw_nodes)
+    total_edges = len(raw_links)
+    raw_nodes, raw_links, subsampled = _subsample_graph_nodes(
+        raw_nodes, raw_links, cap=_GRAPH_SUBSAMPLE_NODE_CAP
+    )
 
-    # Compute degree per node
+    # Compute degree per node (post-subsample)
     degree_map: dict[str, int] = {}
     for link in raw_links:
         src = link.get("source", "")
@@ -716,7 +795,9 @@ def get_graph(project: str = Query(...)):
     for node in raw_nodes:
         c = node.get("community")
         if c is not None:
-            community_members.setdefault(c, []).append(node.get("label", node.get("id", "")))
+            community_members.setdefault(c, []).append(
+                node.get("label", node.get("id", ""))
+            )
 
     # Transform to Cytoscape elements
     cy_nodes = []
@@ -782,7 +863,7 @@ def get_graph(project: str = Query(...)):
         for cid, members in sorted(community_members.items())
     ]
 
-    return {
+    payload = {
         "project_path": str(resolved),
         "elements": {"nodes": cy_nodes, "edges": cy_edges},
         "meta": {
@@ -790,8 +871,50 @@ def get_graph(project: str = Query(...)):
             "edge_count": len(cy_edges),
             "community_count": len(communities_summary),
             "communities": communities_summary,
+            "subsampled": subsampled,
+            "total_node_count": total_nodes,
+            "total_edge_count": total_edges,
+            "node_cap": _GRAPH_SUBSAMPLE_NODE_CAP,
         },
     }
+    return payload, st.st_mtime, size
+
+
+def _graph_etag(mtime: float, size: int, subsampled: bool) -> str:
+    raw = f"{mtime:.6f}:{size}:{int(subsampled)}:{_GRAPH_SUBSAMPLE_NODE_CAP}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    return f'W/"{digest}"'
+
+
+@app.get("/api/graph")
+async def get_graph(request: Request, project: str = Query(...)):
+    """Returns the Graphify knowledge graph in Cytoscape.js elements format."""
+    resolved = validate_project_path(project)
+    graph_file = resolved / "graphify-out" / "graph.json"
+    if not graph_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Graph not yet indexed. Run indexing first.",
+        )
+
+    payload, mtime, size = await asyncio.to_thread(
+        _build_cytoscape_graph, resolved, graph_file
+    )
+    etag = _graph_etag(mtime, size, bool(payload["meta"].get("subsampled")))
+    if_none_match = (request.headers.get("if-none-match") or "").strip()
+    if if_none_match and if_none_match == etag:
+        return FastAPIResponse(status_code=304, headers={"ETag": etag})
+
+    return JSONResponse(
+        content=payload,
+        headers={
+            "ETag": etag,
+            "Last-Modified": time.strftime(
+                "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(mtime)
+            ),
+            "Cache-Control": "private, max-age=0, must-revalidate",
+        },
+    )
 
 
 @app.get("/api/artifacts")
@@ -841,8 +964,7 @@ def get_artifact_content(
     if ".." in clean_file:
         raise HTTPException(status_code=400, detail="Path traversal not permitted.")
 
-    allowed_prefixes = ("graphify-out", ".code_chain", ".gitnexus", ".codegraph")
-    if not clean_file.startswith(allowed_prefixes):
+    if not _artifact_path_allowed(clean_file):
         raise HTTPException(
             status_code=403, detail="File is not in an authorized artifact directory."
         )
