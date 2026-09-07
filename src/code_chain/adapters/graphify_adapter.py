@@ -215,7 +215,8 @@ class GraphifyAdapter(BaseGraphAdapter):
         try:
             with open(self.graph_json_path, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception as e:
+            self.record_error("load_graph_data", e)
             return {"nodes": [], "links": []}
 
     def find_cross_domain_entities(self, query: str, limit: int = 10) -> list[CrossDomainEntity]:

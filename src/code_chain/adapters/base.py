@@ -18,6 +18,22 @@ class BaseGraphAdapter(ABC):
     def __init__(self, bin_path: str, project_path: Path):
         self.bin_path = resolve_binary(bin_path)
         self.project_path = project_path
+        # Soft-fail channel: last error per operation (drained by pipelines).
+        self._last_error: str | None = None
+
+    def record_error(self, operation: str, err: BaseException | str) -> None:
+        """Record a soft-fail so callers can distinguish empty vs failed."""
+        text = str(err).strip() or type(err).__name__
+        self._last_error = f"{operation}: {text[:380]}"
+
+    def take_error(self) -> str | None:
+        """Return and clear the last soft-fail message, if any."""
+        err = self._last_error
+        self._last_error = None
+        return err
+
+    def peek_error(self) -> str | None:
+        return self._last_error
 
     @abstractmethod
     def get_status(self) -> EngineStatus:

@@ -29,6 +29,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from code_chain.adapters import CodeGraphAdapter, GitNexusAdapter, GraphifyAdapter
+from code_chain.adapters.graphify_adapter import classify_entity_type
 from code_chain.core.config import ChainConfig
 from code_chain.core.docs_index import index_docs_overlay, local_docs_count
 from code_chain.core.env import load_dotenv
@@ -48,6 +49,17 @@ _MAX_ARTIFACT_BYTES = 2 * 1024 * 1024  # 2 MiB
 _MAX_GRAPH_BYTES = 20 * 1024 * 1024  # 20 MiB raw graph.json
 _GRAPH_SUBSAMPLE_NODE_CAP = 2500
 _ARTIFACT_ALLOWED_ROOTS = ("graphify-out", ".code_chain", ".gitnexus", ".codegraph")
+_MUTATING_PREFIXES = (
+    "/api/query",
+    "/api/impact",
+    "/api/trace",
+    "/api/index/",
+)
+# Simple in-memory rate limit for mutating routes off-loopback.
+_RATE_LIMIT_WINDOW_S = 60.0
+_RATE_LIMIT_MAX = 30
+_rate_limit_hits: dict[str, list[float]] = {}
+_rate_limit_lock = threading.Lock()
 
 
 def _bind_host() -> str:
@@ -115,6 +127,59 @@ def _artifact_path_allowed(clean_file: str) -> bool:
     return first in _ARTIFACT_ALLOWED_ROOTS
 
 
+def _client_rate_key(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _rate_limit_exceeded(request: Request) -> bool:
+    """True when off-loopback mutating traffic exceeds the simple window budget."""
+    if is_loopback_host():
+        return False
+    path = request.url.path
+    if not any(path.startswith(p) for p in _MUTATING_PREFIXES):
+        return False
+    key = _client_rate_key(request)
+    now = time.monotonic()
+    with _rate_limit_lock:
+        hits = [t for t in _rate_limit_hits.get(key, []) if now - t < _RATE_LIMIT_WINDOW_S]
+        if len(hits) >= _RATE_LIMIT_MAX:
+            _rate_limit_hits[key] = hits
+            return True
+        hits.append(now)
+        _rate_limit_hits[key] = hits
+    return False
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Lightweight CSP for the Explorer (CDN libs + same-origin API)."""
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        response = await call_next(request)
+        # Allow pinned CDN scripts (SRI enforced in HTML) + same-origin.
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            (
+                "default-src 'self'; "
+                "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; "
+                "connect-src 'self'; "
+                "font-src 'self' data:; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "frame-ancestors 'none'"
+            ),
+        )
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        return response
+
+
 class UIAuthMiddleware(BaseHTTPMiddleware):
     """Shared-secret gate for all /api/* routes except health (static is exempt)."""
 
@@ -122,6 +187,12 @@ class UIAuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if not path.startswith("/api/") or _is_public_api_path(path):
             return await call_next(request)
+
+        if _rate_limit_exceeded(request):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded for mutating API routes."},
+            )
 
         if not auth_required():
             return await call_next(request)
@@ -147,8 +218,8 @@ class UIAuthMiddleware(BaseHTTPMiddleware):
         auth = (request.headers.get("authorization") or "").strip()
         if auth.lower().startswith("bearer "):
             provided = auth[7:].strip() or provided
-        # EventSource cannot set headers; allow ?token= for SSE only
-        if not provided and path.startswith("/api/index/stream"):
+        # Legacy EventSource fallback: ?token= for GET SSE only (prefer POST + header).
+        if not provided and request.method == "GET" and path.startswith("/api/index/stream"):
             provided = (request.query_params.get("token") or "").strip()
 
         if not tokens_match(provided, token):
@@ -176,6 +247,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(UIAuthMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 if not is_loopback_host() and not ui_token():
     logger.warning(
@@ -246,7 +318,13 @@ def _build_index_steps(
     resolved: Path, config: ChainConfig, *, multimodal: bool
 ) -> tuple[list[tuple[str, str, list[str]]], bool]:
     """
-    Shared engine argv lists for UI SSE indexing (mirrors IndexPipeline / adapters).
+    Shared engine argv lists for UI SSE indexing.
+
+    Mirrors adapter ``_extract_cmd`` / ``_analyze_cmd`` / ``_init_cmd`` used by
+    ``IndexPipeline``. Full merge into one IndexPipeline streaming path is
+    deferred (argv drift risk); keep these command builders in sync manually.
+    Timeout semantics differ intentionally: UI uses one wall-clock deadline;
+    CLI/MCP give each engine a full per-engine timeout (see ChainConfig docstring).
     Returns (steps, code_only).
     """
     code_only = not multimodal
@@ -300,6 +378,12 @@ class TracePayload(BaseModel):
 
 class CancelPayload(BaseModel):
     project_path: str
+
+
+class IndexStreamPayload(BaseModel):
+    project_path: str
+    multimodal: bool = False
+    force: bool = False
 
 
 @app.get("/api/health")
@@ -375,14 +459,35 @@ async def cancel_indexing(payload: CancelPayload):
     return {"success": True, "message": "No active process or already finished."}
 
 
-@app.get("/api/index/stream")
+@app.api_route("/api/index/stream", methods=["GET", "POST"])
 async def stream_indexing(
     request: Request,
-    project: str = Query(...),
+    project: str | None = Query(None),
     multimodal: bool = Query(False),
     force: bool = Query(False),
 ):
-    resolved = validate_project_path(project)
+    """Stream indexing progress via SSE.
+
+    Prefer POST with JSON body + Authorization header so the UI token never
+    appears in the query string. GET + optional ?token= remains for legacy clients.
+    """
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON body.") from exc
+        payload = IndexStreamPayload.model_validate(body)
+        project_path = payload.project_path
+        multimodal = payload.multimodal
+        force = payload.force
+    else:
+        if not project:
+            raise HTTPException(
+                status_code=422, detail="Query parameter 'project' is required for GET."
+            )
+        project_path = project
+
+    resolved = validate_project_path(project_path)
     proj_key = str(resolved)
     config = ChainConfig()
 
@@ -799,18 +904,18 @@ def _build_cytoscape_graph(
                 node.get("label", node.get("id", ""))
             )
 
-    # Transform to Cytoscape elements
+    # Transform to Cytoscape elements (categories via shared classify_entity_type)
     cy_nodes = []
     for node in raw_nodes:
         nid = node.get("id", "")
         file_type = node.get("file_type", "code")
         source_file = node.get("source_file", "")
-        # Map file_type to semantic category
-        if file_type == "rationale":
-            category = "doc"
-        elif source_file.endswith(".sql"):
-            category = "schema"
-        elif source_file.endswith((".md", ".txt", ".rst", ".adoc")):
+        label = node.get("label", nid)
+        entity = classify_entity_type(source_file, file_type, str(label or ""))
+        # Map CKC entity types onto Explorer filter categories.
+        if entity in {"doc", "schema"}:
+            category = entity
+        elif entity == "config" or entity == "rationale" or file_type == "rationale":
             category = "doc"
         elif (
             ".test." in source_file
@@ -826,7 +931,7 @@ def _build_cytoscape_graph(
             {
                 "data": {
                     "id": nid,
-                    "label": node.get("label", nid),
+                    "label": label,
                     "category": category,
                     "file_type": file_type,
                     "community": node.get("community"),

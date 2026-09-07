@@ -148,9 +148,9 @@ Once running, navigate to `http://127.0.0.1:8000`.
 ### UI Features
 1. **Header project bar**: absolute path input, sample project picker (`/api/samples`), readiness badge, local docs count, and LLM chip.
 2. **Cytoscape graph canvas**: community-colored nodes, category filters (code / docs / schema / tests), fit/clear overlays, command bar (`/` focus).
-3. **Streaming indexing**: SSE terminal drawer with force / multimodal toggles, cancel (terminate→kill), and per-project job serialization.
-4. **Query / Impact / Trace**: results drawer with DOMPurify-sanitized markdown; Mermaid diagrams render with `securityLevel: 'strict'`.
-5. **Security defaults**: loopback-only CORS wildcard; optional `CKC_UI_TOKEN`; path-safe artifact APIs with size caps.
+3. **Streaming indexing**: POST fetch SSE (token via Authorization header; no query-string token), force / multimodal / local-LLM toggles, cancel (terminate→kill + AbortController), and per-project job serialization.
+4. **Query / Impact / Trace**: results drawer with DOMPurify-sanitized markdown; Mermaid diagrams render with `securityLevel: 'strict'`; Explorer can toggle local LLM synthesis.
+5. **Security defaults**: loopback-only CORS wildcard; optional `CKC_UI_TOKEN`; CDN SRI + CSP headers; path-safe artifact APIs with size caps; off-loopback mutating rate limit.
 
 See `.env.example` for `CKC_UI_TOKEN`, `CKC_CORS_ORIGINS`, and the LM Studio / `OPENAI_BASE_URL` SSRF threat model.
 

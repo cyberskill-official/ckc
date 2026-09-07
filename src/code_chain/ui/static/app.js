@@ -3,13 +3,14 @@
 const state = {
     currentProject: localStorage.getItem('ckc_project_path') || '',
     uiToken: localStorage.getItem('ckc_ui_token') || '',
+    useLlm: localStorage.getItem('ckc_use_llm') !== '0',
     cy: null,
     selectedNode: null,
     traceSource: null,
     graphData: null,
     communities: [],
     filters: { code: true, doc: true, schema: true, test: true },
-    indexingSource: null,
+    indexingAbort: null,
     indexingCleanClose: false,
     inFlight: false,
     drawerOpen: false,
@@ -48,6 +49,7 @@ const els = {
     cancelIndexBtn: document.getElementById('cancel-index-btn'),
     forceIndex: document.getElementById('force-index'),
     multimodalIndex: document.getElementById('multimodal-index'),
+    useLlm: document.getElementById('use-llm'),
     opsHistory: document.getElementById('ops-history'),
 
     commandBar: document.getElementById('command-bar'),
@@ -70,12 +72,21 @@ function init() {
     if (els.uiTokenInput) {
         els.uiTokenInput.value = state.uiToken;
     }
+    if (els.useLlm) {
+        els.useLlm.checked = state.useLlm;
+    }
     initCytoscape();
     setupEventListeners();
     loadSamples();
     if (state.currentProject) {
         loadProject();
     }
+}
+
+function persistUseLlmFromInput() {
+    if (!els.useLlm) return;
+    state.useLlm = !!els.useLlm.checked;
+    localStorage.setItem('ckc_use_llm', state.useLlm ? '1' : '0');
 }
 
 function persistUiTokenFromInput() {
@@ -305,6 +316,10 @@ function setupEventListeners() {
         });
     }
 
+    if (els.useLlm) {
+        els.useLlm.addEventListener('change', persistUseLlmFromInput);
+    }
+
     els.fitBtn.addEventListener('click', () => state.cy.fit(50));
 
     ['Code', 'Doc', 'Schema', 'Test'].forEach(type => {
@@ -447,22 +462,43 @@ function renderGraph(res) {
     }).update();
 
     try {
-        state.cy.layout({
-            name: 'cose-bilkent',
-            animate: false,
-            randomize: true,
-            idealEdgeLength: 80,
-            nodeRepulsion: 6500,
-            nestingFactor: 0.1,
-            gravity: 0.25,
-            numIter: 2500,
-            tile: true,
-            tilingPaddingVertical: 10,
-            tilingPaddingHorizontal: 10,
-        }).run();
+        const nodeCount = (res.elements.nodes || []).length;
+        // Skip heavy cose-bilkent above this threshold (server may also subsample).
+        const HEAVY_LAYOUT_CAP = 400;
+        if (nodeCount > HEAVY_LAYOUT_CAP) {
+            console.info(
+                `[graph] ${nodeCount} nodes — using fast cose layout (skip cose-bilkent).`
+            );
+            state.cy.layout({
+                name: 'cose',
+                animate: false,
+                randomize: true,
+                numIter: 400,
+            }).run();
+        } else {
+            state.cy.layout({
+                name: 'cose-bilkent',
+                animate: false,
+                randomize: true,
+                idealEdgeLength: 80,
+                nodeRepulsion: 6500,
+                nestingFactor: 0.1,
+                gravity: 0.25,
+                numIter: 2500,
+                tile: true,
+                tilingPaddingVertical: 10,
+                tilingPaddingHorizontal: 10,
+            }).run();
+        }
     } catch (e) {
-        console.warn('cose-bilkent layout unavailable, falling back to cose:', e);
+        console.warn('Primary layout unavailable, falling back to cose:', e);
         state.cy.layout({ name: 'cose', animate: false }).run();
+    }
+
+    if (res.meta?.subsampled) {
+        console.info(
+            `Graph subsampled: showing ${res.meta.node_count}/${res.meta.total_node_count} nodes`
+        );
     }
 
     renderCommunities();
@@ -664,10 +700,20 @@ async function runQuery(q) {
     try {
         const res = await apiFetch('/api/query', {
             method: 'POST',
-            body: JSON.stringify({ project_path: state.currentProject, query: q, use_llm: true })
+            body: JSON.stringify({
+                project_path: state.currentProject,
+                query: q,
+                use_llm: state.useLlm
+            })
         });
         const html = renderMarkdown(res.synthesized_context || JSON.stringify(res, null, 2));
-        setSafeHtml(els.resultsOutput, linkifySymbols(html));
+        let note = '';
+        if (res.engine_errors && Object.keys(res.engine_errors).length) {
+            note = `<p><em>Engine notes: ${escapeHtml(Object.entries(res.engine_errors).map(([k,v]) => `${k}: ${v}`).join('; '))}</em></p>`;
+        } else if (res.outcome === 'empty') {
+            note = '<p><em>No engine hits (empty result).</em></p>';
+        }
+        setSafeHtml(els.resultsOutput, note + linkifySymbols(html));
         await maybeRenderMermaid(els.resultsOutput);
     } catch (e) {
         setSafeHtml(
@@ -700,7 +746,11 @@ async function runImpact(symbol) {
     try {
         const res = await apiFetch('/api/impact', {
             method: 'POST',
-            body: JSON.stringify({ project_path: state.currentProject, symbol: symbol, use_llm: true })
+            body: JSON.stringify({
+                project_path: state.currentProject,
+                symbol: symbol,
+                use_llm: state.useLlm
+            })
         });
 
         const html = renderMarkdown(res.synthesized_report || JSON.stringify(res, null, 2));
@@ -745,7 +795,7 @@ async function runTrace(fromSym, toSym) {
                 project_path: state.currentProject,
                 from_symbol: fromSym,
                 to_symbol: toSym,
-                use_llm: true
+                use_llm: state.useLlm
             })
         });
 
@@ -803,7 +853,7 @@ async function maybeRenderMermaid(container) {
     }
 }
 
-function runIndexing() {
+async function runIndexing() {
     if (!state.currentProject) return alert('Please load a project first.');
     if (state.inFlight) return;
     persistUiTokenFromInput();
@@ -812,60 +862,111 @@ function runIndexing() {
     setBusy(true);
     els.cancelIndexBtn.classList.remove('hidden');
 
-    if (state.indexingSource) state.indexingSource.close();
-    state.indexingCleanClose = false;
-
-    let url = `/api/index/stream?project=${encodeURIComponent(state.currentProject)}&multimodal=${els.multimodalIndex.checked}&force=${els.forceIndex.checked}`;
-    if (state.uiToken) {
-        url += `&token=${encodeURIComponent(state.uiToken)}`;
+    if (state.indexingAbort) {
+        try { state.indexingAbort.abort(); } catch (_) { /* ignore */ }
     }
-    state.indexingSource = new EventSource(url);
+    state.indexingCleanClose = false;
+    state.indexingAbort = new AbortController();
 
-    state.indexingSource.onmessage = (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            if (data.event === 'start') {
-                appendTerminal(`[CKC] ${data.message}`, 'success');
-            } else if (data.event === 'step_start') {
-                appendTerminal(`\n[Step ${data.step}/${data.total_steps}] ${data.label}...`, 'info');
-            } else if (data.event === 'log') {
-                appendTerminal(data.line, data.engine);
-            } else if (data.event === 'step_finish') {
-                const icon = data.success ? '✓' : '✗';
-                appendTerminal(`[${data.engine}] ${icon} ${data.success ? 'Succeeded' : 'Failed (code ' + data.returncode + ')'}`, data.success ? 'success' : 'error');
-            } else if (data.event === 'step_error') {
-                appendTerminal(`[${data.engine}] Error: ${data.error}`, 'error');
-            } else if (data.event === 'error') {
-                appendTerminal(`[CKC] ${data.message}`, 'error');
-                state.indexingCleanClose = true;
-                state.indexingSource.close();
-                finishIndexingUi();
-            } else if (data.event === 'cancelled') {
-                appendTerminal(`[CKC] ${data.message}`, 'error');
-                state.indexingCleanClose = true;
-                state.indexingSource.close();
-                finishIndexingUi();
-            } else if (data.event === 'complete') {
-                appendTerminal(`\n[CKC] Indexing complete! Readiness: ${data.status?.ready_count}/3 engines.`, 'success');
-                state.indexingCleanClose = true;
-                state.indexingSource.close();
-                finishIndexingUi();
-                loadProject();
-            }
-        } catch (err) {
-            appendTerminal(e.data, '');
-        }
-    };
-
-    state.indexingSource.onerror = () => {
-        if (state.indexingCleanClose) {
+    try {
+        const res = await fetch('/api/index/stream', {
+            method: 'POST',
+            headers: authHeaders({ Accept: 'text/event-stream' }),
+            body: JSON.stringify({
+                project_path: state.currentProject,
+                multimodal: els.multimodalIndex.checked,
+                force: els.forceIndex.checked,
+            }),
+            signal: state.indexingAbort.signal,
+        });
+        if (!res.ok) {
+            let detail = `HTTP ${res.status}`;
+            try {
+                const errBody = await res.json();
+                detail = formatApiDetail(errBody.detail) || detail;
+            } catch (_) { /* ignore */ }
+            appendTerminal(`[CKC] ${detail}`, 'error');
             finishIndexingUi();
             return;
         }
-        appendTerminal('\nStream interrupted (connection error).', 'error');
-        if (state.indexingSource) state.indexingSource.close();
+        await consumeIndexSse(res.body);
+    } catch (e) {
+        if (e && e.name === 'AbortError') {
+            appendTerminal('[CKC] Index stream aborted.', 'error');
+        } else {
+            appendTerminal(`\nStream interrupted: ${e.message || e}`, 'error');
+        }
         finishIndexingUi();
-    };
+    }
+}
+
+async function consumeIndexSse(body) {
+    if (!body) {
+        appendTerminal('No stream body received.', 'error');
+        finishIndexingUi();
+        return;
+    }
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split(/\n\n/);
+        buffer = parts.pop() || '';
+        for (const chunk of parts) {
+            const dataLines = chunk
+                .split('\n')
+                .filter((line) => line.startsWith('data:'))
+                .map((line) => line.slice(5).trimStart());
+            if (!dataLines.length) continue;
+            const raw = dataLines.join('\n');
+            handleIndexEvent(raw);
+            if (state.indexingCleanClose) {
+                try { await reader.cancel(); } catch (_) { /* ignore */ }
+                return;
+            }
+        }
+    }
+    if (!state.indexingCleanClose) {
+        appendTerminal('\nStream ended unexpectedly.', 'error');
+    }
+    finishIndexingUi();
+}
+
+function handleIndexEvent(raw) {
+    try {
+        const data = JSON.parse(raw);
+        if (data.event === 'start') {
+            appendTerminal(`[CKC] ${data.message}`, 'success');
+        } else if (data.event === 'step_start') {
+            appendTerminal(`\n[Step ${data.step}/${data.total_steps}] ${data.label}...`, 'info');
+        } else if (data.event === 'log') {
+            appendTerminal(data.line, data.engine);
+        } else if (data.event === 'step_finish') {
+            const icon = data.success ? '✓' : '✗';
+            appendTerminal(`[${data.engine}] ${icon} ${data.success ? 'Succeeded' : 'Failed (code ' + data.returncode + ')'}`, data.success ? 'success' : 'error');
+        } else if (data.event === 'step_error') {
+            appendTerminal(`[${data.engine}] Error: ${data.error}`, 'error');
+        } else if (data.event === 'error') {
+            appendTerminal(`[CKC] ${data.message}`, 'error');
+            state.indexingCleanClose = true;
+            finishIndexingUi();
+        } else if (data.event === 'cancelled') {
+            appendTerminal(`[CKC] ${data.message}`, 'error');
+            state.indexingCleanClose = true;
+            finishIndexingUi();
+        } else if (data.event === 'complete') {
+            appendTerminal(`\n[CKC] Indexing complete! Readiness: ${data.status?.ready_count}/3 engines.`, 'success');
+            state.indexingCleanClose = true;
+            finishIndexingUi();
+            loadProject();
+        }
+    } catch (err) {
+        appendTerminal(raw, '');
+    }
 }
 
 function finishIndexingUi() {
@@ -875,6 +976,9 @@ function finishIndexingUi() {
 
 async function cancelIndexing() {
     if (!state.currentProject) return;
+    if (state.indexingAbort) {
+        try { state.indexingAbort.abort(); } catch (_) { /* ignore */ }
+    }
     try {
         await apiFetch('/api/index/cancel', {
             method: 'POST',

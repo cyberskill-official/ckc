@@ -1,8 +1,10 @@
 """Unit tests for project-path lockdown and target gitignore hygiene."""
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from code_chain.core.paths import (
     UnsafeProjectPathError,
@@ -36,6 +38,14 @@ class TestProjectPathSafety(unittest.TestCase):
             self.assertIn("graphify-out/", text)
             self.assertIn(".gitnexus/", text)
             self.assertEqual(ensure_engine_gitignore(root), [])
+
+    def test_gitignore_opt_out_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            with patch.dict(os.environ, {"CKC_SKIP_GITIGNORE": "1"}, clear=False):
+                self.assertEqual(ensure_engine_gitignore(root), [])
+            self.assertFalse((root / ".gitignore").exists())
 
 
 if __name__ == "__main__":

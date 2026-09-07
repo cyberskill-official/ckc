@@ -142,7 +142,12 @@ class ImpactPipeline:
             task="impact",
             enabled=use_llm,
             max_tokens_budget=self.config.max_tokens_budget,
+            query_timeout=self.config.query_timeout,
         )
+
+        engine_errors = self._collect_engine_errors()
+        if engine_errors and outcome in {"ok", "empty"}:
+            outcome = "partial_error"
 
         return ChainedImpactResult(
             target_symbol=target_symbol,
@@ -158,7 +163,23 @@ class ImpactPipeline:
             associated_docs_and_schemas=docs_and_schemas,
             recommended_refactor_steps=steps,
             synthesized_report=report,
+            engine_errors=engine_errors,
         )
+
+    def _collect_engine_errors(self) -> dict[str, str]:
+        errors: dict[str, str] = {}
+        for name, adapter in (
+            ("graphify", self.graphify),
+            ("gitnexus", self.gitnexus),
+            ("codegraph", self.codegraph),
+        ):
+            take = getattr(adapter, "take_error", None)
+            if not callable(take):
+                continue
+            err = take()
+            if isinstance(err, str) and err.strip():
+                errors[name] = err
+        return errors
 
     def _build_report(
         self,

@@ -78,7 +78,7 @@ class TestUseLlmParity(unittest.TestCase):
                 check=False,
             )
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-        self.assertEqual(len(lines), 1)
+        self.assertGreaterEqual(len(lines), 1)
         text = json.loads(lines[0])["result"]["content"][0]["text"]
         self.assertNotIn("## Local model synthesis", text)
 

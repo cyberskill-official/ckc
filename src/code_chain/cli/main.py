@@ -16,6 +16,7 @@ import uvicorn
 
 from code_chain.core.env import load_dotenv
 from code_chain.core.orchestrator import CodeKnowledgeChain
+from code_chain.core.timeouts import QueryTimeoutError, run_with_timeout
 from code_chain.mcp.server import run_mcp_server
 
 
@@ -244,23 +245,47 @@ def main() -> None:
         print(chain.export_summary())
 
     elif args.command == "query":
-        result = chain.query(args.query_text, use_llm=not args.no_llm)
+        try:
+            result = run_with_timeout(
+                lambda: chain.query(args.query_text, use_llm=not args.no_llm),
+                chain.config.query_timeout,
+                operation="query",
+            )
+        except QueryTimeoutError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(124)
         if args.json:
             print(result.model_dump_json(indent=2))
         else:
             print(result.synthesized_context)
 
     elif args.command == "impact":
-        result = chain.impact(args.symbol, use_llm=not args.no_llm)
+        try:
+            result = run_with_timeout(
+                lambda: chain.impact(args.symbol, use_llm=not args.no_llm),
+                chain.config.query_timeout,
+                operation="impact",
+            )
+        except QueryTimeoutError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(124)
         if args.json:
             print(result.model_dump_json(indent=2))
         else:
             print(result.synthesized_report)
 
     elif args.command == "trace":
-        result = chain.trace(
-            args.from_symbol, args.to_symbol, use_llm=not args.no_llm
-        )
+        try:
+            result = run_with_timeout(
+                lambda: chain.trace(
+                    args.from_symbol, args.to_symbol, use_llm=not args.no_llm
+                ),
+                chain.config.query_timeout,
+                operation="trace",
+            )
+        except QueryTimeoutError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(124)
         if args.json:
             print(result.model_dump_json(indent=2))
         else:

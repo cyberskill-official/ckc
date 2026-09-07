@@ -12,6 +12,8 @@ import os
 import urllib.error
 import urllib.request
 
+from code_chain.core.config import llm_http_timeout
+
 
 def resolve_llm_config() -> tuple[str, str, str] | None:
     """
@@ -65,7 +67,7 @@ def trim_to_token_budget(text: str, max_tokens: int) -> str:
 def chat_completions(
     messages: list,
     *,
-    timeout: float = 45.0,
+    timeout: float | None = None,
     temperature: float = 0.2,
     max_tokens: int = 800,
 ) -> str | None:
@@ -75,6 +77,8 @@ def chat_completions(
         return None
     base_url, model, api_key = cfg
     url = f"{base_url}/chat/completions"
+    if timeout is None:
+        timeout = llm_http_timeout()
     payload = {
         "model": model,
         "messages": messages,
@@ -121,6 +125,7 @@ def synthesize_stacked_context(
     *,
     task: str = "query",
     max_input_chars: int | None = None,
+    http_timeout: float | None = None,
 ) -> str | None:
     """Ask the local model for a short synthesis of stacked context."""
     if not stacked_markdown.strip():
@@ -144,7 +149,8 @@ def synthesize_stacked_context(
         [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
-        ]
+        ],
+        timeout=http_timeout,
     )
 
 
@@ -154,6 +160,7 @@ def maybe_append_llm_section(
     task: str = "query",
     enabled: bool = True,
     max_tokens_budget: int = 4000,
+    query_timeout: int | None = None,
 ) -> str:
     """
     Append a **Local model synthesis** section when configured and enabled.
@@ -167,6 +174,7 @@ def maybe_append_llm_section(
         stacked_markdown,
         task=task,
         max_input_chars=max_input_chars,
+        http_timeout=llm_http_timeout(query_timeout),
     )
     if not synthesis:
         return (
@@ -187,6 +195,7 @@ def finalize_stacked_markdown(
     task: str = "query",
     enabled: bool = True,
     max_tokens_budget: int = 4000,
+    query_timeout: int | None = None,
 ) -> str:
     """Trim → optional LLM append → re-trim so final output stays within budget."""
     text = trim_to_token_budget(stacked_markdown, max_tokens_budget)
@@ -195,5 +204,6 @@ def finalize_stacked_markdown(
         task=task,
         enabled=enabled,
         max_tokens_budget=max_tokens_budget,
+        query_timeout=query_timeout,
     )
     return trim_to_token_budget(text, max_tokens_budget)

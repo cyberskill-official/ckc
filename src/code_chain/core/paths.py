@@ -4,6 +4,7 @@ Project-path safety and target-repo hygiene for Code Knowledge Chain.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -98,7 +99,13 @@ def assert_safe_project_path(path_str: str) -> Path:
 
 
 def ensure_engine_gitignore(project_path: Path) -> list[str]:
-    """Append engine index dirs to the target .gitignore when the repo is a git worktree."""
+    """Append engine index dirs to the target .gitignore when the repo is a git worktree.
+
+    Opt out with ``CKC_SKIP_GITIGNORE=1`` (or true/yes/on) to leave .gitignore untouched.
+    """
+    skip = (os.environ.get("CKC_SKIP_GITIGNORE") or "").strip().lower()
+    if skip in {"1", "true", "yes", "on"}:
+        return []
     if not (project_path / ".git").exists():
         return []
     gitignore = project_path / ".gitignore"

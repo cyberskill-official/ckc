@@ -61,11 +61,24 @@ python3 scripts/setup.py --no-ui
 
 GitHub Actions runs Ruff + the pytest matrix on every push/PR to `main` (see `.github/workflows/ci.yml`).
 
+**Platform support:** CI and primary development target **Linux and macOS**. Windows is used for setup scripts (`setup.ps1`) but is **not** covered by a GitHub Actions Windows job today — treat Windows as best-effort / unsupported for CI parity unless you add a matrix runner.
+
+**Index timeout model (do not unify casually):**
+
+| Surface | Semantics |
+| --- | --- |
+| UI `/api/index/stream` | One shared wall-clock deadline for Graphify + GitNexus + CodeGraph |
+| CLI / MCP `IndexPipeline` | Each engine gets a full per-engine timeout |
+
+UI argv builders in `server._build_index_steps` mirror adapter command helpers; a single shared streaming IndexPipeline is deferred to avoid argv drift regressions.
+
 **Recommended repository settings** (GitHub → Settings → Branches → Branch protection rules for `main`):
 
 - Require a pull request before merging
 - Require status checks to pass: `Lint (Ruff)` and the `Test (...)` matrix jobs
 - Do not allow force pushes to `main`
+
+Branch protection itself requires org/repo admin and is intentionally not automated by CKC.
 
 ---
 

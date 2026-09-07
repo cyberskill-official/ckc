@@ -82,6 +82,9 @@ class ChainedQueryResult(BaseModel):
     tier2_execution_flows: list[ExecutionFlow] = Field(default_factory=list)
     tier3_symbols: list[SymbolDetail] = Field(default_factory=list)
     synthesized_context: str = ""
+    # ok | empty | partial_error — distinguishes no-hits from soft-fail engines
+    outcome: str = "ok"
+    engine_errors: dict[str, str] = Field(default_factory=dict)
 
 
 class ChainedImpactResult(BaseModel):
@@ -91,7 +94,7 @@ class ChainedImpactResult(BaseModel):
     project_path: str
     risk_level: str = "LOW"
     blast_radius_count: int = 0
-    # ok | empty | error | ambiguous_unresolved
+    # ok | empty | error | ambiguous_unresolved | partial_error
     outcome: str = "ok"
     resolved_uid: str | None = None
     affected_modules: list[str] = Field(default_factory=list)
@@ -101,6 +104,7 @@ class ChainedImpactResult(BaseModel):
     associated_docs_and_schemas: list[CrossDomainEntity] = Field(default_factory=list)
     recommended_refactor_steps: list[str] = Field(default_factory=list)
     synthesized_report: str = ""
+    engine_errors: dict[str, str] = Field(default_factory=dict)
 
 
 class ChainedTraceStep(BaseModel):
@@ -123,3 +127,6 @@ class ChainedTraceResult(BaseModel):
     steps: list[ChainedTraceStep] = Field(default_factory=list)
     cross_domain_touchpoints: list[str] = Field(default_factory=list)
     synthesized_flow: str = ""
+    # ok | empty | partial_error
+    outcome: str = "ok"
+    engine_errors: dict[str, str] = Field(default_factory=dict)

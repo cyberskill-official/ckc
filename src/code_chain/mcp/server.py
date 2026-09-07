@@ -10,8 +10,10 @@ import json
 import sys
 from typing import Any
 
+from code_chain.core.config import ChainConfig
 from code_chain.core.env import load_dotenv
 from code_chain.core.orchestrator import CodeKnowledgeChain
+from code_chain.core.timeouts import QueryTimeoutError, run_with_timeout
 
 
 def make_tool_definition(
@@ -22,6 +24,16 @@ def make_tool_definition(
         "description": description,
         "inputSchema": input_schema,
     }
+
+
+_FORMAT_PROP = {
+    "type": "string",
+    "enum": ["text", "json"],
+    "description": (
+        "Response format: 'text' (default markdown) or 'json' "
+        "(structured model dump including engine_errors / outcome)"
+    ),
+}
 
 
 def get_available_tools() -> list:
@@ -41,7 +53,8 @@ def get_available_tools() -> list:
                             "Path to the repository "
                             "(defaults to server working directory)"
                         ),
-                    }
+                    },
+                    "format": _FORMAT_PROP,
                 },
             },
         ),
@@ -69,6 +82,7 @@ def get_available_tools() -> list:
                         "type": "boolean",
                         "description": "Clear prior indexes and re-run extraction (default false)",
                     },
+                    "format": _FORMAT_PROP,
                 },
                 "required": ["project_path"],
             },
@@ -101,6 +115,7 @@ def get_available_tools() -> list:
                             "when configured (default true)"
                         ),
                     },
+                    "format": _FORMAT_PROP,
                 },
                 "required": ["query"],
             },
@@ -133,6 +148,7 @@ def get_available_tools() -> list:
                             "when configured (default true)"
                         ),
                     },
+                    "format": _FORMAT_PROP,
                 },
                 "required": ["symbol"],
             },
@@ -165,47 +181,100 @@ def get_available_tools() -> list:
                             "when configured (default true)"
                         ),
                     },
+                    "format": _FORMAT_PROP,
                 },
                 "required": ["from_symbol", "to_symbol"],
+            },
+        ),
+        make_tool_definition(
+            name="chain_diff",
+            description=(
+                "Map current git diff hunks to indexed symbols and affected "
+                "execution flows (GitNexus detect-changes)."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "project_path": {
+                        "type": "string",
+                        "description": "Path to the project repository",
+                    },
+                    "format": _FORMAT_PROP,
+                },
             },
         ),
     ]
 
 
+def _wants_json(arguments: dict[str, Any]) -> bool:
+    fmt = str(arguments.get("format") or "text").strip().lower()
+    return fmt == "json"
+
+
+def _format_result(text: str, payload: Any, *, as_json: bool) -> str:
+    if as_json:
+        if hasattr(payload, "model_dump"):
+            return json.dumps(payload.model_dump(), indent=2)
+        return json.dumps(payload, indent=2, default=str)
+    return text
+
+
 def handle_tool_call(name: str, arguments: dict[str, Any], default_path: str) -> str:
     path = arguments.get("project_path") or default_path
     chain = CodeKnowledgeChain(project_path=path)
+    config = chain.config if hasattr(chain, "config") else ChainConfig()
+    timeout = max(1, int(getattr(config, "query_timeout", 90)))
+    as_json = _wants_json(arguments)
 
     if name == "chain_status":
+        if as_json:
+            return json.dumps(chain.status().model_dump(), indent=2)
         return chain.export_summary()
 
-    elif name == "chain_init":
+    if name == "chain_init":
         multimodal = arguments.get("multimodal", False)
         force = bool(arguments.get("force", False))
-        chain.index(code_only=not multimodal, force=force)
+        results = chain.index(code_only=not multimodal, force=force)
+        if as_json:
+            return json.dumps(results, indent=2, default=str)
         return chain.export_summary()
 
-    elif name == "chain_query":
+    if name == "chain_query":
         query_text = arguments.get("query", "")
         use_llm = arguments.get("use_llm", True)
-        res = chain.query(query_text, use_llm=bool(use_llm))
-        return res.synthesized_context
 
-    elif name == "chain_impact":
+        def _work() -> Any:
+            return chain.query(query_text, use_llm=bool(use_llm))
+
+        res = run_with_timeout(_work, timeout, operation="chain_query")
+        return _format_result(res.synthesized_context, res, as_json=as_json)
+
+    if name == "chain_impact":
         symbol = arguments.get("symbol", "")
         use_llm = arguments.get("use_llm", True)
-        res = chain.impact(symbol, use_llm=bool(use_llm))
-        return res.synthesized_report
 
-    elif name == "chain_trace":
+        def _work() -> Any:
+            return chain.impact(symbol, use_llm=bool(use_llm))
+
+        res = run_with_timeout(_work, timeout, operation="chain_impact")
+        return _format_result(res.synthesized_report, res, as_json=as_json)
+
+    if name == "chain_trace":
         from_sym = arguments.get("from_symbol", "")
         to_sym = arguments.get("to_symbol", "")
         use_llm = arguments.get("use_llm", True)
-        res = chain.trace(from_sym, to_sym, use_llm=bool(use_llm))
-        return res.synthesized_flow
 
-    else:
-        raise ValueError(f"Unknown tool: {name}")
+        def _work() -> Any:
+            return chain.trace(from_sym, to_sym, use_llm=bool(use_llm))
+
+        res = run_with_timeout(_work, timeout, operation="chain_trace")
+        return _format_result(res.synthesized_flow, res, as_json=as_json)
+
+    if name == "chain_diff":
+        res = chain.detect_changes()
+        return json.dumps(res, indent=2, default=str)
+
+    raise ValueError(f"Unknown tool: {name}")
 
 
 def run_mcp_server(default_project_path: str = ".") -> None:
@@ -256,6 +325,20 @@ def run_mcp_server(default_project_path: str = ".") -> None:
                     "result": {
                         "content": [{"type": "text", "text": text_result}],
                         "isError": False,
+                    },
+                }
+            except QueryTimeoutError as e:
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Error executing {tool_name}: {e!s}",
+                            }
+                        ],
+                        "isError": True,
                     },
                 }
             except Exception as e:

@@ -78,7 +78,10 @@ class TracePipeline:
                 task="trace",
                 enabled=use_llm,
                 max_tokens_budget=self.config.max_tokens_budget,
+                query_timeout=self.config.query_timeout,
             )
+            engine_errors = self._collect_engine_errors()
+            outcome = "partial_error" if engine_errors else "empty"
             return ChainedTraceResult(
                 from_symbol=from_symbol,
                 to_symbol=to_symbol,
@@ -87,6 +90,8 @@ class TracePipeline:
                 path_length=0,
                 steps=[],
                 synthesized_flow=synthesis,
+                outcome=outcome,
+                engine_errors=engine_errors,
             )
 
         hops = trace_data.get("hops", [])
@@ -179,7 +184,11 @@ class TracePipeline:
             task="trace",
             enabled=use_llm,
             max_tokens_budget=self.config.max_tokens_budget,
+            query_timeout=self.config.query_timeout,
         )
+
+        engine_errors = self._collect_engine_errors()
+        outcome = "partial_error" if engine_errors else "ok"
 
         return ChainedTraceResult(
             from_symbol=from_symbol,
@@ -190,4 +199,21 @@ class TracePipeline:
             steps=steps,
             cross_domain_touchpoints=list(set(cross_domain_touchpoints)),
             synthesized_flow=synthesis,
+            outcome=outcome,
+            engine_errors=engine_errors,
         )
+
+    def _collect_engine_errors(self) -> dict[str, str]:
+        errors: dict[str, str] = {}
+        for name, adapter in (
+            ("graphify", self.graphify),
+            ("gitnexus", self.gitnexus),
+            ("codegraph", self.codegraph),
+        ):
+            take = getattr(adapter, "take_error", None)
+            if not callable(take):
+                continue
+            err = take()
+            if isinstance(err, str) and err.strip():
+                errors[name] = err
+        return errors

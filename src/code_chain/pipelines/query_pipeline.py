@@ -144,7 +144,17 @@ class QueryPipeline:
             task="query",
             enabled=use_llm,
             max_tokens_budget=self.config.max_tokens_budget,
+            query_timeout=self.config.query_timeout,
         )
+
+        engine_errors = self._collect_engine_errors()
+        has_hits = bool(tier1_entities or tier2_flows or tier3_symbols or raw_explore.strip())
+        if engine_errors:
+            outcome = "partial_error"
+        elif not has_hits:
+            outcome = "empty"
+        else:
+            outcome = "ok"
 
         return ChainedQueryResult(
             query=query,
@@ -153,7 +163,24 @@ class QueryPipeline:
             tier2_execution_flows=tier2_flows,
             tier3_symbols=tier3_symbols,
             synthesized_context=synthesis,
+            outcome=outcome,
+            engine_errors=engine_errors,
         )
+
+    def _collect_engine_errors(self) -> dict[str, str]:
+        errors: dict[str, str] = {}
+        for name, adapter in (
+            ("graphify", self.graphify),
+            ("gitnexus", self.gitnexus),
+            ("codegraph", self.codegraph),
+        ):
+            take = getattr(adapter, "take_error", None)
+            if not callable(take):
+                continue
+            err = take()
+            if isinstance(err, str) and err.strip():
+                errors[name] = err
+        return errors
 
     def _synthesize(
         self,

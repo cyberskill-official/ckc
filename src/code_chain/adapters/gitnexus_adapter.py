@@ -212,8 +212,8 @@ class GitNexusAdapter(BaseGraphAdapter):
             parsed = _extract_json(res.stdout)
             if parsed:
                 return parsed
-        except Exception:
-            pass
+        except Exception as e:
+            self.record_error("query_concepts", e)
         return {"processes": [], "definitions": []}
 
     def _run_context(
@@ -256,7 +256,8 @@ class GitNexusAdapter(BaseGraphAdapter):
                 resolved["_resolved_uid"] = uid
                 return resolved
             return parsed
-        except Exception:
+        except Exception as e:
+            self.record_error("get_symbol_context", e)
             return None
 
     def _normalize_impact(self, parsed: dict[str, Any]) -> dict[str, Any]:
@@ -401,8 +402,8 @@ class GitNexusAdapter(BaseGraphAdapter):
                     parsed["_resolved_from_ambiguous"] = True
             parsed["_outcome"] = "ok"
             return self._normalize_impact(parsed)
-        except Exception:
-            pass
+        except Exception as e:
+            self.record_error("analyze_impact", e)
         return empty
 
     def _run_trace(
@@ -458,7 +459,8 @@ class GitNexusAdapter(BaseGraphAdapter):
                 if not parsed:
                     return None
             return parsed
-        except Exception:
+        except Exception as e:
+            self.record_error("trace_path", e)
             return None
 
     def detect_changes(self) -> dict[str, Any]:

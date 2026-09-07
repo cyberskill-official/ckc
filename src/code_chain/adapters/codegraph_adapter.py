@@ -129,47 +129,117 @@ class CodeGraphAdapter(BaseGraphAdapter):
         }
 
     def query_symbols(self, query: str) -> list[dict[str, Any]]:
-        """Searches for symbols matching query."""
+        """Searches for symbols matching query (prefers JSON ``-j`` like callers/callees)."""
         try:
+            # Prefer structured JSON output when the CLI supports it.
             res = subprocess.run(
-                [self.bin_path, "query", query],
+                [
+                    self.bin_path,
+                    "query",
+                    "-j",
+                    "-p",
+                    str(self.project_path),
+                    query,
+                ],
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,
                 timeout=15,
                 check=False,
             )
-            lines = res.stdout.splitlines()
-            results: list[dict[str, Any]] = []
-
-            for line in lines:
-                sline = line.strip()
-                if not sline or sline.startswith(("Search Results", "─")):
-                    continue
-                # e.g., "method      login"
-                parts = sline.split()
-                if len(parts) >= 2 and parts[0] in [
-                    "function",
-                    "method",
-                    "class",
-                    "interface",
-                    "type",
-                    "const",
-                    "var",
-                ]:
-                    results.append({"kind": parts[0], "name": parts[1], "file": "", "line": 0})
-                elif (
-                    (sline.startswith(("src/", "./")) or ":" in sline)
-                    and results
-                    and not results[-1]["file"]
-                ):
-                    fparts = sline.split(":")
-                    results[-1]["file"] = fparts[0]
-                    if len(fparts) > 1 and fparts[1].isdigit():
-                        results[-1]["line"] = int(fparts[1])
-            return results
-        except Exception:
+            parsed = self._parse_query_symbols_json(res.stdout)
+            if parsed is not None:
+                return parsed
+            if res.returncode != 0 and (res.stderr or "").strip():
+                # Fall back to legacy text mode (older CLIs may reject -j).
+                res = subprocess.run(
+                    [self.bin_path, "query", query],
+                    cwd=str(self.project_path),
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
+            return self._parse_query_symbols_text(res.stdout)
+        except Exception as e:
+            self.record_error("query_symbols", e)
             return []
+
+    def _parse_query_symbols_json(self, stdout: str) -> list[dict[str, Any]] | None:
+        """Parse codegraph query -j payload; None if not JSON."""
+        text = (stdout or "").strip()
+        if not text or not text.startswith(("{", "[")):
+            return None
+        try:
+            payload = json.loads(text)
+        except Exception:
+            return None
+        raw_items: list[Any]
+        if isinstance(payload, list):
+            raw_items = payload
+        elif isinstance(payload, dict):
+            raw_items = (
+                payload.get("symbols")
+                or payload.get("results")
+                or payload.get("matches")
+                or []
+            )
+        else:
+            return []
+        results: list[dict[str, Any]] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("symbol") or "").strip()
+            if not name:
+                continue
+            file_path = str(
+                item.get("filePath") or item.get("file") or item.get("path") or ""
+            )
+            line_raw = item.get("startLine") or item.get("line") or 0
+            try:
+                line = int(line_raw)
+            except (TypeError, ValueError):
+                line = 0
+            results.append(
+                {
+                    "kind": str(item.get("kind") or item.get("type") or "symbol"),
+                    "name": name,
+                    "file": file_path,
+                    "line": line,
+                }
+            )
+        return results
+
+    def _parse_query_symbols_text(self, stdout: str) -> list[dict[str, Any]]:
+        lines = (stdout or "").splitlines()
+        results: list[dict[str, Any]] = []
+        for line in lines:
+            sline = line.strip()
+            if not sline or sline.startswith(("Search Results", "─")):
+                continue
+            # e.g., "method      login"
+            parts = sline.split()
+            if len(parts) >= 2 and parts[0] in [
+                "function",
+                "method",
+                "class",
+                "interface",
+                "type",
+                "const",
+                "var",
+            ]:
+                results.append({"kind": parts[0], "name": parts[1], "file": "", "line": 0})
+            elif (
+                (sline.startswith(("src/", "./")) or ":" in sline)
+                and results
+                and not results[-1]["file"]
+            ):
+                fparts = sline.split(":")
+                results[-1]["file"] = fparts[0]
+                if len(fparts) > 1 and fparts[1].isdigit():
+                    results[-1]["line"] = int(fparts[1])
+        return results
 
     def explore(self, query: str) -> str:
         """Explores an area: relevant symbols' source + call paths in one shot."""
@@ -184,6 +254,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
             )
             return res.stdout.strip()
         except Exception as e:
+            self.record_error("explore", e)
             return f"Explore error: {e!s}"
 
     def get_node(self, symbol_name: str) -> str:
@@ -199,6 +270,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
             )
             return res.stdout.strip()
         except Exception as e:
+            self.record_error("get_node", e)
             return f"Node error: {e!s}"
 
     def get_callers(self, symbol: str) -> list[dict[str, Any]]:
@@ -250,7 +322,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 )
             self._symbol_cache[cache_key] = callers
             return callers
-        except Exception:
+        except Exception as e:
+            self.record_error("get_callers", e)
             self._symbol_cache[cache_key] = []
             return []
 
@@ -303,7 +376,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 )
             self._symbol_cache[cache_key] = callees
             return callees
-        except Exception:
+        except Exception as e:
+            self.record_error("get_callees", e)
             self._symbol_cache[cache_key] = []
             return []
 
@@ -343,5 +417,6 @@ class CodeGraphAdapter(BaseGraphAdapter):
                     if sline and ("test_" in sline or ".test." in sline or ".spec." in sline):
                         tests.append(sline)
             return tests
-        except Exception:
+        except Exception as e:
+            self.record_error("get_affected_tests", e)
             return []
