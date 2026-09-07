@@ -24,6 +24,8 @@ class CodeGraphAdapter(BaseGraphAdapter):
     def __init__(self, bin_path: str, project_path: Path):
         super().__init__(bin_path, project_path)
         self.codegraph_dir = self.project_path / ".codegraph"
+        # Per-request / per-adapter symbol lookup cache (reduces CLI fan-out).
+        self._symbol_cache: dict[tuple[str, str], Any] = {}
 
     def _bin_available(self) -> bool:
         return bool(shutil.which(self.bin_path) or Path(self.bin_path).is_file())
@@ -59,6 +61,10 @@ class CodeGraphAdapter(BaseGraphAdapter):
             edge_count = int(parsed.get("edgeCount") or 0)
             file_count = int(parsed.get("fileCount") or 0)
             indexed = bool(parsed.get("initialized", self.codegraph_dir.exists()))
+            error_message = None
+            if res.returncode != 0 and not indexed:
+                err = (res.stderr or res.stdout or "").strip()
+                error_message = err[:400] if err else f"codegraph status exit {res.returncode}"
             return EngineStatus(
                 engine_name="codegraph",
                 available=available,
@@ -66,6 +72,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 index_path=str(self.codegraph_dir),
                 node_count=node_count,
                 edge_count=edge_count,
+                error_message=error_message,
                 details={
                     "status": "ready" if indexed else "not_indexed",
                     "file_count": file_count,
@@ -81,9 +88,12 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 error_message=str(e),
             )
 
+    def _init_cmd(self) -> list[str]:
+        return [self.bin_path, "init", str(self.project_path)]
+
     def index_project(self, timeout: int = 300) -> dict[str, Any]:
         """Runs codegraph init or index on the target project."""
-        cmd = [self.bin_path, "init", str(self.project_path)]
+        cmd = self._init_cmd()
         result = subprocess.run(
             cmd,
             cwd=str(self.project_path),
@@ -176,6 +186,9 @@ class CodeGraphAdapter(BaseGraphAdapter):
 
     def get_callers(self, symbol: str) -> list[dict[str, Any]]:
         """Finds all functions/methods that call a specific symbol."""
+        cache_key = ("callers", symbol)
+        if cache_key in self._symbol_cache:
+            return self._symbol_cache[cache_key]
         try:
             res = subprocess.run(
                 [
@@ -193,6 +206,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 check=False,
             )
             if not res.stdout.strip():
+                self._symbol_cache[cache_key] = []
                 return []
             payload = json.loads(res.stdout)
             callers_raw = payload.get("callers") or []
@@ -217,12 +231,17 @@ class CodeGraphAdapter(BaseGraphAdapter):
                         "location": location,
                     }
                 )
+            self._symbol_cache[cache_key] = callers
             return callers
         except Exception:
+            self._symbol_cache[cache_key] = []
             return []
 
     def get_callees(self, symbol: str) -> list[dict[str, Any]]:
         """Finds all functions/methods that a specific symbol calls."""
+        cache_key = ("callees", symbol)
+        if cache_key in self._symbol_cache:
+            return self._symbol_cache[cache_key]
         try:
             res = subprocess.run(
                 [
@@ -240,6 +259,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
                 check=False,
             )
             if not res.stdout.strip():
+                self._symbol_cache[cache_key] = []
                 return []
             payload = json.loads(res.stdout)
             callees_raw = payload.get("callees") or []
@@ -264,8 +284,10 @@ class CodeGraphAdapter(BaseGraphAdapter):
                         "location": location,
                     }
                 )
+            self._symbol_cache[cache_key] = callees
             return callees
         except Exception:
+            self._symbol_cache[cache_key] = []
             return []
 
     def extract_source_files(self, node_text: str) -> list[str]:

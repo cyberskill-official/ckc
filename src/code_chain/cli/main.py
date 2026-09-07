@@ -175,8 +175,18 @@ def main() -> None:
         return
 
     if args.command == "ui":
+        # Propagate bind host before the UI module configures CORS / auth.
+        os.environ["CKC_HOST"] = args.host
+        os.environ["CKC_PORT"] = str(args.port)
         url = f"http://{args.host}:{args.port}"
         print(f"Starting Code Knowledge Chain UI at: {url}")
+        if args.host not in ("127.0.0.1", "localhost", "::1") and not (
+            os.environ.get("CKC_UI_TOKEN") or ""
+        ).strip():
+            print(
+                "WARNING: Non-loopback bind without CKC_UI_TOKEN — "
+                "mutating API routes will return 503 until a token is set."
+            )
         if args.open:
             webbrowser.open(url)
         uvicorn.run(

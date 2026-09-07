@@ -125,6 +125,10 @@ class GitNexusAdapter(BaseGraphAdapter):
                 "processes": stats.get("processes", 0),
                 "files": stats.get("files", 0),
             }
+            error_message = None
+            if res.returncode != 0 and not (is_ready or bool(stats)):
+                err = (res.stderr or res.stdout or "").strip()
+                error_message = err[:400] if err else f"gitnexus status exit {res.returncode}"
             return EngineStatus(
                 engine_name="gitnexus",
                 available=available,
@@ -132,6 +136,7 @@ class GitNexusAdapter(BaseGraphAdapter):
                 index_path=str(self.nexus_dir),
                 node_count=stats.get("nodes", 0),
                 edge_count=stats.get("edges", 0),
+                error_message=error_message,
                 details=details,
             )
         except Exception as e:

@@ -13,7 +13,13 @@ from pathlib import Path
 
 
 def probe_local_lm_studio(host: str = "127.0.0.1", port: int = 1234) -> tuple[str, str, str] | None:
-    """Probe local LM Studio models endpoint (default port 1234)."""
+    """
+    Probe local LM Studio models endpoint (default port 1234).
+
+    Intentionally loopback-only: never probe remote hosts (SSRF guard).
+    """
+    if host.strip().lower() not in {"127.0.0.1", "localhost", "::1"}:
+        return None
     try:
         url = f"http://{host}:{port}/v1/models"
         req = urllib.request.Request(url, headers={"User-Agent": "code-knowledge-chain"})

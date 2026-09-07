@@ -63,7 +63,7 @@ class ChainConfig(BaseModel):
     # Timeouts in seconds
     index_timeout: int = 300
     multimodal_index_timeout: int = 900
-    # Soft upper bound for interactive query/impact/trace work (UI messaging / future caps).
+    # Wall-clock cap for UI/API query, impact, and trace (asyncio.wait_for).
     query_timeout: int = 60
 
     # Indexing options
@@ -72,6 +72,7 @@ class ChainConfig(BaseModel):
     )
     # Cap on Tier-2 GitNexus context lookups per query (and related search depth).
     max_search_depth: int = 5
+    # Approximate token budget for stacked markdown + optional local LLM synthesis.
     max_tokens_budget: int = 4000
 
     def resolve_project_path(self, path: str | None = None) -> Path:

@@ -32,6 +32,26 @@ class TestWebUIApi(unittest.TestCase):
         self.assertTrue(data["status"]["all_ready"])
         self.assertEqual(data["status"]["ready_count"], 3)
         self.assertIn("summary", data)
+        self.assertIn("local_docs_count", data)
+        self.assertIn("llm", data)
+        self.assertIn("configured", data["llm"])
+        self.assertIn("engine_errors", data)
+        self.assertIsInstance(data["engine_errors"], dict)
+
+    def test_samples_endpoint(self):
+        res = self.client.get("/api/samples")
+        self.assertEqual(res.status_code, 200)
+        samples = res.json()["samples"]
+        self.assertGreaterEqual(len(samples), 1)
+        self.assertTrue(any(s["id"] == "python-auth-service" for s in samples))
+
+    def test_cors_loopback_default(self):
+        from code_chain.ui.server import is_loopback_host, resolve_cors_origins
+
+        self.assertTrue(is_loopback_host("127.0.0.1"))
+        self.assertFalse(is_loopback_host("0.0.0.0"))
+        self.assertEqual(resolve_cors_origins("127.0.0.1"), ["*"])
+        self.assertEqual(resolve_cors_origins("0.0.0.0"), [])
 
     def test_status_invalid_path(self):
         res = self.client.get("/api/status?project=/non/existent/path/999")

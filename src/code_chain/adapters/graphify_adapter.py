@@ -14,6 +14,7 @@ from typing import Any
 
 from code_chain.adapters.base import BaseGraphAdapter
 from code_chain.core.docs_index import load_docs_index, local_docs_count
+from code_chain.core.llm import resolve_llm_config
 from code_chain.core.models import CrossDomainEntity, EngineStatus
 
 _NON_CODE_RESERVE = 2
@@ -145,8 +146,6 @@ class GraphifyAdapter(BaseGraphAdapter):
         if code_only:
             cmd.append("--code-only")
         else:
-            from code_chain.core.llm import resolve_llm_config
-
             llm_cfg = resolve_llm_config()
             has_cloud_key = any(
                 os.getenv(k)
