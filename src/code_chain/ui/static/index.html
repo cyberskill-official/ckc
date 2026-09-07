@@ -1,355 +1,130 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Code Knowledge Chain | 3-Tier Code Intelligence</title>
-  <link rel="stylesheet" href="styles.css" />
-  <!-- CDN dependencies for live diagramming and markdown rendering -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CKC Graph-First Explorer</title>
+    <!-- CDNs -->
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent@4/cytoscape-cose-bilkent.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <header class="app-header">
+        <div class="logo">CKC Explorer</div>
+        <div class="project-input-container">
+            <input type="text" id="project-path" placeholder="Enter absolute project path..." />
+            <button id="load-btn">Load</button>
+        </div>
+        <div class="header-badges">
+            <span id="ready-badge" class="badge">Not Ready</span>
+            <span id="llm-chip" class="badge">LLM: Off</span>
+        </div>
+    </header>
 
-  <!-- Header -->
-  <header>
-    <div class="brand-container">
-      <span class="logo-badge">CKC</span>
-      <h1 class="brand-title">Code Knowledge Chain</h1>
-      <span class="brand-subtitle">3-Tier Code Intelligence</span>
-    </div>
-    <div class="engine-tags">
-      <span class="engine-tag tag-graphify">Tier 1: Graphify</span>
-      <span class="engine-tag tag-gitnexus">Tier 2: GitNexus</span>
-      <span class="engine-tag tag-codegraph">Tier 3: CodeGraph</span>
-    </div>
-  </header>
+    <div class="main-layout">
+        <!-- Left Sidebar -->
+        <aside class="sidebar">
+            <section class="filters">
+                <h3>Filters</h3>
+                <label><input type="checkbox" id="filter-code" checked> Code</label>
+                <label><input type="checkbox" id="filter-doc" checked> Docs</label>
+                <label><input type="checkbox" id="filter-schema" checked> Schema</label>
+                <label><input type="checkbox" id="filter-test" checked> Tests</label>
+            </section>
+            
+            <section class="communities">
+                <h3>Communities</h3>
+                <ul id="community-list"></ul>
+            </section>
+            
+            <section class="actions">
+                <h3>Actions</h3>
+                <label><input type="checkbox" id="force-index"> Re-index (force)</label>
+                <label><input type="checkbox" id="multimodal-index"> Multimodal</label>
+                <button id="run-index-btn">▶ Run Indexing</button>
+            </section>
 
-  <!-- Sticky Repository Selector Bar -->
-  <section class="repo-bar">
-    <div class="repo-input-group">
-      <input
-        type="text"
-        id="repoPathInput"
-        class="repo-input"
-        placeholder="Enter absolute repository path (e.g. /path/to/project)"
-        spellcheck="false"
-      />
-    </div>
-    <button id="btnLoadRepo" class="btn">Load Project</button>
+            <section class="recent-ops">
+                <h3>Recent Operations</h3>
+                <div id="ops-history"></div>
+            </section>
+        </aside>
 
-    <div id="readinessBadge" class="badge badge-missing">
-      <span class="badge-dot">●</span> Status Unknown
-    </div>
-
-    <div class="quick-links">
-      <span>Quick Load:</span>
-      <span class="link-chip" data-path="test-project">test-project (Python)</span>
-      <span class="link-chip" data-path="sample-service">sample-service (TypeScript)</span>
-    </div>
-  </section>
-
-  <!-- Error Banner -->
-  <div id="globalErrorBanner" class="error-banner" style="display: none; margin: 16px 24px 0 24px;">
-    <span id="globalErrorMessage"></span>
-    <button class="btn btn-sm" onclick="dismissError()">Dismiss</button>
-  </div>
-
-  <!-- Navigation Tabs -->
-  <nav class="tabs-container">
-    <button class="tab-btn active" data-tab="tab-dashboard">📊 Dashboard & Indexing</button>
-    <button class="tab-btn" data-tab="tab-query">🔍 Architecture & Query</button>
-    <button class="tab-btn" data-tab="tab-impact">💥 Blast Radius & Impact</button>
-    <button class="tab-btn" data-tab="tab-trace">🔀 Execution Flow Tracer</button>
-    <button class="tab-btn" data-tab="tab-artifacts">📁 Artifacts Inspector</button>
-  </nav>
-
-  <!-- Main Container -->
-  <main>
-
-    <!-- TAB 1: DASHBOARD & INDEXING -->
-    <div id="tab-dashboard" class="tab-content active">
-      <!-- 3-Engine Status Grid -->
-      <div class="grid-3">
-        <!-- Graphify Card -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <span class="engine-tag tag-graphify">Tier 1</span>
-              <span>Graphify</span>
+        <!-- Center Graph Area -->
+        <main class="graph-area">
+            <div class="command-bar-wrapper">
+                <input type="text" id="command-bar" placeholder="Search nodes, ask questions, or analyze symbols... (Press '/')">
+                <div class="mode-indicators">
+                    <span class="mode-badge" data-mode="query">[🔍 Query]</span>
+                    <span class="mode-badge" data-mode="impact">[⚡ Impact]</span>
+                    <span class="mode-badge" data-mode="trace">[🔀 Trace]</span>
+                </div>
+                <button id="clear-overlays-btn" class="hidden">Clear Overlays</button>
             </div>
-            <span id="statusGraphifyBadge" class="badge badge-missing">Missing</span>
-          </div>
-          <div class="card-stat" id="statGraphifyNodes">0</div>
-          <div class="card-stat-label">Multi-modal Nodes & Artifacts</div>
-          <div class="card-details" id="statGraphifyDetails">
-            Communities: 0 | Edges: 0 | Local docs: 0
-          </div>
-        </div>
-
-        <!-- GitNexus Card -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <span class="engine-tag tag-gitnexus">Tier 2</span>
-              <span>GitNexus</span>
+            
+            <div id="cy"></div>
+            
+            <div class="graph-controls">
+                <button id="fit-btn">Fit [f]</button>
             </div>
-            <span id="statusGitNexusBadge" class="badge badge-missing">Missing</span>
-          </div>
-          <div class="card-stat" id="statGitNexusNodes">0</div>
-          <div class="card-stat-label">AST Execution Flow Nodes</div>
-          <div class="card-details" id="statGitNexusDetails">
-            KùzuDB Graph: Not initialized
-          </div>
-        </div>
+        </main>
 
-        <!-- CodeGraph Card -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <span class="engine-tag tag-codegraph">Tier 3</span>
-              <span>CodeGraph</span>
+        <!-- Right Panel (Context) -->
+        <aside class="right-panel closed" id="context-panel">
+            <div class="panel-header">
+                <button id="close-panel-btn">×</button>
             </div>
-            <span id="statusCodeGraphBadge" class="badge badge-missing">Missing</span>
-          </div>
-          <div class="card-stat" id="statCodeGraphNodes">0</div>
-          <div class="card-stat-label">Fine-Grained Symbols</div>
-          <div class="card-details" id="statCodeGraphDetails">
-            Symbol Cache: Not initialized
-          </div>
-        </div>
-      </div>
+            <div class="panel-content" id="node-details">
+                <div class="empty-state">Select a node to view context</div>
+                <div class="node-info hidden">
+                    <h2 id="node-label"></h2>
+                    <span id="node-category" class="badge"></span>
+                    <div class="metadata">
+                        <div><strong>Source:</strong> <span id="node-source"></span></div>
+                        <div><strong>Community:</strong> <span id="node-community"></span></div>
+                        <div><strong>Connections:</strong> <span id="node-degree"></span></div>
+                    </div>
+                    
+                    <div class="connections-list" id="node-connections">
+                        <!-- Populated dynamically -->
+                    </div>
 
-      <!-- Indexing Control Bar -->
-      <div class="card" style="margin-bottom: 20px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-          <div>
-            <h3 style="font-size: 16px; margin-bottom: 4px;">Knowledge Graph Indexing Engine</h3>
-            <p style="font-size: 13px; color: var(--text-secondary);">
-              Constructs deterministic AST call graphs, multi-modal project maps, and symbol tables across all 3 layers.
-            </p>
-          </div>
-          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-            <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; gap: 6px;">
-              <input type="checkbox" id="checkMultimodal" />
-              Enable LLM Multi-Modal Docs (Graphify)
-            </label>
-            <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; gap: 6px;">
-              <input type="checkbox" id="checkForceIndex" />
-              Force re-index
-            </label>
-            <span id="llmStatusChip" style="font-size: 12px; color: var(--text-muted);">LLM: —</span>
-            <button id="btnStartIndex" class="btn btn-primary">
-              ▶ Run 3-Tier Indexing
-            </button>
-            <button id="btnCancelIndex" class="btn btn-danger" style="display: none;">
-              ⏹ Cancel Indexing
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Live Terminal Console -->
-      <div class="terminal-container">
-        <div class="terminal-header">
-          <div class="terminal-title">
-            <span class="terminal-dot dot-red"></span>
-            <span class="terminal-dot dot-yellow"></span>
-            <span class="terminal-dot dot-green"></span>
-            <span style="margin-left: 8px;">Indexing Terminal Output (Streaming)</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <span id="indexingTimer" style="font-family: var(--font-mono); color: var(--accent-blue);">00:00</span>
-            <button id="btnClearTerminal" class="btn btn-sm">Clear</button>
-          </div>
-        </div>
-        <div id="terminalBody" class="terminal-body">
-          <div class="terminal-line" style="color: var(--text-muted);">Terminal ready. Load a project and click "Run 3-Tier Indexing" to begin.</div>
-        </div>
-      </div>
+                    <div class="node-actions">
+                        <button id="action-impact">▶ Impact Analysis</button>
+                        <button id="action-trace">▶ Trace From Here</button>
+                        <button id="action-query">▶ Query About This</button>
+                    </div>
+                </div>
+            </div>
+        </aside>
     </div>
 
-    <!-- TAB 2: ARCHITECTURE & QUERY -->
-    <div id="tab-query" class="tab-content">
-      <div class="card" style="margin-bottom: 16px;">
-        <h3 style="font-size: 16px; margin-bottom: 6px;">Traverse ➔ Reason ➔ Explain: Architectural Query</h3>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
-          Ask high-level architectural or feature questions. The pipeline traverses Graphify docs/schemas, GitNexus execution flows, and CodeGraph source blocks.
-        </p>
-        <div class="query-box">
-          <input
-            type="text"
-            id="queryInput"
-            class="query-input"
-            placeholder="e.g. How does authentication work? Where is billing processed?"
-          />
-          <button id="btnRunQuery" class="btn btn-primary">Search Graph</button>
+    <!-- Bottom Drawer -->
+    <div class="bottom-drawer" id="drawer">
+        <div class="drawer-header" id="drawer-toggle">
+            <div class="drawer-tabs">
+                <button class="tab-btn active" data-tab="terminal">Terminal</button>
+                <button class="tab-btn" data-tab="results">Results</button>
+            </div>
+            <div class="drawer-controls">
+                <button id="copy-results-btn" class="hidden">Copy Results</button>
+                <span class="chevron">▲</span>
+            </div>
         </div>
-        <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;">
-          <input type="checkbox" id="checkQueryLlm" checked />
-          Local model synthesis (when configured)
-        </label>
-        <div class="quick-links">
-          <span>Suggestions:</span>
-          <span class="link-chip" data-query="authentication and login">authentication and login</span>
-          <span class="link-chip" data-query="billing and payment calculation">billing and payment calculation</span>
-          <span class="link-chip" data-query="database user schema">database user schema</span>
+        <div class="drawer-content">
+            <div class="tab-pane active" id="pane-terminal">
+                <pre id="terminal-output"></pre>
+            </div>
+            <div class="tab-pane" id="pane-results">
+                <div id="results-output" class="markdown-body"></div>
+            </div>
         </div>
-      </div>
-
-      <div id="queryLoading" style="display: none; text-align: center; padding: 32px;">
-        <span class="spinner"></span>
-        <div style="margin-top: 8px; color: var(--text-secondary);">Querying 3-tier knowledge graph...</div>
-      </div>
-
-      <div id="queryEmpty" class="empty-state">
-        <div class="empty-state-icon">🔍</div>
-        <h3>No Queries Executed Yet</h3>
-        <p>Enter a question or concept above to synthesize cross-domain architectural context.</p>
-      </div>
-
-      <div id="queryResultContainer" style="display: none;">
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
-          <button id="btnCopyQuery" class="btn btn-sm">📋 Copy LLM Prompt Context</button>
-        </div>
-        <div id="queryMarkdownResult" class="result-pane"></div>
-      </div>
     </div>
 
-    <!-- TAB 3: BLAST RADIUS & IMPACT -->
-    <div id="tab-impact" class="tab-content">
-      <div class="card" style="margin-bottom: 16px;">
-        <h3 style="font-size: 16px; margin-bottom: 6px;">Refactoring Blast Radius & Risk Assessment</h3>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
-          Inspect upstream callers, impacted business processes, affected test suites, and receive a guided refactoring plan before altering code.
-        </p>
-        <div class="query-box">
-          <input
-            type="text"
-            id="impactSymbolInput"
-            class="query-input"
-            placeholder="Enter symbol name (e.g. login, charge, AuthService)"
-          />
-          <button id="btnRunImpact" class="btn btn-primary">Analyze Blast Radius</button>
-        </div>
-        <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;">
-          <input type="checkbox" id="checkImpactLlm" checked />
-          Local model synthesis (when configured)
-        </label>
-        <div class="quick-links">
-          <span>Suggestions:</span>
-          <span class="link-chip" data-impact="login">login</span>
-          <span class="link-chip" data-impact="charge">charge</span>
-          <span class="link-chip" data-impact="AuthService">AuthService</span>
-        </div>
-      </div>
-
-      <div id="impactLoading" style="display: none; text-align: center; padding: 32px;">
-        <span class="spinner"></span>
-        <div style="margin-top: 8px; color: var(--text-secondary);">Calculating AST blast radius and caller hierarchies...</div>
-      </div>
-
-      <div id="impactEmpty" class="empty-state">
-        <div class="empty-state-icon">💥</div>
-        <h3>No Symbol Analyzed Yet</h3>
-        <p>Enter a function, method, or class name to evaluate its refactoring blast radius.</p>
-      </div>
-
-      <div id="impactResultContainer" style="display: none;">
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
-          <button id="btnCopyImpact" class="btn btn-sm">📋 Copy Impact Report</button>
-        </div>
-        <div id="impactMarkdownResult" class="result-pane"></div>
-      </div>
-    </div>
-
-    <!-- TAB 4: EXECUTION FLOW TRACER -->
-    <div id="tab-trace" class="tab-content">
-      <div class="card" style="margin-bottom: 16px;">
-        <h3 style="font-size: 16px; margin-bottom: 6px;">Deterministic Directed Execution Flow Tracer</h3>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
-          Traces the exact directed AST execution path between two symbols, annotated with line numbers, call types, and interactive Mermaid diagrams.
-        </p>
-        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px;">
-          <input
-            type="text"
-            id="traceFromInput"
-            class="query-input"
-            placeholder="From symbol (e.g. handle_login_request, processCheckout)"
-          />
-          <input
-            type="text"
-            id="traceToInput"
-            class="query-input"
-            placeholder="To symbol (e.g. verify_password, charge)"
-          />
-          <button id="btnRunTrace" class="btn btn-primary">Trace Flow</button>
-        </div>
-        <label style="font-size: 13px; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;">
-          <input type="checkbox" id="checkTraceLlm" checked />
-          Local model synthesis (when configured)
-        </label>
-        <div class="quick-links" style="margin-top: 10px;">
-          <span>Presets:</span>
-          <span class="link-chip" data-trace-from="handle_login_request" data-trace-to="verify_password">handle_login_request ➔ verify_password</span>
-          <span class="link-chip" data-trace-from="processCheckout" data-trace-to="charge">processCheckout ➔ charge</span>
-        </div>
-      </div>
-
-      <div id="traceLoading" style="display: none; text-align: center; padding: 32px;">
-        <span class="spinner"></span>
-        <div style="margin-top: 8px; color: var(--text-secondary);">Traversing directed AST execution graph...</div>
-      </div>
-
-      <div id="traceEmpty" class="empty-state">
-        <div class="empty-state-icon">🔀</div>
-        <h3>No Execution Path Traced Yet</h3>
-        <p>Specify starting and ending symbols to compute the shortest directed execution path.</p>
-      </div>
-
-      <div id="traceResultContainer" style="display: none;">
-        <!-- Live Mermaid Diagram -->
-        <div class="card" style="margin-bottom: 16px;">
-          <h4 style="font-size: 14px; margin-bottom: 12px;">Live Architecture Flow Diagram</h4>
-          <div id="mermaidRenderBox" class="mermaid-diagram"></div>
-        </div>
-
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
-          <button id="btnCopyTrace" class="btn btn-sm">📋 Copy Trace Dossier</button>
-        </div>
-        <div id="traceMarkdownResult" class="result-pane"></div>
-      </div>
-    </div>
-
-    <!-- TAB 5: ARTIFACTS INSPECTOR -->
-    <div id="tab-artifacts" class="tab-content">
-      <div class="card" style="margin-bottom: 16px;">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
-          <div>
-            <h3 style="font-size: 16px; margin-bottom: 4px;">Knowledge Graph Artifacts</h3>
-            <p style="font-size: 13px; color: var(--text-secondary);">
-              Inspect the raw data files, community analyses, and manifests generated by the 3 engines.
-            </p>
-          </div>
-          <button id="btnRefreshArtifacts" class="btn btn-sm">🔄 Refresh List</button>
-        </div>
-      </div>
-
-      <div class="grid-3" id="artifactsGrid" style="margin-bottom: 20px;">
-        <!-- Artifact items populated via JavaScript -->
-      </div>
-
-      <div id="artifactViewerContainer" class="card" style="display: none;">
-        <div class="card-header">
-          <span class="card-title" id="artifactViewerTitle">Viewing Artifact</span>
-          <button class="btn btn-sm" onclick="closeArtifactViewer()">Close</button>
-        </div>
-        <pre id="artifactViewerContent" style="max-height: 500px; overflow: auto;"></pre>
-      </div>
-    </div>
-
-  </main>
-
-  <script src="app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>

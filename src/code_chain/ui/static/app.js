@@ -1,650 +1,680 @@
-/**
- * Code Knowledge Chain Interactive Dashboard Controller
- */
+// CKC Graph-First Explorer App
 
-// Initialize Mermaid.js for client-side rendering
-if (window.mermaid) {
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: 'default',
-    securityLevel: 'loose',
-    flowchart: { curve: 'basis' },
-  });
-}
-
-// Global App State
 const state = {
-  currentProject: "",
-  indexingSource: null,
-  indexingTimerInterval: null,
-  indexingSeconds: 0,
-  lastQueryResult: "",
-  lastImpactResult: "",
-  lastTraceResult: "",
-  samples: {},
+    currentProject: localStorage.getItem('ckc_project_path') || '',
+    cy: null,
+    selectedNode: null,
+    traceSource: null,
+    graphData: null,
+    communities: [],
+    filters: { code: true, doc: true, schema: true, test: true },
+    indexingSource: null,
+    operationHistory: [],
+    drawerOpen: false,
+    drawerTab: 'terminal',
+    lastResults: '',
+    palette: [
+        '#ff7b72', '#79c0ff', '#d2a8ff', '#a5d6ff', '#f0883e', 
+        '#3fb950', '#8957e5', '#d29922', '#ff9bce', '#56d364',
+        '#e3b341', '#f85149'
+    ]
 };
 
-document.addEventListener("DOMContentLoaded", async () => {
-  setupNavigation();
-  setupRepoBar();
-  setupIndexing();
-  setupQueryTab();
-  setupImpactTab();
-  setupTraceTab();
-  setupArtifactsTab();
+// UI Elements
+const els = {
+    projectInput: document.getElementById('project-path'),
+    loadBtn: document.getElementById('load-btn'),
+    readyBadge: document.getElementById('ready-badge'),
+    llmChip: document.getElementById('llm-chip'),
+    
+    // Sidebar
+    filterCode: document.getElementById('filter-code'),
+    filterDoc: document.getElementById('filter-doc'),
+    filterSchema: document.getElementById('filter-schema'),
+    filterTest: document.getElementById('filter-test'),
+    communityList: document.getElementById('community-list'),
+    runIndexBtn: document.getElementById('run-index-btn'),
+    forceIndex: document.getElementById('force-index'),
+    multimodalIndex: document.getElementById('multimodal-index'),
+    opsHistory: document.getElementById('ops-history'),
+    
+    // Graph Area
+    commandBar: document.getElementById('command-bar'),
+    fitBtn: document.getElementById('fit-btn'),
+    clearOverlaysBtn: document.getElementById('clear-overlays-btn'),
+    
+    // Right Panel
+    contextPanel: document.getElementById('context-panel'),
+    closePanelBtn: document.getElementById('close-panel-btn'),
+    nodeDetails: document.getElementById('node-details'),
+    
+    // Drawer
+    drawer: document.getElementById('drawer'),
+    drawerToggle: document.getElementById('drawer-toggle'),
+    tabBtns: document.querySelectorAll('.tab-btn'),
+    terminalOutput: document.getElementById('terminal-output'),
+    resultsOutput: document.getElementById('results-output')
+};
 
-  // Dynamically load bundled samples
-  await loadBundledSamples();
+// Initialization
+function init() {
+    els.projectInput.value = state.currentProject;
+    
+    initCytoscape();
+    setupEventListeners();
+    
+    if (state.currentProject) {
+        loadProject();
+    }
+}
 
-  // Load saved or default repo
-  const input = document.getElementById("repoPathInput");
-  const savedRepo = localStorage.getItem("ckc_current_repo");
-  const initialRepo = savedRepo || Object.values(state.samples)[0] || "";
-  if (initialRepo) {
-    input.value = initialRepo;
-    loadProjectStatus(initialRepo);
-  }
-});
-
-/* Navigation & Tabs */
-function setupNavigation() {
-  const tabs = document.querySelectorAll(".tab-btn");
-  tabs.forEach(tab => {
-    tab.addEventListener("click", () => {
-      tabs.forEach(t => t.classList.remove("active"));
-      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
-
-      tab.classList.add("active");
-      const targetId = tab.getAttribute("data-tab");
-      const targetContent = document.getElementById(targetId);
-      if (targetContent) targetContent.classList.add("active");
-
-      if (targetId === "tab-artifacts") {
-        loadArtifacts();
-      }
+function initCytoscape() {
+    state.cy = cytoscape({
+        container: document.getElementById('cy'),
+        style: [
+            {
+                selector: 'node',
+                style: {
+                    'label': 'data(label)',
+                    'font-size': '10px',
+                    'color': '#c9d1d9',
+                    'text-valign': 'bottom',
+                    'text-halign': 'center',
+                    'text-margin-y': 4,
+                    'min-zoomed-font-size': 8
+                }
+            },
+            {
+                selector: 'node[category="code"]',
+                style: { 'shape': 'ellipse', 'background-color': '#8b949e' }
+            },
+            {
+                selector: 'node[category="doc"]',
+                style: { 'shape': 'diamond', 'background-color': '#d2a8ff' }
+            },
+            {
+                selector: 'node[category="schema"]',
+                style: { 'shape': 'hexagon', 'background-color': '#d29922' }
+            },
+            {
+                selector: 'node[category="test"]',
+                style: { 'shape': 'triangle', 'background-color': '#79c0ff' }
+            },
+            {
+                selector: 'edge',
+                style: {
+                    'width': 1,
+                    'line-color': '#30363d',
+                    'curve-style': 'bezier',
+                    'target-arrow-shape': 'triangle',
+                    'target-arrow-color': '#30363d',
+                    'arrow-scale': 0.8
+                }
+            },
+            {
+                selector: ':selected',
+                style: {
+                    'border-width': 3,
+                    'border-color': '#58a6ff'
+                }
+            },
+            {
+                selector: '.dimmed',
+                style: { 'opacity': 0.3 }
+            },
+            {
+                selector: '.trace-source',
+                style: {
+                    'border-width': 3,
+                    'border-color': '#f0883e'
+                }
+            },
+            {
+                selector: '.impact-target',
+                style: { 'background-color': '#f85149', 'border-color': '#f85149', 'border-width': 2 }
+            },
+            {
+                selector: '.impact-node',
+                style: { 'background-color': '#f0883e' }
+            },
+            {
+                selector: '.trace-edge',
+                style: {
+                    'line-color': '#58a6ff',
+                    'target-arrow-color': '#58a6ff',
+                    'width': 3,
+                    'line-style': 'dashed'
+                }
+            }
+        ],
+        layout: { name: 'grid' }
     });
-  });
-}
 
-/* Error Banner */
-function showError(message) {
-  const banner = document.getElementById("globalErrorBanner");
-  const msg = document.getElementById("globalErrorMessage");
-  msg.textContent = message;
-  banner.style.display = "flex";
-}
-
-function dismissError() {
-  const banner = document.getElementById("globalErrorBanner");
-  banner.style.display = "none";
-}
-
-/* Repository Bar */
-async function loadBundledSamples() {
-  try {
-    const res = await fetch("/api/samples");
-    if (!res.ok) return;
-    const data = await res.json();
-    const container = document.querySelector(".quick-links");
-    if (!container) return;
-
-    // Clear static presets and render dynamic ones
-    container.innerHTML = "<span>Quick Load:</span>";
-    (data.samples || []).forEach(sample => {
-      state.samples[sample.id] = sample.path;
-      const chip = document.createElement("span");
-      chip.className = "link-chip";
-      chip.textContent = `${sample.name}`;
-      chip.title = sample.path;
-      chip.addEventListener("click", () => {
-        document.getElementById("repoPathInput").value = sample.path;
-        loadProjectStatus(sample.path);
-      });
-      container.appendChild(chip);
+    state.cy.on('tap', 'node', function(evt){
+        const node = evt.target;
+        if (evt.originalEvent?.shiftKey) {
+            handleShiftClick(node);
+        } else {
+            selectNode(node);
+        }
     });
-  } catch (e) {
-    console.warn("Could not load bundled samples:", e);
-  }
+
+    state.cy.on('tap', function(evt){
+        if (evt.target === state.cy) {
+            clearSelection();
+        }
+    });
 }
 
-function setupRepoBar() {
-  const input = document.getElementById("repoPathInput");
-  const btnLoad = document.getElementById("btnLoadRepo");
+function setupEventListeners() {
+    els.loadBtn.addEventListener('click', () => {
+        state.currentProject = els.projectInput.value;
+        localStorage.setItem('ckc_project_path', state.currentProject);
+        loadProject();
+    });
 
-  btnLoad.addEventListener("click", () => {
-    const val = input.value.trim();
-    if (val) {
-      loadProjectStatus(val);
-    } else {
-      showError("Please enter a valid directory path.");
-    }
-  });
+    els.projectInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') els.loadBtn.click();
+    });
 
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      btnLoad.click();
-    }
-  });
+    els.fitBtn.addEventListener('click', () => state.cy.fit(50));
+    
+    // Filters
+    ['Code', 'Doc', 'Schema', 'Test'].forEach(type => {
+        els[`filter${type}`].addEventListener('change', (e) => {
+            state.filters[type.toLowerCase()] = e.target.checked;
+            applyFilters();
+        });
+    });
+
+    // Right Panel
+    els.closePanelBtn.addEventListener('click', () => {
+        els.contextPanel.classList.add('closed');
+        clearSelection();
+    });
+
+    // Drawer
+    document.querySelector('.drawer-controls').addEventListener('click', toggleDrawer);
+    els.tabBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            els.tabBtns.forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            
+            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+            document.getElementById(`pane-${e.target.dataset.tab}`).classList.add('active');
+            state.drawerTab = e.target.dataset.tab;
+        });
+    });
+
+    // Command Bar
+    els.commandBar.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleCommand(e.target.value);
+    });
+
+    // Global Hotkeys
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            clearSelection();
+            clearOverlays();
+            els.contextPanel.classList.add('closed');
+        } else if (e.key === '/' && document.activeElement !== els.commandBar && document.activeElement.tagName !== 'INPUT') {
+            e.preventDefault();
+            els.commandBar.focus();
+        } else if (e.key === 'f' && document.activeElement.tagName !== 'INPUT') {
+            state.cy.fit(50);
+        }
+    });
+
+    els.clearOverlaysBtn.addEventListener('click', clearOverlays);
+    
+    // Indexing
+    els.runIndexBtn.addEventListener('click', runIndexing);
 }
 
-async function loadProjectStatus(path) {
-  dismissError();
-  state.currentProject = path;
-  localStorage.setItem("ckc_current_repo", path);
-
-  const badge = document.getElementById("readinessBadge");
-  badge.className = "badge";
-  badge.innerHTML = '<span class="spinner"></span> Checking...';
-
-  try {
-    const res = await fetch(`/api/status?project=${encodeURIComponent(path)}`);
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Failed to load project status");
-    }
-    const data = await res.json();
-    window.__ckcLastStatusMeta = {
-      llm: data.llm,
-      local_docs_count: data.local_docs_count,
-    };
-    renderStatus(data.status);
-  } catch (err) {
-    badge.className = "badge badge-missing";
-    badge.innerHTML = '<span>●</span> Offline / Invalid';
-    showError(err.message);
-  }
-}
-
-function renderStatus(status) {
-  const badge = document.getElementById("readinessBadge");
-  const readyCount = status.ready_count || 0;
-
-  if (readyCount === 3) {
-    badge.className = "badge badge-ready";
-    badge.innerHTML = "<span>●</span> 3/3 Engines Ready";
-  } else if (readyCount > 0) {
-    badge.className = "badge badge-partial";
-    badge.innerHTML = `<span>●</span> ${readyCount}/3 Engines Ready`;
-  } else {
-    badge.className = "badge badge-missing";
-    badge.innerHTML = "<span>●</span> Not Indexed";
-  }
-
-  // Graphify
-  const g = status.graphify || {};
-  const gBadge = document.getElementById("statusGraphifyBadge");
-  gBadge.className = `badge ${g.indexed ? 'badge-ready' : 'badge-missing'}`;
-  gBadge.textContent = g.indexed ? "Indexed" : "Missing";
-  document.getElementById("statGraphifyNodes").textContent = g.node_count || 0;
-  document.getElementById("statGraphifyDetails").textContent =
-    `Communities: ${g.details?.communities_count || 0} | Edges: ${g.edge_count || 0} | Local docs: ${g.details?.local_docs_count || 0}`;
-
-  const llmChip = document.getElementById("llmStatusChip");
-  if (llmChip && window.__ckcLastStatusMeta) {
-    const llm = window.__ckcLastStatusMeta.llm;
-    if (llm?.configured) {
-      llmChip.textContent = `LLM: ${llm.model || "configured"} @ ${llm.base_url || "?"}`;
-    } else {
-      llmChip.textContent = "LLM: not configured";
-    }
-  }
-
-  // GitNexus
-  const gn = status.gitnexus || {};
-  const gnBadge = document.getElementById("statusGitNexusBadge");
-  gnBadge.className = `badge ${gn.indexed ? 'badge-ready' : 'badge-missing'}`;
-  gnBadge.textContent = gn.indexed ? "Indexed" : "Missing";
-  document.getElementById("statGitNexusNodes").textContent = gn.node_count || (gn.indexed ? "Ready" : 0);
-  document.getElementById("statGitNexusDetails").textContent =
-    gn.indexed ? "AST Call Graph & Blast Radius Ready" : "KùzuDB: Run indexing to build";
-
-  // CodeGraph
-  const cg = status.codegraph || {};
-  const cgBadge = document.getElementById("statusCodeGraphBadge");
-  cgBadge.className = `badge ${cg.indexed ? 'badge-ready' : 'badge-missing'}`;
-  cgBadge.textContent = cg.indexed ? "Indexed" : "Missing";
-  document.getElementById("statCodeGraphNodes").textContent = cg.node_count || (cg.indexed ? "Ready" : 0);
-  document.getElementById("statCodeGraphDetails").textContent =
-    cg.indexed ? "Symbol Table & Source Cache Active" : "Symbol Cache: Run indexing to build";
-}
-
-/* Indexing & Live Streaming */
-function setupIndexing() {
-  const btnStart = document.getElementById("btnStartIndex");
-  const btnCancel = document.getElementById("btnCancelIndex");
-  const btnClear = document.getElementById("btnClearTerminal");
-  const terminal = document.getElementById("terminalBody");
-  const timer = document.getElementById("indexingTimer");
-
-  btnClear.addEventListener("click", () => {
-    terminal.innerHTML = '<div class="terminal-line" style="color: var(--text-muted);">Terminal cleared.</div>';
-  });
-
-  btnStart.addEventListener("click", () => {
-    const path = state.currentProject;
-    if (!path) {
-      showError("Please enter and verify a repository path first.");
-      return;
-    }
-    const multimodal = document.getElementById("checkMultimodal").checked;
-    const force = document.getElementById("checkForceIndex")?.checked || false;
-    startIndexingStream(path, multimodal, force);
-  });
-
-  btnCancel.addEventListener("click", async () => {
+async function loadProject() {
     if (!state.currentProject) return;
+    
     try {
-      await fetch("/api/index/cancel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_path: state.currentProject }),
-      });
-      appendTerminalLine("Cancellation request sent...", "log-error");
-    } catch (err) {
-      appendTerminalLine(`Error cancelling: ${err}`, "log-error");
-    }
-  });
-}
+        const [statusRes, graphRes] = await Promise.all([
+            fetch(`/api/status?project=${encodeURIComponent(state.currentProject)}`).then(r => r.json()),
+            fetch(`/api/graph?project=${encodeURIComponent(state.currentProject)}`).then(r => r.json())
+        ]);
 
-function startIndexingStream(projectPath, multimodal, force = false) {
-  const btnStart = document.getElementById("btnStartIndex");
-  const btnCancel = document.getElementById("btnCancelIndex");
-  const terminal = document.getElementById("terminalBody");
-  const timer = document.getElementById("indexingTimer");
-
-  btnStart.style.display = "none";
-  btnCancel.style.display = "inline-flex";
-  terminal.innerHTML = "";
-
-  state.indexingSeconds = 0;
-  clearInterval(state.indexingTimerInterval);
-  state.indexingTimerInterval = setInterval(() => {
-    state.indexingSeconds++;
-    const m = String(Math.floor(state.indexingSeconds / 60)).padStart(2, '0');
-    const s = String(state.indexingSeconds % 60).padStart(2, '0');
-    timer.textContent = `${m}:${s}`;
-  }, 1000);
-
-  const url = `/api/index/stream?project=${encodeURIComponent(projectPath)}&multimodal=${multimodal}&force=${force}`;
-  const es = new EventSource(url);
-  state.indexingSource = es;
-
-  es.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      handleStreamEvent(data);
+        updateStatus(statusRes);
+        renderGraph(graphRes);
+        
     } catch (e) {
-      appendTerminalLine(event.data);
+        console.error("Failed to load project:", e);
+        els.readyBadge.textContent = 'Error';
+        els.readyBadge.className = 'badge error';
     }
-  };
-
-  es.onerror = () => {
-    appendTerminalLine("Stream closed or encountered an error.", "log-error");
-    stopIndexingUI();
-    loadProjectStatus(projectPath);
-  };
 }
 
-function handleStreamEvent(data) {
-  if (data.event === "start") {
-    appendTerminalLine(`[CKC] ${data.message}`, "log-success");
-  } else if (data.event === "step_start") {
-    appendTerminalLine(`\n-----------------------------------------------------------`, "text-secondary");
-    appendTerminalLine(`[Step ${data.step}/${data.total_steps}] ${data.label}...`, `log-${data.engine}`);
-  } else if (data.event === "log") {
-    appendTerminalLine(data.line, `log-${data.engine}`);
-  } else if (data.event === "step_finish") {
-    const statusText = data.success ? "✓ Succeeded" : `✗ Exited with code ${data.returncode}`;
-    appendTerminalLine(`[${data.engine}] ${statusText}`, data.success ? "log-success" : "log-error");
-  } else if (data.event === "step_error") {
-    appendTerminalLine(`[${data.engine}] Error: ${data.error}`, "log-error");
-  } else if (data.event === "cancelled") {
-    appendTerminalLine(`[CKC] ${data.message}`, "log-error");
-    stopIndexingUI();
-    loadProjectStatus(state.currentProject);
-  } else if (data.event === "complete") {
-    appendTerminalLine(`\n===========================================================`, "log-success");
-    appendTerminalLine(`[CKC] 3-Tier Indexing Completed! Readiness: ${data.status?.ready_count}/3 engines.`, "log-success");
-    stopIndexingUI();
-    loadProjectStatus(state.currentProject);
-  }
+function updateStatus(res) {
+    if (res.status && res.status.all_ready) {
+        els.readyBadge.textContent = 'Ready';
+        els.readyBadge.className = 'badge ready';
+    } else {
+        els.readyBadge.textContent = 'Indexing...';
+        els.readyBadge.className = 'badge error';
+    }
+
+    if (res.llm && res.llm.configured) {
+        els.llmChip.textContent = `LLM: ${res.llm.model || 'Configured'}`;
+        els.llmChip.className = 'badge ready';
+    } else {
+        els.llmChip.textContent = 'LLM: Off';
+        els.llmChip.className = 'badge error';
+    }
 }
 
-function appendTerminalLine(text, className = "") {
-  const terminal = document.getElementById("terminalBody");
-  const div = document.createElement("div");
-  div.className = `terminal-line ${className}`;
-  div.textContent = text;
-  terminal.appendChild(div);
-  terminal.scrollTop = terminal.scrollHeight;
+function getCommunityColor(commId) {
+    let hash = 0;
+    const str = String(commId);
+    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    return state.palette[Math.abs(hash) % state.palette.length];
 }
 
-function stopIndexingUI() {
-  if (state.indexingSource) {
-    state.indexingSource.close();
-    state.indexingSource = null;
-  }
-  clearInterval(state.indexingTimerInterval);
-  document.getElementById("btnStartIndex").style.display = "inline-flex";
-  document.getElementById("btnCancelIndex").style.display = "none";
-}
+function renderGraph(res) {
+    if (!res.elements) return;
+    
+    state.graphData = res;
+    state.communities = res.meta?.communities || [];
 
-/* Query Tab */
-function setupQueryTab() {
-  const input = document.getElementById("queryInput");
-  const btnRun = document.getElementById("btnRunQuery");
-  const btnCopy = document.getElementById("btnCopyQuery");
-
-  btnRun.addEventListener("click", () => runQuery(input.value.trim()));
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") btnRun.click();
-  });
-
-  document.querySelectorAll(".link-chip[data-query]").forEach(chip => {
-    chip.addEventListener("click", () => {
-      input.value = chip.getAttribute("data-query");
-      btnRun.click();
+    // Pre-process nodes to set colors and sizes
+    (res.elements.nodes || []).forEach(n => {
+        const degree = n.data.degree || 1;
+        const size = Math.max(20, Math.min(60, 20 + degree * 3));
+        n.data.width = size;
+        n.data.height = size;
+        
+        if (n.data.category === 'code' && n.data.community) {
+            n.data.color = getCommunityColor(n.data.community);
+        }
     });
-  });
 
-  btnCopy.addEventListener("click", () => {
-    if (state.lastQueryResult) {
-      navigator.clipboard.writeText(state.lastQueryResult);
-      btnCopy.textContent = "✓ Copied!";
-      setTimeout(() => { btnCopy.textContent = "📋 Copy LLM Prompt Context"; }, 2000);
+    state.cy.elements().remove();
+    state.cy.add(res.elements);
+    
+    state.cy.style().selector('node[category="code"]').style({
+        'background-color': function(ele) { return ele.data('color') || '#8b949e'; },
+        'width': 'data(width)',
+        'height': 'data(height)'
+    }).update();
+
+    try {
+        state.cy.layout({
+            name: 'cose-bilkent',
+            animate: false,
+            randomize: true,
+            idealEdgeLength: 80,
+            nodeRepulsion: 6500,
+            nestingFactor: 0.1,
+            gravity: 0.25,
+            numIter: 2500,
+            tile: true,
+            tilingPaddingVertical: 10,
+            tilingPaddingHorizontal: 10,
+        }).run();
+    } catch (e) {
+        console.warn('cose-bilkent layout unavailable, falling back to cose:', e);
+        state.cy.layout({ name: 'cose', animate: false }).run();
     }
-  });
+
+    renderCommunities();
 }
 
-async function runQuery(queryText) {
-  if (!queryText) {
-    showError("Please enter a query or concept.");
-    return;
-  }
-  if (!state.currentProject) {
-    showError("Please load a repository first.");
-    return;
-  }
-
-  const loading = document.getElementById("queryLoading");
-  const empty = document.getElementById("queryEmpty");
-  const container = document.getElementById("queryResultContainer");
-  const resultPane = document.getElementById("queryMarkdownResult");
-
-  loading.style.display = "block";
-  empty.style.display = "none";
-  container.style.display = "none";
-  dismissError();
-
-  try {
-    const res = await fetch("/api/query", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        project_path: state.currentProject,
-        query: queryText,
-        use_llm: document.getElementById("checkQueryLlm")?.checked !== false,
-      }),
+function renderCommunities() {
+    els.communityList.innerHTML = '';
+    state.communities.sort((a,b) => b.size - a.size).slice(0, 15).forEach(c => {
+        const li = document.createElement('li');
+        const color = getCommunityColor(c.id);
+        li.innerHTML = `<div class="comm-color" style="background:${color}"></div> Community ${c.id} (${c.size})`;
+        li.addEventListener('click', () => {
+            const nodes = state.cy.nodes().filter(n => n.data('community') === c.id);
+            if (nodes.length) {
+                state.cy.nodes().addClass('dimmed');
+                nodes.removeClass('dimmed');
+                state.cy.fit(nodes, 50);
+            }
+        });
+        els.communityList.appendChild(li);
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Query failed");
-    }
-    const data = await res.json();
-    state.lastQueryResult = data.synthesized_context;
-
-    resultPane.innerHTML = window.marked ? marked.parse(data.synthesized_context) : `<pre>${data.synthesized_context}</pre>`;
-    loading.style.display = "none";
-    container.style.display = "block";
-  } catch (err) {
-    loading.style.display = "none";
-    empty.style.display = "block";
-    showError(err.message);
-  }
 }
 
-/* Impact Tab */
-function setupImpactTab() {
-  const input = document.getElementById("impactSymbolInput");
-  const btnRun = document.getElementById("btnRunImpact");
-  const btnCopy = document.getElementById("btnCopyImpact");
-
-  btnRun.addEventListener("click", () => runImpact(input.value.trim()));
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") btnRun.click();
-  });
-
-  document.querySelectorAll(".link-chip[data-impact]").forEach(chip => {
-    chip.addEventListener("click", () => {
-      input.value = chip.getAttribute("data-impact");
-      btnRun.click();
+function applyFilters() {
+    state.cy.nodes().forEach(node => {
+        const cat = node.data('category') || 'code';
+        if (state.filters[cat]) node.style('display', 'element');
+        else node.style('display', 'none');
     });
-  });
+}
 
-  btnCopy.addEventListener("click", () => {
-    if (state.lastImpactResult) {
-      navigator.clipboard.writeText(state.lastImpactResult);
-      btnCopy.textContent = "✓ Copied!";
-      setTimeout(() => { btnCopy.textContent = "📋 Copy Impact Report"; }, 2000);
+function selectNode(node) {
+    state.cy.nodes().addClass('dimmed');
+    node.removeClass('dimmed');
+    node.neighborhood().removeClass('dimmed');
+    
+    state.selectedNode = node.id();
+    showContextPanel(node.data());
+}
+
+function clearSelection() {
+    state.cy.nodes().removeClass('dimmed');
+    state.selectedNode = null;
+    els.contextPanel.classList.add('closed');
+}
+
+function handleShiftClick(node) {
+    if (!state.traceSource) {
+        state.traceSource = node.id();
+        node.addClass('trace-source');
+        els.commandBar.placeholder = `Select target node for trace from ${node.data('label')}...`;
+    } else if (state.traceSource !== node.id()) {
+        runTrace(state.traceSource, node.id());
+        state.cy.getElementById(state.traceSource).removeClass('trace-source');
+        state.traceSource = null;
+        els.commandBar.placeholder = `Search nodes, ask questions, or analyze symbols... (Press '/')`;
     }
-  });
+}
+
+function showContextPanel(data) {
+    els.contextPanel.classList.remove('closed');
+    document.querySelector('.empty-state').classList.add('hidden');
+    document.querySelector('.node-info').classList.remove('hidden');
+    
+    document.getElementById('node-label').textContent = data.label || data.id;
+    const catBadge = document.getElementById('node-category');
+    catBadge.textContent = data.category || 'unknown';
+    catBadge.className = `badge cat-${data.category || 'code'}`;
+    document.getElementById('node-source').textContent = (data.source_file || '') + (data.source_location ? `:${data.source_location}` : '');
+    document.getElementById('node-community').textContent = data.community ?? 'none';
+    document.getElementById('node-degree').textContent = data.degree || 0;
+    
+    // Build connections list from Cytoscape edges
+    const connList = document.getElementById('node-connections');
+    connList.innerHTML = '';
+    const cyNode = state.cy.getElementById(data.id);
+    if (cyNode.length) {
+        const grouped = {};
+        cyNode.connectedEdges().forEach(edge => {
+            const rel = edge.data('relation') || 'related';
+            if (!grouped[rel]) grouped[rel] = [];
+            const other = edge.source().id() === data.id ? edge.target() : edge.source();
+            grouped[rel].push(other.data('label') || other.id());
+        });
+        for (const [rel, targets] of Object.entries(grouped)) {
+            const relDiv = document.createElement('div');
+            relDiv.className = 'conn-group';
+            relDiv.innerHTML = `<strong>${rel}</strong>: ${targets.slice(0, 8).map(t => 
+                `<a class="symbol-link" data-symbol="${t}">${t}</a>`
+            ).join(', ')}${targets.length > 8 ? ` +${targets.length - 8} more` : ''}`;
+            connList.appendChild(relDiv);
+        }
+        // Make symbol links clickable
+        connList.querySelectorAll('.symbol-link').forEach(link => {
+            link.addEventListener('click', () => {
+                const label = link.dataset.symbol;
+                const target = state.cy.nodes().filter(n => n.data('label') === label);
+                if (target.length) selectNode(target[0]);
+            });
+        });
+    }
+    
+    // Actions — use label for API calls (symbol name, not internal graph ID)
+    const symbolName = data.label || data.id;
+    document.getElementById('action-impact').onclick = () => runImpact(symbolName);
+    document.getElementById('action-trace').onclick = () => {
+        state.traceSource = data.id;
+        state.cy.getElementById(data.id).addClass('trace-source');
+        els.commandBar.placeholder = `Shift-click target node for trace from ${symbolName}...`;
+    };
+    document.getElementById('action-query').onclick = () => runQuery(`How does ${symbolName} work?`);
+}
+
+async function handleCommand(val) {
+    if (!val.trim()) return;
+    
+    // Check if it matches a node label first (fuzzy)
+    const searchLower = val.trim().toLowerCase();
+    const matchNode = state.cy.nodes().filter(n => 
+        (n.data('label') || '').toLowerCase() === searchLower
+    );
+    
+    if (val.includes('->') || val.includes('→')) {
+        const parts = val.split(/->|→/);
+        if (parts.length === 2) runTrace(parts[0].trim(), parts[1].trim());
+    } else if (matchNode.length > 0) {
+        selectNode(matchNode[0]);
+        state.cy.fit(matchNode[0].neighborhood().union(matchNode[0]), 80);
+    } else if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(val.trim())) {
+        // Single identifier — could be a symbol. Try to find on graph first.
+        const fuzzy = state.cy.nodes().filter(n => 
+            (n.data('label') || '').toLowerCase().includes(searchLower)
+        );
+        if (fuzzy.length > 0) {
+            selectNode(fuzzy[0]);
+            state.cy.fit(fuzzy[0].neighborhood().union(fuzzy[0]), 80);
+        } else {
+            runImpact(val.trim());
+        }
+    } else {
+        runQuery(val);
+    }
+    els.commandBar.value = '';
+}
+
+function openDrawer(tab) {
+    els.drawer.classList.add('open');
+    state.drawerOpen = true;
+    if (tab) document.querySelector(`.tab-btn[data-tab="${tab}"]`).click();
+}
+
+function toggleDrawer() {
+    if (state.drawerOpen) {
+        els.drawer.classList.remove('open');
+    } else {
+        els.drawer.classList.add('open');
+    }
+    state.drawerOpen = !state.drawerOpen;
+}
+
+function clearOverlays() {
+    state.cy.elements().removeClass('impact-target impact-node trace-edge trace-source');
+    els.clearOverlaysBtn.classList.add('hidden');
+}
+
+function addOpToHistory(type, label) {
+    const div = document.createElement('div');
+    div.className = 'op-chip';
+    div.textContent = `${type}: ${label}`;
+    els.opsHistory.prepend(div);
+    if (els.opsHistory.children.length > 5) els.opsHistory.lastChild.remove();
+}
+
+// --- API Interactions ---
+
+async function runQuery(q) {
+    openDrawer('results');
+    els.resultsOutput.innerHTML = '<i>Running query...</i>';
+    addOpToHistory('query', q.substring(0,20));
+    
+    try {
+        const res = await fetch('/api/query', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ project_path: state.currentProject, query: q, use_llm: true })
+        }).then(r => r.json());
+        
+        els.resultsOutput.innerHTML = marked.parse(res.synthesized_context || JSON.stringify(res, null, 2));
+    } catch (e) {
+        els.resultsOutput.innerHTML = `<span style="color:var(--color-red)">Error: ${e.message}</span>`;
+    }
 }
 
 async function runImpact(symbol) {
-  if (!symbol) {
-    showError("Please specify a symbol name to analyze.");
-    return;
-  }
-  if (!state.currentProject) {
-    showError("Please load a repository first.");
-    return;
-  }
+    clearOverlays();
+    openDrawer('results');
+    els.resultsOutput.innerHTML = `<i>Running impact analysis for <code>${symbol}</code>...</i>`;
+    els.clearOverlaysBtn.classList.remove('hidden');
+    addOpToHistory('impact', symbol);
+    
+    // Highlight matching node on graph
+    const nodes = state.cy.nodes().filter(n => 
+        (n.data('label') || '').toLowerCase() === symbol.toLowerCase() ||
+        (n.data('label') || '').toLowerCase().includes(symbol.toLowerCase())
+    );
+    if (nodes.length > 0) {
+        nodes[0].addClass('impact-target');
+        state.cy.fit(nodes[0].neighborhood().union(nodes[0]), 50);
+    }
+    
+    try {
+        const res = await fetch('/api/impact', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ project_path: state.currentProject, symbol: symbol, use_llm: true })
+        }).then(r => r.json());
+        
+        const html = marked.parse(res.synthesized_report || JSON.stringify(res, null, 2));
+        els.resultsOutput.innerHTML = linkifySymbols(html);
+        
+        // Highlight impacted nodes on graph (call_hierarchy has {depth, symbol, file, relation})
+        if (res.call_hierarchy && res.call_hierarchy.length) {
+            res.call_hierarchy.forEach(item => {
+                const symName = item.symbol || '';
+                const match = state.cy.nodes().filter(n => 
+                    (n.data('label') || '').toLowerCase() === symName.toLowerCase()
+                );
+                if (match.length) match[0].addClass('impact-node');
+            });
+        }
+        
+    } catch (e) {
+        els.resultsOutput.innerHTML = `<span style="color:#f85149">Error: ${e.message}</span>`;
+    }
+}
 
-  const loading = document.getElementById("impactLoading");
-  const empty = document.getElementById("impactEmpty");
-  const container = document.getElementById("impactResultContainer");
-  const resultPane = document.getElementById("impactMarkdownResult");
+async function runTrace(fromSym, toSym) {
+    clearOverlays();
+    openDrawer('results');
+    els.resultsOutput.innerHTML = `<i>Tracing <code>${fromSym}</code> → <code>${toSym}</code>...</i>`;
+    els.clearOverlaysBtn.classList.remove('hidden');
+    addOpToHistory('trace', `${fromSym}→${toSym}`);
+    
+    try {
+        const res = await fetch('/api/trace', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ project_path: state.currentProject, from_symbol: fromSym, to_symbol: toSym, use_llm: true })
+        }).then(r => r.json());
+        
+        const html = marked.parse(res.synthesized_flow || JSON.stringify(res, null, 2));
+        els.resultsOutput.innerHTML = linkifySymbols(html);
+        
+        // Highlight trace path on graph (steps have {symbol_name, file_path, ...})
+        if (res.path_found && res.steps && res.steps.length > 0) {
+            const stepNames = res.steps.map(s => s.symbol_name || '');
+            stepNames.forEach(name => {
+                const match = state.cy.nodes().filter(n => 
+                    (n.data('label') || '').toLowerCase() === name.toLowerCase()
+                );
+                if (match.length) match[0].addClass('impact-node');
+            });
+            // Try to highlight edges between consecutive step nodes
+            for (let i = 0; i < stepNames.length - 1; i++) {
+                state.cy.edges().forEach(edge => {
+                    const srcLabel = edge.source().data('label') || '';
+                    const tgtLabel = edge.target().data('label') || '';
+                    if (srcLabel.toLowerCase() === stepNames[i].toLowerCase() && 
+                        tgtLabel.toLowerCase() === stepNames[i+1].toLowerCase()) {
+                        edge.addClass('trace-edge');
+                    }
+                });
+            }
+        }
+    } catch (e) {
+        els.resultsOutput.innerHTML = `<span style="color:#f85149">Error: ${e.message}</span>`;
+    }
+}
 
-  loading.style.display = "block";
-  empty.style.display = "none";
-  container.style.display = "none";
-  dismissError();
+function runIndexing() {
+    if (!state.currentProject) return alert("Please load a project first.");
+    openDrawer('terminal');
+    els.terminalOutput.textContent = '';
+    
+    if (state.indexingSource) state.indexingSource.close();
+    
+    const url = `/api/index/stream?project=${encodeURIComponent(state.currentProject)}&multimodal=${els.multimodalIndex.checked}&force=${els.forceIndex.checked}`;
+    state.indexingSource = new EventSource(url);
+    
+    // Server sends unnamed SSE events with JSON payloads containing an 'event' field
+    state.indexingSource.onmessage = (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            if (data.event === 'start') {
+                appendTerminal(`[CKC] ${data.message}`, 'success');
+            } else if (data.event === 'step_start') {
+                appendTerminal(`\n[Step ${data.step}/${data.total_steps}] ${data.label}...`, 'info');
+            } else if (data.event === 'log') {
+                appendTerminal(data.line, data.engine);
+            } else if (data.event === 'step_finish') {
+                const icon = data.success ? '✓' : '✗';
+                appendTerminal(`[${data.engine}] ${icon} ${data.success ? 'Succeeded' : 'Failed (code ' + data.returncode + ')'}`, data.success ? 'success' : 'error');
+            } else if (data.event === 'step_error') {
+                appendTerminal(`[${data.engine}] Error: ${data.error}`, 'error');
+            } else if (data.event === 'cancelled') {
+                appendTerminal(`[CKC] ${data.message}`, 'error');
+                state.indexingSource.close();
+            } else if (data.event === 'complete') {
+                appendTerminal(`\n[CKC] Indexing complete! Readiness: ${data.status?.ready_count}/3 engines.`, 'success');
+                state.indexingSource.close();
+                loadProject();
+            }
+        } catch (err) {
+            appendTerminal(e.data, '');
+        }
+    };
+    
+    state.indexingSource.onerror = () => {
+        appendTerminal('\nStream closed or error occurred.', 'error');
+        state.indexingSource.close();
+    };
+}
 
-  try {
-    const res = await fetch("/api/impact", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        project_path: state.currentProject,
-        symbol,
-        use_llm: document.getElementById("checkImpactLlm")?.checked !== false,
-      }),
+function appendTerminal(text, type) {
+    const line = document.createElement('div');
+    line.className = `terminal-line ${type ? 'log-' + type : ''}`;
+    line.textContent = text;
+    els.terminalOutput.appendChild(line);
+    els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
+}
+
+/** Make symbol names in rendered HTML clickable if they match graph nodes */
+function linkifySymbols(html) {
+    if (!state.cy || !state.graphData) return html;
+    const labels = new Set();
+    state.cy.nodes().forEach(n => {
+        const l = n.data('label');
+        if (l && l.length > 2 && /^[a-zA-Z_]/.test(l)) labels.add(l);
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Impact analysis failed");
-    }
-    const data = await res.json();
-    state.lastImpactResult = data.synthesized_report;
-
-    resultPane.innerHTML = window.marked ? marked.parse(data.synthesized_report) : `<pre>${data.synthesized_report}</pre>`;
-    loading.style.display = "none";
-    container.style.display = "block";
-  } catch (err) {
-    loading.style.display = "none";
-    empty.style.display = "block";
-    showError(err.message);
-  }
-}
-
-/* Trace Tab */
-function setupTraceTab() {
-  const fromInput = document.getElementById("traceFromInput");
-  const toInput = document.getElementById("traceToInput");
-  const btnRun = document.getElementById("btnRunTrace");
-  const btnCopy = document.getElementById("btnCopyTrace");
-
-  btnRun.addEventListener("click", () => runTrace(fromInput.value.trim(), toInput.value.trim()));
-
-  document.querySelectorAll(".link-chip[data-trace-from]").forEach(chip => {
-    chip.addEventListener("click", () => {
-      fromInput.value = chip.getAttribute("data-trace-from");
-      toInput.value = chip.getAttribute("data-trace-to");
-      btnRun.click();
+    // Wrap backtick-quoted symbol names that match graph labels
+    let result = html;
+    labels.forEach(label => {
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`<code>(${escaped})</code>`, 'g');
+        result = result.replace(regex, `<code><a class="symbol-link" onclick="selectNodeByLabel('${label}')" style="cursor:pointer;color:#58a6ff">$1</a></code>`);
     });
-  });
+    return result;
+}
 
-  btnCopy.addEventListener("click", () => {
-    if (state.lastTraceResult) {
-      navigator.clipboard.writeText(state.lastTraceResult);
-      btnCopy.textContent = "✓ Copied!";
-      setTimeout(() => { btnCopy.textContent = "📋 Copy Trace Dossier"; }, 2000);
+/** Select a node by its label (called from linkified symbols) */
+window.selectNodeByLabel = function(label) {
+    const node = state.cy.nodes().filter(n => n.data('label') === label);
+    if (node.length) {
+        selectNode(node[0]);
+        state.cy.fit(node[0].neighborhood().union(node[0]), 80);
     }
-  });
-}
+};
 
-async function runTrace(fromSymbol, toSymbol) {
-  if (!fromSymbol || !toSymbol) {
-    showError("Both source and destination symbols are required for tracing.");
-    return;
-  }
-  if (!state.currentProject) {
-    showError("Please load a repository first.");
-    return;
-  }
-
-  const loading = document.getElementById("traceLoading");
-  const empty = document.getElementById("traceEmpty");
-  const container = document.getElementById("traceResultContainer");
-  const resultPane = document.getElementById("traceMarkdownResult");
-  const mermaidBox = document.getElementById("mermaidRenderBox");
-
-  loading.style.display = "block";
-  empty.style.display = "none";
-  container.style.display = "none";
-  mermaidBox.innerHTML = "";
-  dismissError();
-
-  try {
-    const res = await fetch("/api/trace", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        project_path: state.currentProject,
-        from_symbol: fromSymbol,
-        to_symbol: toSymbol,
-        use_llm: document.getElementById("checkTraceLlm")?.checked !== false,
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Trace execution failed");
-    }
-    const data = await res.json();
-    state.lastTraceResult = data.synthesized_flow;
-
-    // Render Mermaid diagram if available
-    const mermaidMatch = data.synthesized_flow.match(/```mermaid\n([\s\S]*?)```/);
-    if (mermaidMatch && window.mermaid) {
-      try {
-        const graphDefinition = mermaidMatch[1];
-        const { svg } = await mermaid.render('mermaidGraphSvg', graphDefinition);
-        mermaidBox.innerHTML = svg;
-      } catch (me) {
-        mermaidBox.innerHTML = `<pre style="color: red;">Mermaid render notice: ${me.message}</pre>`;
-      }
-    }
-
-    resultPane.innerHTML = window.marked ? marked.parse(data.synthesized_flow) : `<pre>${data.synthesized_flow}</pre>`;
-    loading.style.display = "none";
-    container.style.display = "block";
-  } catch (err) {
-    loading.style.display = "none";
-    empty.style.display = "block";
-    showError(err.message);
-  }
-}
-
-/* Artifacts Tab */
-async function loadArtifacts() {
-  const grid = document.getElementById("artifactsGrid");
-  const viewer = document.getElementById("artifactViewerContainer");
-  grid.innerHTML = '<div style="color: var(--text-secondary); padding: 16px;">Scanning project artifacts...</div>';
-  viewer.style.display = "none";
-
-  if (!state.currentProject) {
-    grid.innerHTML = '<div style="color: var(--text-secondary); padding: 16px;">Please load a repository first.</div>';
-    return;
-  }
-
-  try {
-    const res = await fetch(`/api/artifacts?project=${encodeURIComponent(state.currentProject)}`);
-    if (!res.ok) throw new Error("Failed to load artifacts");
-    const data = await res.json();
-    renderArtifacts(data.artifacts);
-  } catch (err) {
-    grid.innerHTML = `<div style="color: var(--accent-red); padding: 16px;">Error: ${err.message}</div>`;
-  }
-}
-
-function renderArtifacts(artifacts) {
-  const grid = document.getElementById("artifactsGrid");
-  grid.innerHTML = "";
-
-  if (!artifacts || artifacts.length === 0) {
-    grid.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;"><p>No generated artifacts found. Run indexing to generate knowledge graph files.</p></div>';
-    return;
-  }
-
-  artifacts.forEach(art => {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.style.cursor = "pointer";
-    card.innerHTML = `
-      <div class="card-header">
-        <span class="card-title" style="font-size: 14px;">📄 ${art.label}</span>
-        <span class="badge badge-ready">Ready</span>
-      </div>
-      <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-        ${art.relative_path}
-      </div>
-      <div style="font-size: 11px; color: var(--text-muted);">
-        Size: ${(art.size_bytes / 1024).toFixed(1)} KB
-      </div>
-    `;
-    card.addEventListener("click", () => viewArtifact(art.relative_path, art.label));
-    grid.appendChild(card);
-  });
-}
-
-async function viewArtifact(relativePath, label) {
-  const viewer = document.getElementById("artifactViewerContainer");
-  const title = document.getElementById("artifactViewerTitle");
-  const content = document.getElementById("artifactViewerContent");
-
-  title.textContent = `Viewing: ${label} (${relativePath})`;
-  content.textContent = "Loading file content...";
-  viewer.style.display = "block";
-  viewer.scrollIntoView({ behavior: "smooth" });
-
-  try {
-    const res = await fetch(`/api/artifacts/content?project=${encodeURIComponent(state.currentProject)}&file=${encodeURIComponent(relativePath)}`);
-    if (!res.ok) throw new Error("Failed to read artifact");
-    const data = await res.json();
-    if (data.is_binary) {
-      content.textContent = data.message || "Binary artifact listed only; contents are not displayed.";
-    } else {
-      content.textContent = data.content;
-    }
-  } catch (err) {
-    content.textContent = `Error reading file: ${err.message}`;
-  }
-}
-
-function closeArtifactViewer() {
-  document.getElementById("artifactViewerContainer").style.display = "none";
-}
-
-function setupArtifactsTab() {
-  document.getElementById("btnRefreshArtifacts").addEventListener("click", loadArtifacts);
-}
+window.onload = init;

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -21,7 +22,7 @@ from sse_starlette.sse import EventSourceResponse
 from code_chain.core.config import ChainConfig
 from code_chain.core.docs_index import index_docs_overlay, local_docs_count
 from code_chain.core.env import load_dotenv
-from code_chain.core.llm import llm_public_status
+from code_chain.core.llm import llm_public_status, resolve_llm_config
 from code_chain.core.orchestrator import CodeKnowledgeChain
 from code_chain.core.paths import (
     UnsafeProjectPathError,
@@ -36,8 +37,7 @@ _MAX_ARTIFACT_BYTES = 2 * 1024 * 1024  # 2 MiB
 app = FastAPI(
     title="Code Knowledge Chain UI",
     description=(
-        "Interactive Web Dashboard for Graphify + GitNexus + CodeGraph "
-        "3-Tier Code Intelligence"
+        "Interactive Web Dashboard for Graphify + GitNexus + CodeGraph 3-Tier Code Intelligence"
     ),
     version="1.0.0",
 )
@@ -193,12 +193,49 @@ async def stream_indexing(
             )
             chain_force.index_pipe._clear_engine_indexes()
 
+        # Configure Graphify extract command
+        graphify_cmd = [config.graphify_bin, "extract", str(resolved)]
+        if multimodal:
+            llm_cfg = resolve_llm_config()
+            has_cloud_key = any(
+                os.getenv(k)
+                for k in (
+                    "GEMINI_API_KEY",
+                    "GOOGLE_API_KEY",
+                    "ANTHROPIC_API_KEY",
+                    "OPENAI_API_KEY",
+                    "DEEPSEEK_API_KEY",
+                    "MOONSHOT_API_KEY",
+                )
+            )
+            if llm_cfg:
+                base_url, model, api_key = llm_cfg
+                graphify_cmd.extend(["--backend", "openai", "--max-concurrency", "1"])
+                if model and model != "local-model":
+                    graphify_cmd.extend(["--model", model])
+                os.environ.setdefault("OPENAI_BASE_URL", base_url)
+                os.environ.setdefault("OPENAI_MODEL", model)
+                os.environ.setdefault("OPENAI_API_KEY", api_key)
+            elif not has_cloud_key:
+                graphify_cmd.append("--code-only")
+                yield json.dumps(
+                    {
+                        "event": "log",
+                        "engine": "graphify",
+                        "line": (
+                            "[graphify] ⚠ No LLM service or API key found; "
+                            "falling back to AST code-only mode so indexing completes cleanly."
+                        ),
+                    }
+                )
+        else:
+            graphify_cmd.append("--code-only")
+
         steps = [
             (
                 "graphify",
                 "Tier 1: Graphify Multi-modal & Architecture",
-                [config.graphify_bin, "extract", str(resolved)]
-                + ([] if multimodal else ["--code-only"]),
+                graphify_cmd,
             ),
             (
                 "gitnexus",
@@ -286,9 +323,7 @@ async def stream_indexing(
                     overall_success = False
 
                 if engine == "graphify":
-                    overlay = index_docs_overlay(
-                        resolved, code_only=code_only, announce=False
-                    )
+                    overlay = index_docs_overlay(resolved, code_only=code_only, announce=False)
                     discovered = int(overlay.get("discovered_files") or 0)
                     doc_count = int(overlay.get("doc_count") or 0)
                     step_results[engine]["local_docs_count"] = doc_count
@@ -380,10 +415,118 @@ def run_impact(payload: ImpactPayload):
 def run_trace(payload: TracePayload):
     resolved = validate_project_path(payload.project_path)
     chain = CodeKnowledgeChain(project_path=str(resolved))
-    result = chain.trace(
-        payload.from_symbol, payload.to_symbol, use_llm=payload.use_llm
-    )
+    result = chain.trace(payload.from_symbol, payload.to_symbol, use_llm=payload.use_llm)
     return result.model_dump()
+
+
+@app.get("/api/graph")
+def get_graph(project: str = Query(...)):
+    """Returns the Graphify knowledge graph in Cytoscape.js elements format."""
+    resolved = validate_project_path(project)
+    graph_file = resolved / "graphify-out" / "graph.json"
+    if not graph_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Graph not yet indexed. Run indexing first.",
+        )
+
+    try:
+        raw = json.loads(graph_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading graph: {e}") from e
+
+    raw_nodes = raw.get("nodes", [])
+    raw_links = raw.get("links", [])
+
+    # Compute degree per node
+    degree_map: dict[str, int] = {}
+    for link in raw_links:
+        src = link.get("source", "")
+        tgt = link.get("target", "")
+        degree_map[src] = degree_map.get(src, 0) + 1
+        degree_map[tgt] = degree_map.get(tgt, 0) + 1
+
+    # Build community metadata
+    community_members: dict[int, list[str]] = {}
+    for node in raw_nodes:
+        c = node.get("community")
+        if c is not None:
+            community_members.setdefault(c, []).append(node.get("label", node.get("id", "")))
+
+    # Transform to Cytoscape elements
+    cy_nodes = []
+    for node in raw_nodes:
+        nid = node.get("id", "")
+        file_type = node.get("file_type", "code")
+        source_file = node.get("source_file", "")
+        # Map file_type to semantic category
+        if file_type == "rationale":
+            category = "doc"
+        elif source_file.endswith(".sql"):
+            category = "schema"
+        elif source_file.endswith((".md", ".txt", ".rst", ".adoc")):
+            category = "doc"
+        elif (
+            ".test." in source_file
+            or "_test." in source_file
+            or ".spec." in source_file
+            or "/test" in source_file.lower()
+        ):
+            category = "test"
+        else:
+            category = "code"
+
+        cy_nodes.append(
+            {
+                "data": {
+                    "id": nid,
+                    "label": node.get("label", nid),
+                    "category": category,
+                    "file_type": file_type,
+                    "community": node.get("community"),
+                    "source_file": source_file,
+                    "source_location": node.get("source_location"),
+                    "degree": degree_map.get(nid, 0),
+                    "is_callable": bool(node.get("_callable")),
+                    "is_class": bool(node.get("_callable_class")),
+                }
+            }
+        )
+
+    cy_edges = []
+    for i, link in enumerate(raw_links):
+        cy_edges.append(
+            {
+                "data": {
+                    "id": f"e{i}",
+                    "source": link.get("source", ""),
+                    "target": link.get("target", ""),
+                    "relation": link.get("relation", "references"),
+                    "source_file": link.get("source_file", ""),
+                    "weight": link.get("weight", 1.0),
+                }
+            }
+        )
+
+    communities_summary = [
+        {
+            "id": cid,
+            "size": len(members),
+            "sample_labels": members[:5],
+        }
+        for cid, members in sorted(community_members.items())
+    ]
+
+    return {
+        "project_path": str(resolved),
+        "elements": {"nodes": cy_nodes, "edges": cy_edges},
+        "meta": {
+            "node_count": len(cy_nodes),
+            "edge_count": len(cy_edges),
+            "community_count": len(communities_summary),
+            "communities": communities_summary,
+        },
+    }
 
 
 @app.get("/api/artifacts")
@@ -441,9 +584,7 @@ def get_artifact_content(
 
     target_file = (resolved / clean_file).resolve()
     if not target_file.is_relative_to(resolved):
-        raise HTTPException(
-            status_code=403, detail="Resolved path escapes the project directory."
-        )
+        raise HTTPException(status_code=403, detail="Resolved path escapes the project directory.")
     if not target_file.exists() or not target_file.is_file():
         raise HTTPException(status_code=404, detail="Artifact file not found.")
 
@@ -451,17 +592,14 @@ def get_artifact_content(
     if size > _MAX_ARTIFACT_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=(
-                f"Artifact exceeds size limit "
-                f"({size} bytes > {_MAX_ARTIFACT_BYTES} bytes)."
-            ),
+            detail=(f"Artifact exceeds size limit ({size} bytes > {_MAX_ARTIFACT_BYTES} bytes)."),
         )
 
     binary_suffixes = {".db", ".sqlite", ".sqlite3"}
-    if (
-        target_file.suffix.lower() in binary_suffixes
-        or target_file.name in {"lbug", "codegraph.db"}
-    ):
+    if target_file.suffix.lower() in binary_suffixes or target_file.name in {
+        "lbug",
+        "codegraph.db",
+    }:
         return {
             "file": clean_file,
             "size": size,
@@ -482,9 +620,7 @@ def get_artifact_content(
             "message": None,
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error reading artifact: {e}"
-        ) from e
+        raise HTTPException(status_code=500, detail=f"Error reading artifact: {e}") from e
 
 
 # Mount static assets

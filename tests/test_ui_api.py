@@ -112,16 +112,13 @@ class TestWebUIApi(unittest.TestCase):
         self.assertEqual(res.status_code, 400)
 
     def test_artifacts_content_unauthorized_folder(self):
-        res = self.client.get(
-            f"/api/artifacts/content?project={self.test_repo}&file=src/auth.py"
-        )
+        res = self.client.get(f"/api/artifacts/content?project={self.test_repo}&file=src/auth.py")
         self.assertEqual(res.status_code, 403)
 
     def test_artifacts_content_resolved_escape_blocked(self):
         # Symlink-style escape: prefix is allowed, but resolved path must stay in project
         res = self.client.get(
-            f"/api/artifacts/content?project={self.test_repo}"
-            f"&file=graphify-out/../../../etc/passwd"
+            f"/api/artifacts/content?project={self.test_repo}&file=graphify-out/../../../etc/passwd"
         )
         self.assertIn(res.status_code, (400, 403))
 
@@ -129,9 +126,7 @@ class TestWebUIApi(unittest.TestCase):
         oversized = Path(self.test_repo) / "graphify-out" / "oversized_test_artifact.md"
         oversized.parent.mkdir(parents=True, exist_ok=True)
         try:
-            oversized.write_text(
-                "x" * (ui_server._MAX_ARTIFACT_BYTES + 1), encoding="utf-8"
-            )
+            oversized.write_text("x" * (ui_server._MAX_ARTIFACT_BYTES + 1), encoding="utf-8")
             res = self.client.get(
                 f"/api/artifacts/content?project={self.test_repo}"
                 f"&file=graphify-out/oversized_test_artifact.md"
@@ -150,8 +145,8 @@ class TestWebUIApi(unittest.TestCase):
     def test_static_files_served(self):
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)
-        self.assertIn("Code Knowledge Chain", res.text)
-        self.assertIn("tab-dashboard", res.text)
+        self.assertIn("CKC", res.text)
+        self.assertIn("cy", res.text)  # Cytoscape graph container
 
 
 if __name__ == "__main__":
