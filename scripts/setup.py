@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shutil
 import subprocess
@@ -17,6 +18,23 @@ import sys
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+sys_src = str(ROOT_DIR / "src")
+if sys_src not in sys.path:
+    sys.path.insert(0, sys_src)
+
+
+def resolve_code_chain_cmd() -> list[str]:
+    which_cmd = shutil.which("code-chain")
+    if which_cmd:
+        return [which_cmd]
+    candidate = Path(sys.executable).parent / "code-chain"
+    if candidate.is_file() and (os.access(candidate, os.X_OK) or sys.platform == "win32"):
+        return [str(candidate)]
+    if sys.platform == "win32":
+        candidate_exe = Path(sys.executable).parent / "code-chain.exe"
+        if candidate_exe.is_file():
+            return [str(candidate_exe)]
+    return [sys.executable, "-m", "code_chain"]
 
 
 def print_step(title: str):
@@ -142,11 +160,19 @@ def check_prerequisites() -> dict[str, bool]:
 def install_package():
     print_step("Installing Python package in editable mode...")
     try:
-        run_cmd([sys.executable, "-m", "pip", "install", "-e", "."])
-        print_success("Package code-knowledge-chain installed successfully")
-    except subprocess.CalledProcessError as e:
-        print_error(f"Failed to install package: {e.stderr}")
-        sys.exit(1)
+        run_cmd([sys.executable, "-m", "pip", "install", "-e", ".[dev]"])
+        print_success("Package code-knowledge-chain (with dev dependencies) installed successfully")
+    except subprocess.CalledProcessError:
+        try:
+            run_cmd([sys.executable, "-m", "pip", "install", "-e", "."])
+            print_success("Package code-knowledge-chain installed successfully")
+        except subprocess.CalledProcessError as e:
+            print_error(f"Failed to install package: {e.stderr}")
+            sys.exit(1)
+
+    if shutil.which("pyenv"):
+        with contextlib.suppress(Exception):
+            run_cmd(["pyenv", "rehash"])
 
 
 def init_sample_repositories(force: bool = False):
@@ -184,7 +210,8 @@ def init_sample_repositories(force: bool = False):
         if not is_fully_indexed or force:
             print(f"  Indexing {sample.name} across all 3 engines...")
             try:
-                res = run_cmd(["code-chain", "-p", str(sample), "init"])
+                cmd = [*resolve_code_chain_cmd(), "-p", str(sample), "init"]
+                res = run_cmd(cmd)
                 if res.returncode == 0:
                     print_success(f"Indexed {sample.name}")
                 else:

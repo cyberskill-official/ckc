@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from code_chain.core.config import get_code_chain_cmd
 from code_chain.ui.server import app
 
 
@@ -69,7 +70,7 @@ class TestUseLlmParity(unittest.TestCase):
         payload = "\n".join(json.dumps(r) for r in requests) + "\n"
         with patch.dict("os.environ", env, clear=False):
             proc = subprocess.run(
-                ["code-chain", "mcp"],
+                [*get_code_chain_cmd(), "mcp"],
                 input=payload,
                 capture_output=True,
                 text=True,

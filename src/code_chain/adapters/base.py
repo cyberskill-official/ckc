@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
+from code_chain.core.config import resolve_binary
 from code_chain.core.models import EngineStatus
 
 
@@ -15,7 +16,7 @@ class BaseGraphAdapter(ABC):
     """Abstract base class for graph engine adapters."""
 
     def __init__(self, bin_path: str, project_path: Path):
-        self.bin_path = bin_path
+        self.bin_path = resolve_binary(bin_path)
         self.project_path = project_path
 
     @abstractmethod

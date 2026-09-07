@@ -7,6 +7,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from code_chain.core.config import get_code_chain_cmd
+
 
 class TestMCPServer(unittest.TestCase):
     def test_mcp_protocol_handshake_and_tools(self):
@@ -40,13 +42,13 @@ class TestMCPServer(unittest.TestCase):
         input_payload = "\n".join(json.dumps(r) for r in requests) + "\n"
 
         proc = subprocess.run(
-            ["code-chain", "mcp"],
+            [*get_code_chain_cmd(), "mcp"],
             input=input_payload,
             capture_output=True,
             text=True,
             timeout=15,
-                check=False,
-            )
+            check=False,
+        )
 
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         self.assertEqual(len(lines), 4)

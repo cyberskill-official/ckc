@@ -4,7 +4,9 @@ Configuration and runtime environment resolution for code-knowledge-chain.
 
 from __future__ import annotations
 
+import os
 import shutil
+import sys
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -12,17 +14,56 @@ from pydantic import BaseModel, Field
 from code_chain.core.paths import assert_safe_project_path
 
 
+def resolve_binary(name_or_path: str) -> str:
+    """Resolve a binary path across PATH, python bin directory, and env overrides."""
+    if not name_or_path:
+        return name_or_path
+
+    env_var = f"CKC_{name_or_path.upper().replace('-', '_')}_BIN"
+    env_override = os.getenv(env_var)
+    if env_override and Path(env_override).exists():
+        return env_override
+
+    p = Path(name_or_path)
+    if p.is_file() and (os.access(p, os.X_OK) or sys.platform == "win32"):
+        return str(p)
+
+    found = shutil.which(name_or_path)
+    if found:
+        return found
+
+    exe_dir = Path(sys.executable).parent
+    candidate = exe_dir / name_or_path
+    if candidate.is_file() and (os.access(candidate, os.X_OK) or sys.platform == "win32"):
+        return str(candidate)
+
+    if sys.platform == "win32":
+        candidate_exe = exe_dir / f"{name_or_path}.exe"
+        if candidate_exe.is_file():
+            return str(candidate_exe)
+
+    return name_or_path
+
+
+def get_code_chain_cmd() -> list[str]:
+    """Get the command array to execute code-chain CLI in the current Python environment."""
+    resolved = resolve_binary("code-chain")
+    if resolved != "code-chain" or shutil.which("code-chain"):
+        return [resolved]
+    return [sys.executable, "-m", "code_chain"]
+
+
 class ChainConfig(BaseModel):
     """Global configuration for the chaining pipeline."""
 
     graphify_bin: str = Field(
-        default_factory=lambda: shutil.which("graphify") or "graphify"
+        default_factory=lambda: resolve_binary("graphify")
     )
     gitnexus_bin: str = Field(
-        default_factory=lambda: shutil.which("gitnexus") or "gitnexus"
+        default_factory=lambda: resolve_binary("gitnexus")
     )
     codegraph_bin: str = Field(
-        default_factory=lambda: shutil.which("codegraph") or "codegraph"
+        default_factory=lambda: resolve_binary("codegraph")
     )
 
     # Timeouts in seconds
