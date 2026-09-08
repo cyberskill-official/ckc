@@ -48,24 +48,61 @@
             </button>
         </div>
 
-        <!-- Center: Spotlight Command HUD -->
+        <!-- Center: Spotlight Command HUD (Contained within 64px header) -->
         <div class="header-center">
             <div class="command-bar-wrapper">
                 <div class="command-bar-inner">
-                    <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <!-- Integrated Mode Selector Pill -->
+                    <button id="search-mode-btn" class="search-mode-btn" title="Click to change search mode">
+                        <span id="current-mode-label">Auto</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+
+                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="11" cy="11" r="8"></circle>
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
+                    
                     <input type="text" id="command-bar" placeholder="Search symbols, ask questions, or 'A -> B' to trace..." spellcheck="false" autocomplete="off" />
+                    
+                    <button id="command-clear-btn" class="command-clear-btn hidden" aria-label="Clear Search">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+
                     <div class="command-hints">
                         <span class="hotkey-pill">⌘K</span>
                     </div>
                 </div>
-                <div class="command-bar-modes">
-                    <span class="mode-badge active" data-mode="auto">Auto</span>
-                    <span class="mode-badge" data-mode="query">Query</span>
-                    <span class="mode-badge" data-mode="impact">Impact</span>
-                    <span class="mode-badge" data-mode="trace">Trace</span>
+
+                <!-- Mode Selection Dropdown -->
+                <div id="search-mode-dropdown" class="mode-dropdown closed">
+                    <div class="mode-option active" data-mode="auto">
+                        <strong>Auto</strong>
+                        <small>Intelligent routing by symbol / query pattern</small>
+                    </div>
+                    <div class="mode-option" data-mode="query">
+                        <strong>Query</strong>
+                        <small>Multi-tier architecture question</small>
+                    </div>
+                    <div class="mode-option" data-mode="impact">
+                        <strong>Impact</strong>
+                        <small>Blast radius & caller risk analysis</small>
+                    </div>
+                    <div class="mode-option" data-mode="trace">
+                        <strong>Trace</strong>
+                        <small>Cross-module call graph path tracing</small>
+                    </div>
+                </div>
+
+                <!-- Live Search Autocomplete Palette Dropdown -->
+                <div id="search-results-dropdown" class="search-dropdown closed">
+                    <div class="search-section-header">Symbols & Nodes</div>
+                    <div id="search-results-list" class="search-results-list custom-scroll"></div>
+                    <div class="search-actions-bar" id="search-actions-bar">
+                        <!-- Quick action suggestions will render here -->
+                    </div>
                 </div>
             </div>
         </div>
@@ -114,9 +151,14 @@
         <div class="popover-body">
             <div class="form-group">
                 <label for="sample-picker">Sample Repositories</label>
-                <select id="sample-picker" class="select-input">
-                    <option value="">Choose a bundled sample…</option>
-                </select>
+                <div class="custom-select-wrapper">
+                    <select id="sample-picker" class="select-input">
+                        <option value="">Choose a bundled sample…</option>
+                    </select>
+                    <svg class="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </div>
             </div>
             <div class="form-group">
                 <label for="project-path">Local Repository Path</label>
@@ -133,17 +175,20 @@
             </div>
             <div class="popover-footer">
                 <div class="popover-badges">
-                    <span id="docs-chip" class="badge-chip">Docs: —</span>
-                    <span id="llm-chip" class="badge-chip">LLM: Off</span>
+                    <span id="docs-chip" class="badge-chip" title="Indexed Documentation Files">Docs: —</span>
+                    <span id="llm-chip" class="badge-chip" title="LLM Synthesis Model">LLM: Off</span>
                 </div>
                 <button id="load-btn" class="btn btn-primary">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                    <svg class="btn-spinner hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>
+                    <svg class="btn-icon-load" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                     <span>Load Project</span>
                 </button>
             </div>
             <div class="popover-history">
                 <h5>Recent Operations</h5>
-                <div id="ops-history" class="ops-list"></div>
+                <div id="ops-history" class="ops-list">
+                    <span class="empty-ops-text">No recent operations</span>
+                </div>
             </div>
         </div>
     </div>
@@ -205,7 +250,7 @@
             </button>
         </div>
         <div class="popover-body">
-            <p class="popover-desc">Analyzes multi-modal architecture, AST execution flows, and symbol dependencies across 3 engine tiers.</p>
+            <p class="popover-desc">Extracts multi-modal architecture, AST execution flows, and symbol dependencies across all 3 engine tiers.</p>
             <div class="options-group">
                 <label class="checkbox-row">
                     <input type="checkbox" id="force-index">
@@ -256,6 +301,13 @@
         <!-- Hidden 2D shim container for test suite compatibility -->
         <div id="cy" class="hidden" style="display:none;" aria-hidden="true"></div>
         
+        <!-- Active Trace Mode Banner (Appears during path tracing) -->
+        <div id="trace-mode-banner" class="trace-banner hidden">
+            <span class="trace-pulse-dot"></span>
+            <span class="trace-banner-text">Tracing from <strong id="trace-source-name">—</strong>: Click any destination node in 3D</span>
+            <button id="trace-cancel-btn" class="btn-trace-cancel">Cancel (Esc)</button>
+        </div>
+
         <!-- Legend Indicator (Bottom-Left) -->
         <div class="canvas-legend">
             <div class="legend-item"><span class="legend-dot color-code"></span> Code</div>
@@ -266,14 +318,14 @@
 
         <!-- Floating Minimalist HUD Controls Dock (Bottom-Right) -->
         <div class="canvas-hud-dock">
-            <button id="clear-overlays-btn" class="hud-btn hidden" title="Clear Path Overlays">
+            <button id="clear-overlays-btn" class="hud-btn hidden" title="Clear Path & Impact Overlays">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>
                 </svg>
                 <span>Clear</span>
             </button>
-            <button id="auto-rotate-btn" class="hud-btn" title="Toggle Auto-Rotation" aria-label="Auto Rotate">
+            <button id="auto-rotate-btn" class="hud-btn" title="Toggle Auto-Rotation (Space)" aria-label="Auto Rotate">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"></path>
                 </svg>
@@ -283,7 +335,7 @@
                     <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
                 </svg>
             </button>
-            <button id="reset-cam-btn" class="hud-btn" title="Reset Perspective" aria-label="Reset Camera">
+            <button id="reset-cam-btn" class="hud-btn" title="Reset Perspective (R)" aria-label="Reset Camera">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"></circle>
                     <polygon points="12 8 8 12 12 16 12 8"></polygon>
@@ -341,9 +393,18 @@
                 </div>
             </div>
 
-            <!-- Source Location -->
+            <!-- Source Location with Copy Path Action -->
             <div class="inspector-section">
-                <span class="section-label">Source File & Location</span>
+                <div class="section-label-row">
+                    <span class="section-label">Source File & Location</span>
+                    <button id="copy-source-path-btn" class="btn-link-action" title="Copy Source File Path">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        <span>Copy Path</span>
+                    </button>
+                </div>
                 <div class="source-box">
                     <code id="node-source">—</code>
                 </div>
@@ -431,6 +492,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Toast Feedback Notifications Container -->
+    <div id="toast-container" class="toast-container"></div>
 
     <script src="app.js"></script>
 </body>

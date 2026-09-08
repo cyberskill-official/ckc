@@ -10,12 +10,12 @@ const state = {
     graph3d: null,
     selectedNode: null,
     traceSource: null,
+    isTraceMode: false,
     graphData: null,
     communities: [],
     filters: { code: true, doc: true, schema: true, test: true },
     isAutoRotating: false,
     indexingAbort: null,
-    indexingCleanClose: false,
     inFlight: false,
     drawerOpen: false,
     drawerTab: 'terminal',
@@ -23,6 +23,9 @@ const state = {
     highlightNodes: new Set(),
     highlightLinks: new Set(),
     hoverNode: null,
+    searchMode: 'auto',
+    searchSelectedIndex: -1,
+    currentMatches: [],
     palette: [
         '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb7185',
         '#f59e0b', '#10b981', '#34d399', '#2dd4bf', '#22d3ee',
@@ -30,7 +33,7 @@ const state = {
     ]
 };
 
-// Expose state globally for DevTools inspection & automated verification
+// Expose state globally for DevTools inspection & automated tests
 window.state = state;
 
 if (window.mermaid) {
@@ -66,6 +69,21 @@ const els = {
     indexPopover: document.getElementById('index-popover'),
     closeIndexPopoverBtn: document.getElementById('close-index-popover-btn'),
 
+    // Spotlight Command Bar & Search Palette
+    commandBar: document.getElementById('command-bar'),
+    commandClearBtn: document.getElementById('command-clear-btn'),
+    searchModeBtn: document.getElementById('search-mode-btn'),
+    currentModeLabel: document.getElementById('current-mode-label'),
+    searchModeDropdown: document.getElementById('search-mode-dropdown'),
+    searchResultsDropdown: document.getElementById('search-results-dropdown'),
+    searchResultsList: document.getElementById('search-results-list'),
+    searchActionsBar: document.getElementById('search-actions-bar'),
+
+    // Trace Mode Banner
+    traceModeBanner: document.getElementById('trace-mode-banner'),
+    traceSourceName: document.getElementById('trace-source-name'),
+    traceCancelBtn: document.getElementById('trace-cancel-btn'),
+
     // Filters & Communities
     filterCode: document.getElementById('filter-code'),
     filterDoc: document.getElementById('filter-doc'),
@@ -87,9 +105,7 @@ const els = {
     // Viewport & HUD
     graphViewport: document.getElementById('graph-viewport'),
     container3d: document.getElementById('graph-3d'),
-    commandBar: document.getElementById('command-bar'),
     clearOverlaysBtn: document.getElementById('clear-overlays-btn'),
-    modeBadges: document.querySelectorAll('.mode-badge'),
 
     // Right Panel Context Inspector
     contextPanel: document.getElementById('context-panel'),
@@ -103,6 +119,7 @@ const els = {
     nodeDegree: document.getElementById('node-degree'),
     nodeConnections: document.getElementById('node-connections'),
     copySymbolNameBtn: document.getElementById('copy-symbol-name-btn'),
+    copySourcePathBtn: document.getElementById('copy-source-path-btn'),
     actionImpact: document.getElementById('action-impact'),
     actionTrace: document.getElementById('action-trace'),
     actionQuery: document.getElementById('action-query'),
@@ -113,8 +130,38 @@ const els = {
     tabBtns: document.querySelectorAll('.tab-btn'),
     terminalOutput: document.getElementById('terminal-output'),
     resultsOutput: document.getElementById('results-output'),
-    copyResultsBtn: document.getElementById('copy-results-btn')
+    copyResultsBtn: document.getElementById('copy-results-btn'),
+
+    // Toasts
+    toastContainer: document.getElementById('toast-container')
 };
+
+// ==========================================================================
+// Toast Notification Helper
+// ==========================================================================
+
+function showToast(message, type = 'info') {
+    if (!els.toastContainer) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+
+    let icon = '';
+    if (type === 'success') {
+        icon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    } else if (type === 'error') {
+        icon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+    } else {
+        icon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
+    }
+
+    toast.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
+    els.toastContainer.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('toast-exit');
+        setTimeout(() => { toast.remove(); }, 200);
+    }, 3000);
+}
 
 // ==========================================================================
 // App Initialization
@@ -153,6 +200,8 @@ function closeAllPopovers() {
     if (els.projectPopover) els.projectPopover.classList.add('closed');
     if (els.layersPopover) els.layersPopover.classList.add('closed');
     if (els.indexPopover) els.indexPopover.classList.add('closed');
+    if (els.searchModeDropdown) els.searchModeDropdown.classList.add('closed');
+    if (els.searchResultsDropdown) els.searchResultsDropdown.classList.add('closed');
 }
 
 function persistUseLlmFromInput() {
@@ -235,7 +284,15 @@ function setSafeHtml(el, dirty) {
 
 function setBusy(busy) {
     state.inFlight = busy;
-    if (els.loadBtn) els.loadBtn.disabled = busy;
+    if (els.loadBtn) {
+        els.loadBtn.disabled = busy;
+        const spinner = els.loadBtn.querySelector('.btn-spinner');
+        const icon = els.loadBtn.querySelector('.btn-icon-load');
+        const text = els.loadBtn.querySelector('span');
+        if (spinner) spinner.classList.toggle('hidden', !busy);
+        if (icon) icon.classList.toggle('hidden', busy);
+        if (text) text.textContent = busy ? 'Loading...' : 'Load Project';
+    }
     if (els.runIndexBtn) els.runIndexBtn.disabled = busy;
     if (els.commandBar) els.commandBar.disabled = busy;
 }
@@ -292,6 +349,14 @@ function init3DGraph() {
         .linkDirectionalParticleWidth(link => (link.__trace || link.__impact ? 3.5 : 2))
         .linkDirectionalParticleSpeed(link => (link.__trace ? 0.012 : 0.007))
         .onNodeClick((node, evt) => {
+            if (state.isTraceMode && state.traceSource) {
+                if (state.traceSource !== node.id) {
+                    runTrace(state.traceSource, node.id);
+                    exitTraceMode();
+                }
+                return;
+            }
+
             if (evt && evt.shiftKey) {
                 handleShiftClick(node);
             } else {
@@ -325,8 +390,12 @@ function init3DGraph() {
             state.graph3d.linkColor(state.graph3d.linkColor());
         })
         .onBackgroundClick(() => {
-            clearSelection();
-            clearOverlays();
+            if (state.isTraceMode) {
+                exitTraceMode();
+            } else {
+                clearSelection();
+                clearOverlays();
+            }
         });
 
     // Configure 3D Force Simulation
@@ -412,6 +481,26 @@ function setupEventListeners() {
         });
     }
 
+    // Search Mode Button & Dropdown
+    if (els.searchModeBtn && els.searchModeDropdown) {
+        els.searchModeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = !els.searchModeDropdown.classList.contains('closed');
+            closeAllPopovers();
+            if (!isOpen) els.searchModeDropdown.classList.remove('closed');
+        });
+
+        els.searchModeDropdown.querySelectorAll('.mode-option').forEach(opt => {
+            opt.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const mode = opt.dataset.mode;
+                setSearchMode(mode);
+                els.searchModeDropdown.classList.add('closed');
+                els.commandBar.focus();
+            });
+        });
+    }
+
     // Auto-close popovers on outside click
     document.addEventListener('click', (e) => {
         const inProject = els.projectPopover && els.projectPopover.contains(e.target);
@@ -421,8 +510,11 @@ function setupEventListeners() {
         const inLayersBtn = els.layersToggleBtn && els.layersToggleBtn.contains(e.target);
         const inIndexBtn = els.headerIndexBtn && els.headerIndexBtn.contains(e.target);
         const inReadyBadge = els.readyBadge && els.readyBadge.contains(e.target);
+        const inSearchMode = els.searchModeBtn && els.searchModeBtn.contains(e.target);
+        const inSearchDropdown = els.searchResultsDropdown && els.searchResultsDropdown.contains(e.target);
+        const inCommandBar = els.commandBar && els.commandBar.contains(e.target);
 
-        if (!inProject && !inLayers && !inIndex && !inPill && !inLayersBtn && !inIndexBtn && !inReadyBadge) {
+        if (!inProject && !inLayers && !inIndex && !inPill && !inLayersBtn && !inIndexBtn && !inReadyBadge && !inSearchMode && !inSearchDropdown && !inCommandBar) {
             closeAllPopovers();
         }
     });
@@ -499,18 +591,47 @@ function setupEventListeners() {
         }
     });
 
-    // Command Bar
-    els.commandBar.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            handleCommandSubmit(els.commandBar.value.trim());
+    // Live Search Input Handler
+    els.commandBar.addEventListener('input', () => {
+        const val = els.commandBar.value.trim();
+        if (els.commandClearBtn) {
+            els.commandClearBtn.classList.toggle('hidden', val.length === 0);
         }
+        handleLiveSearch(val);
     });
 
-    els.modeBadges.forEach(badge => {
-        badge.addEventListener('click', () => {
-            els.modeBadges.forEach(b => b.classList.remove('active'));
-            badge.classList.add('active');
+    if (els.commandClearBtn) {
+        els.commandClearBtn.addEventListener('click', () => {
+            els.commandBar.value = '';
+            els.commandClearBtn.classList.add('hidden');
+            if (els.searchResultsDropdown) els.searchResultsDropdown.classList.add('closed');
+            els.commandBar.focus();
         });
+    }
+
+    // Command Bar Keyboard Navigation
+    els.commandBar.addEventListener('keydown', (e) => {
+        const isDropdownOpen = els.searchResultsDropdown && !els.searchResultsDropdown.classList.contains('closed');
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (isDropdownOpen) navigateSearchResults(1);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (isDropdownOpen) navigateSearchResults(-1);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (isDropdownOpen && state.searchSelectedIndex >= 0) {
+                executeSelectedSearchResult();
+            } else {
+                handleCommandSubmit(els.commandBar.value.trim());
+            }
+        } else if (e.key === 'Escape') {
+            if (isDropdownOpen) {
+                e.preventDefault();
+                els.searchResultsDropdown.classList.add('closed');
+            }
+        }
     });
 
     // Context Panel Actions
@@ -525,11 +646,13 @@ function setupEventListeners() {
 
     els.actionTrace.addEventListener('click', () => {
         if (state.selectedNode) {
-            state.traceSource = state.selectedNode.id;
-            els.commandBar.placeholder = `Select target destination node for trace from ${state.selectedNode.label || state.selectedNode.id}...`;
-            els.commandBar.focus();
+            enterTraceMode(state.selectedNode);
         }
     });
+
+    if (els.traceCancelBtn) {
+        els.traceCancelBtn.addEventListener('click', exitTraceMode);
+    }
 
     els.actionQuery.addEventListener('click', () => {
         if (state.selectedNode) runQuery(`Explain the purpose and architecture of ${state.selectedNode.label || state.selectedNode.id}`);
@@ -538,9 +661,21 @@ function setupEventListeners() {
     if (els.copySymbolNameBtn) {
         els.copySymbolNameBtn.addEventListener('click', () => {
             if (state.selectedNode) {
-                navigator.clipboard.writeText(state.selectedNode.label || state.selectedNode.id);
-                els.copySymbolNameBtn.title = 'Copied!';
-                setTimeout(() => { els.copySymbolNameBtn.title = 'Copy Symbol Name'; }, 1500);
+                const sym = state.selectedNode.label || state.selectedNode.id;
+                navigator.clipboard.writeText(sym);
+                showToast(`Copied "${sym}" to clipboard`, 'success');
+            }
+        });
+    }
+
+    if (els.copySourcePathBtn) {
+        els.copySourcePathBtn.addEventListener('click', () => {
+            if (state.selectedNode) {
+                const src = (state.selectedNode.source_file || '') + (state.selectedNode.source_location ? `:${state.selectedNode.source_location}` : '');
+                if (src) {
+                    navigator.clipboard.writeText(src);
+                    showToast(`Copied source path to clipboard`, 'success');
+                }
             }
         });
     }
@@ -562,10 +697,7 @@ function setupEventListeners() {
     els.copyResultsBtn.addEventListener('click', () => {
         if (state.lastResults) {
             navigator.clipboard.writeText(state.lastResults);
-            els.copyResultsBtn.textContent = 'Copied!';
-            setTimeout(() => {
-                els.copyResultsBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> <span>Copy Markdown</span>`;
-            }, 2000);
+            showToast('Analysis Dossier copied to clipboard', 'success');
         }
     });
 
@@ -576,16 +708,25 @@ function setupEventListeners() {
         const isInput = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT');
 
         if (e.key === 'Escape') {
-            closeAllPopovers();
-            clearSelection();
-            clearOverlays();
-            els.contextPanel.classList.add('closed');
+            if (state.isTraceMode) {
+                exitTraceMode();
+            } else {
+                closeAllPopovers();
+                clearSelection();
+                clearOverlays();
+                els.contextPanel.classList.add('closed');
+            }
         } else if ((e.key === '/' || (e.key === 'k' && (e.metaKey || e.ctrlKey))) && !isInput) {
             e.preventDefault();
             els.commandBar.focus();
             els.commandBar.select();
         } else if (e.key === 'f' && !isInput) {
             fitGraphView();
+        } else if (e.key === 'r' && !isInput) {
+            resetCameraView();
+        } else if (e.key === ' ' && !isInput) {
+            e.preventDefault();
+            if (els.autoRotateBtn) els.autoRotateBtn.click();
         } else if ((e.key === 'l' || e.key === 'L') && !isInput) {
             e.preventDefault();
             if (els.layersToggleBtn) els.layersToggleBtn.click();
@@ -609,6 +750,173 @@ function setupEventListeners() {
             state.graph3d.height(els.graphViewport.clientHeight);
         }
     });
+}
+
+// ==========================================================================
+// Trace Mode Workflow
+// ==========================================================================
+
+function enterTraceMode(sourceNode) {
+    state.traceSource = sourceNode.id;
+    state.isTraceMode = true;
+    const name = sourceNode.label || sourceNode.id;
+    if (els.traceSourceName) els.traceSourceName.textContent = name;
+    if (els.traceModeBanner) els.traceModeBanner.classList.remove('hidden');
+    showToast(`Trace Mode Active: Click destination node in 3D to trace path from ${name}`, 'info');
+}
+
+function exitTraceMode() {
+    state.isTraceMode = false;
+    state.traceSource = null;
+    if (els.traceModeBanner) els.traceModeBanner.classList.add('hidden');
+}
+
+// ==========================================================================
+// Search Mode & Live Autocomplete Palette
+// ==========================================================================
+
+function setSearchMode(mode) {
+    state.searchMode = mode;
+    if (els.currentModeLabel) {
+        els.currentModeLabel.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+    }
+    if (els.searchModeDropdown) {
+        els.searchModeDropdown.querySelectorAll('.mode-option').forEach(opt => {
+            opt.classList.toggle('active', opt.dataset.mode === mode);
+        });
+    }
+
+    if (mode === 'query') {
+        els.commandBar.placeholder = 'Ask a question about codebase architecture...';
+    } else if (mode === 'impact') {
+        els.commandBar.placeholder = 'Enter symbol for blast radius analysis (e.g. AuthService)...';
+    } else if (mode === 'trace') {
+        els.commandBar.placeholder = 'Enter flow trace: symbolA -> symbolB...';
+    } else {
+        els.commandBar.placeholder = 'Search symbols, ask questions, or "A -> B" to trace...';
+    }
+}
+
+function handleLiveSearch(query) {
+    if (!els.searchResultsDropdown || !els.searchResultsList) return;
+
+    if (!query || query.length < 1) {
+        els.searchResultsDropdown.classList.add('closed');
+        state.currentMatches = [];
+        state.searchSelectedIndex = -1;
+        return;
+    }
+
+    const q = query.toLowerCase().trim();
+    const rawNodes = state.graphData ? (state.graphData.elements.nodes || []).map(n => n.data) : [];
+
+    // Filter nodes with relevance scoring
+    const matches = [];
+    rawNodes.forEach(node => {
+        const label = (node.label || '').toLowerCase();
+        const id = (node.id || '').toLowerCase();
+        const src = (node.source_file || '').toLowerCase();
+
+        let score = 0;
+        if (label === q || id === q) score += 100;
+        else if (label.startsWith(q)) score += 50;
+        else if (label.includes(q)) score += 25;
+        else if (src.includes(q)) score += 10;
+        else if (id.includes(q)) score += 5;
+
+        if (score > 0) {
+            matches.push({ node, score });
+        }
+    });
+
+    matches.sort((a, b) => b.score - a.score || (b.node.degree || 0) - (a.node.degree || 0));
+    state.currentMatches = matches.slice(0, 12).map(m => m.node);
+    state.searchSelectedIndex = state.currentMatches.length > 0 ? 0 : -1;
+
+    renderSearchResults(query, state.currentMatches);
+    els.searchResultsDropdown.classList.remove('closed');
+}
+
+function renderSearchResults(query, matches) {
+    els.searchResultsList.innerHTML = '';
+
+    if (matches.length === 0) {
+        els.searchResultsList.innerHTML = `<div class="search-empty">No matching symbols found for "<strong>${escapeHtml(query)}</strong>"</div>`;
+    } else {
+        matches.forEach((node, idx) => {
+            const item = document.createElement('div');
+            item.className = `search-result-item ${idx === state.searchSelectedIndex ? 'selected' : ''}`;
+            const cat = node.category || 'code';
+            const colorClass = `color-${cat}`;
+            const srcLoc = (node.source_file || '') + (node.source_location ? `:${node.source_location}` : '');
+
+            item.innerHTML = `
+                <span class="search-item-shape ${colorClass}"></span>
+                <div class="search-item-info">
+                    <span class="search-item-label">${escapeHtml(node.label || node.id)}</span>
+                    <span class="search-item-path">${escapeHtml(srcLoc)}</span>
+                </div>
+                <span class="search-item-meta">${node.degree || 0} deg</span>
+            `;
+
+            item.addEventListener('click', () => {
+                selectNode(node);
+                closeAllPopovers();
+            });
+
+            els.searchResultsList.appendChild(item);
+        });
+    }
+
+    // Quick Actions
+    els.searchActionsBar.innerHTML = '';
+
+    const actionImpact = document.createElement('div');
+    actionImpact.className = 'search-action-btn';
+    actionImpact.innerHTML = `
+        <svg class="search-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+        <span>Analyze Blast Radius for <strong>"${escapeHtml(query)}"</strong></span>
+    `;
+    actionImpact.addEventListener('click', () => {
+        closeAllPopovers();
+        runImpact(query);
+    });
+    els.searchActionsBar.appendChild(actionImpact);
+
+    const actionQuery = document.createElement('div');
+    actionQuery.className = 'search-action-btn';
+    actionQuery.innerHTML = `
+        <svg class="search-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <span>Query Architecture: <strong>"${escapeHtml(query)}"</strong></span>
+    `;
+    actionQuery.addEventListener('click', () => {
+        closeAllPopovers();
+        runQuery(query);
+    });
+    els.searchActionsBar.appendChild(actionQuery);
+}
+
+function navigateSearchResults(dir) {
+    const total = state.currentMatches.length;
+    if (total === 0) return;
+
+    state.searchSelectedIndex = (state.searchSelectedIndex + dir + total) % total;
+
+    const items = els.searchResultsList.querySelectorAll('.search-result-item');
+    items.forEach((item, idx) => {
+        item.classList.toggle('selected', idx === state.searchSelectedIndex);
+        if (idx === state.searchSelectedIndex) {
+            item.scrollIntoView({ block: 'nearest' });
+        }
+    });
+}
+
+function executeSelectedSearchResult() {
+    if (state.searchSelectedIndex >= 0 && state.currentMatches[state.searchSelectedIndex]) {
+        const node = state.currentMatches[state.searchSelectedIndex];
+        selectNode(node);
+        closeAllPopovers();
+    }
 }
 
 // ==========================================================================
@@ -643,10 +951,12 @@ async function loadProject() {
 
         updateStatus(statusRes);
         renderGraph(graphRes);
+        showToast(`Loaded ${state.currentProjectLabel ? state.currentProjectLabel.textContent : 'project'} (${graphRes.meta?.node_count || 0} symbols)`, 'success');
     } catch (e) {
         console.error('Failed to load project:', e);
         els.readyBadge.className = 'badge-status badge-error';
         if (els.readyBadgeText) els.readyBadgeText.textContent = 'Error';
+        showToast(`Failed to load project: ${e.message}`, 'error');
         setSafeHtml(
             els.resultsOutput,
             `<span style="color:var(--accent-rose)">Error loading project: ${escapeHtml(e.message)}</span>`
@@ -676,10 +986,14 @@ function updateStatus(res) {
     }
 
     if (res.llm && res.llm.configured) {
-        els.llmChip.textContent = `LLM: ${res.llm.model || 'Active'}`;
+        const model = res.llm.model || 'Active';
+        const shortModel = model.length > 16 ? model.slice(0, 14) + '…' : model;
+        els.llmChip.textContent = `LLM: ${shortModel}`;
+        els.llmChip.title = `Model: ${model} (${res.llm.base_url || 'local'})`;
         els.llmChip.className = 'badge-chip badge-ready';
     } else {
         els.llmChip.textContent = 'LLM: Off';
+        els.llmChip.title = 'LLM synthesis is not configured';
         els.llmChip.className = 'badge-chip';
         state.useLlm = false;
         if (els.useLlm) els.useLlm.checked = false;
@@ -709,15 +1023,20 @@ function renderGraph(res) {
     // Populate Community List in Layers Popover
     renderCommunityList(state.communities);
 
-    // Filter visible elements
+    // Sanitize link sources/targets to prevent d3-force object mutation breakage
     const visibleNodes = rawNodes.filter(n => state.filters[n.category || 'code']);
     const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
-    const visibleLinks = rawLinks.filter(l => visibleNodeIds.has(l.source) && visibleNodeIds.has(l.target));
+
+    const cleanLinks = rawLinks.map(l => {
+        const sId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tId = typeof l.target === 'object' ? l.target.id : l.target;
+        return Object.assign({}, l, { source: sId, target: tId });
+    }).filter(l => visibleNodeIds.has(l.source) && visibleNodeIds.has(l.target));
 
     if (state.graph3d) {
         state.graph3d.graphData({
             nodes: visibleNodes,
-            links: visibleLinks
+            links: cleanLinks
         });
         setTimeout(() => { fitGraphView(); }, 600);
     }
@@ -772,12 +1091,17 @@ function applyFilters() {
 
     const visibleNodes = rawNodes.filter(n => state.filters[n.category || 'code']);
     const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
-    const visibleLinks = rawLinks.filter(l => visibleNodeIds.has(l.source) && visibleNodeIds.has(l.target));
+
+    const cleanLinks = rawLinks.map(l => {
+        const sId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tId = typeof l.target === 'object' ? l.target.id : l.target;
+        return Object.assign({}, l, { source: sId, target: tId });
+    }).filter(l => visibleNodeIds.has(l.source) && visibleNodeIds.has(l.target));
 
     if (state.graph3d) {
         state.graph3d.graphData({
             nodes: visibleNodes,
-            links: visibleLinks
+            links: cleanLinks
         });
     }
 }
@@ -837,11 +1161,10 @@ function clearSelection() {
 
 function handleShiftClick(data) {
     if (!state.traceSource) {
-        state.traceSource = data.id;
-        els.commandBar.placeholder = `Select target destination node for trace from ${data.label || data.id}...`;
+        enterTraceMode(data);
     } else if (state.traceSource !== data.id) {
         runTrace(state.traceSource, data.id);
-        state.traceSource = null;
+        exitTraceMode();
     }
 }
 
@@ -851,8 +1174,20 @@ function showContextPanel(data) {
 
     const label = data.label || data.id;
     els.nodeLabel.textContent = label;
-    els.nodeCategory.textContent = data.category || 'code';
-    els.nodeTypeBadge.textContent = data.file_type || (data.is_class ? 'class' : (data.is_callable ? 'callable' : 'symbol'));
+    const cat = (data.category || 'code').toLowerCase();
+    els.nodeCategory.textContent = cat.charAt(0).toUpperCase() + cat.slice(1);
+
+    let typeLabel = 'Symbol';
+    if (data.is_class) {
+        typeLabel = 'Class';
+    } else if (data.is_callable) {
+        typeLabel = 'Callable';
+    } else if (data.file_type && data.file_type.toLowerCase() !== cat) {
+        typeLabel = data.file_type.charAt(0).toUpperCase() + data.file_type.slice(1);
+    } else if (data.id && (data.id.endsWith('.py') || data.id.endsWith('.ts') || data.id.endsWith('.js') || data.id.endsWith('.json'))) {
+        typeLabel = 'Module';
+    }
+    els.nodeTypeBadge.textContent = typeLabel;
 
     els.nodeSource.textContent = (data.source_file || '') + (data.source_location ? `:${data.source_location}` : '');
     els.nodeCommunity.textContent = data.community != null ? `Cluster ${data.community}` : 'None';
@@ -933,12 +1268,11 @@ window.selectNodeByLabel = selectNodeByLabel;
 
 function handleCommandSubmit(input) {
     if (!input) return;
+    closeAllPopovers();
 
-    // Detect mode
-    const activeBadge = document.querySelector('.mode-badge.active');
-    const explicitMode = activeBadge ? activeBadge.dataset.mode : 'auto';
+    const mode = state.searchMode;
 
-    if (explicitMode === 'trace' || input.includes('->') || input.includes('→')) {
+    if (mode === 'trace' || input.includes('->') || input.includes('→')) {
         const parts = input.split(/->|→/).map(s => s.trim());
         if (parts.length >= 2) {
             runTrace(parts[0], parts[1]);
@@ -946,12 +1280,12 @@ function handleCommandSubmit(input) {
         }
     }
 
-    if (explicitMode === 'impact') {
+    if (mode === 'impact') {
         runImpact(input);
         return;
     }
 
-    if (explicitMode === 'query') {
+    if (mode === 'query') {
         runQuery(input);
         return;
     }
@@ -1006,7 +1340,7 @@ async function runQuery(query) {
     setBusy(true);
     openDrawer();
     switchDrawerTab('results');
-    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);">Synthesizing multi-tier architecture context for: <strong>${escapeHtml(query)}</strong>...</div>`);
+    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);"><svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>Synthesizing multi-tier architecture context for: <strong>${escapeHtml(query)}</strong>...</div>`);
 
     try {
         const payload = {
@@ -1021,8 +1355,10 @@ async function runQuery(query) {
 
         addOperationHistory('query', query);
         renderOperationResults(res.synthesized_context || 'No response generated.');
+        showToast(`Query completed for "${query}"`, 'success');
     } catch (e) {
         setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--accent-rose);">Query Error: ${escapeHtml(e.message)}</div>`);
+        showToast(`Query failed: ${e.message}`, 'error');
     } finally {
         setBusy(false);
     }
@@ -1033,7 +1369,7 @@ async function runImpact(symbol) {
     setBusy(true);
     openDrawer();
     switchDrawerTab('results');
-    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);">Calculating blast radius for <strong>${escapeHtml(symbol)}</strong>...</div>`);
+    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);"><svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>Calculating blast radius for <strong>${escapeHtml(symbol)}</strong>...</div>`);
 
     try {
         const payload = {
@@ -1049,8 +1385,10 @@ async function runImpact(symbol) {
         addOperationHistory('impact', symbol);
         applyImpactOverlay(symbol, res);
         renderOperationResults(res.synthesized_report || 'No impact report generated.');
+        showToast(`Blast radius: ${res.blast_radius_count || 0} dependent components (${res.risk_level || 'OK'})`, 'success');
     } catch (e) {
         setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--accent-rose);">Impact Error: ${escapeHtml(e.message)}</div>`);
+        showToast(`Impact failed: ${e.message}`, 'error');
     } finally {
         setBusy(false);
     }
@@ -1099,7 +1437,7 @@ async function runTrace(fromSym, toSym) {
     setBusy(true);
     openDrawer();
     switchDrawerTab('results');
-    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);">Tracing execution path: <strong>${escapeHtml(fromSym)} &rarr; ${escapeHtml(toSym)}</strong>...</div>`);
+    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);"><svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>Tracing execution path: <strong>${escapeHtml(fromSym)} &rarr; ${escapeHtml(toSym)}</strong>...</div>`);
 
     try {
         const payload = {
@@ -1116,8 +1454,10 @@ async function runTrace(fromSym, toSym) {
         addOperationHistory('trace', `${fromSym} -> ${toSym}`);
         applyTraceOverlay(res);
         renderOperationResults(res.synthesized_flow || 'No path found.');
+        showToast(res.path_found ? `Trace path found: ${res.path_length || 0} steps` : 'No path found between symbols', res.path_found ? 'success' : 'info');
     } catch (e) {
         setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--accent-rose);">Trace Error: ${escapeHtml(e.message)}</div>`);
+        showToast(`Trace failed: ${e.message}`, 'error');
     } finally {
         setBusy(false);
     }
@@ -1204,6 +1544,7 @@ async function runIndexing() {
     openDrawer();
     switchDrawerTab('terminal');
     els.terminalOutput.textContent = `[CKC Engine] Initiating 3-Tier Indexing for ${state.currentProject}...\n`;
+    showToast('Started 3-Tier Indexing pipeline', 'info');
 
     if (els.cancelIndexBtn) els.cancelIndexBtn.classList.remove('hidden');
     if (els.runIndexBtn) els.runIndexBtn.classList.add('hidden');
@@ -1263,7 +1604,10 @@ function finishIndexing(success, msg) {
     els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
 
     if (success) {
+        showToast('Indexing completed! Reloading knowledge graph...', 'success');
         loadProject();
+    } else {
+        showToast(`Indexing issue: ${msg}`, 'error');
     }
 }
 
@@ -1275,6 +1619,7 @@ async function cancelIndexing() {
             body: JSON.stringify({ project_path: state.currentProject })
         });
         finishIndexing(false, 'Indexing cancelled by user.');
+        showToast('Indexing cancelled', 'info');
     } catch (e) {
         console.error('Failed to cancel indexing:', e);
     }
@@ -1336,6 +1681,9 @@ async function loadSamples() {
 
 function addOperationHistory(type, param) {
     if (!els.opsHistory) return;
+    const emptyText = els.opsHistory.querySelector('.empty-ops-text');
+    if (emptyText) emptyText.remove();
+
     const chip = document.createElement('span');
     chip.className = 'op-chip';
     chip.textContent = `${type}: ${param}`;
