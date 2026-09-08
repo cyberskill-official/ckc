@@ -57,7 +57,19 @@ const els = {
     resetCamBtn: document.getElementById('reset-cam-btn'),
     toggleSidebarBtn: document.getElementById('toggle-sidebar-btn'),
 
-    // Sidebar
+    // Popovers & Header Trigger Buttons
+    projectPillBtn: document.getElementById('project-pill-btn'),
+    currentProjectLabel: document.getElementById('current-project-label'),
+    projectPopover: document.getElementById('project-popover'),
+    closeProjectPopoverBtn: document.getElementById('close-project-popover-btn'),
+    layersToggleBtn: document.getElementById('layers-toggle-btn'),
+    layersPopover: document.getElementById('layers-popover'),
+    closeLayersPopoverBtn: document.getElementById('close-layers-popover-btn'),
+    headerIndexBtn: document.getElementById('header-index-btn'),
+    indexPopover: document.getElementById('index-popover'),
+    closeIndexPopoverBtn: document.getElementById('close-index-popover-btn'),
+
+    // Sidebar & Layers
     sidebar: document.getElementById('sidebar'),
     filterCode: document.getElementById('filter-code'),
     filterDoc: document.getElementById('filter-doc'),
@@ -122,6 +134,7 @@ function init() {
         els.useLlm.checked = state.useLlm;
     }
 
+    updateProjectLabel();
     init3DGraph();
     initCytoscape();
     setupEventListeners();
@@ -130,6 +143,26 @@ function init() {
     if (state.currentProject) {
         loadProject();
     }
+}
+
+function updateProjectLabel() {
+    if (!els.currentProjectLabel) return;
+    if (state.currentProject) {
+        const clean = state.currentProject.replace(/[/\\]+$/, '');
+        const parts = clean.split(/[/\\]/);
+        const name = parts[parts.length - 1] || clean;
+        els.currentProjectLabel.textContent = name;
+        els.currentProjectLabel.title = state.currentProject;
+    } else {
+        els.currentProjectLabel.textContent = 'Select Project…';
+        els.currentProjectLabel.title = 'Click to switch repository';
+    }
+}
+
+function closeAllPopovers() {
+    if (els.projectPopover) els.projectPopover.classList.add('closed');
+    if (els.layersPopover) els.layersPopover.classList.add('closed');
+    if (els.indexPopover) els.indexPopover.classList.add('closed');
 }
 
 function persistUseLlmFromInput() {
@@ -302,6 +335,7 @@ function init3DGraph() {
             })
             .onBackgroundClick(() => {
                 clearSelection();
+                closeAllPopovers();
             });
 
         // Fine-tune 3D force physics for natural community separation
@@ -438,11 +472,75 @@ function initCytoscape() {
 // ==========================================================================
 
 function setupEventListeners() {
+    // Popover Toggles
+    if (els.projectPillBtn && els.projectPopover) {
+        els.projectPillBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = !els.projectPopover.classList.contains('closed');
+            closeAllPopovers();
+            if (!isOpen) els.projectPopover.classList.remove('closed');
+        });
+    }
+    if (els.closeProjectPopoverBtn) {
+        els.closeProjectPopoverBtn.addEventListener('click', () => {
+            if (els.projectPopover) els.projectPopover.classList.add('closed');
+        });
+    }
+
+    if (els.layersToggleBtn && els.layersPopover) {
+        els.layersToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = !els.layersPopover.classList.contains('closed');
+            closeAllPopovers();
+            if (!isOpen) els.layersPopover.classList.remove('closed');
+        });
+    }
+    if (els.closeLayersPopoverBtn) {
+        els.closeLayersPopoverBtn.addEventListener('click', () => {
+            if (els.layersPopover) els.layersPopover.classList.add('closed');
+        });
+    }
+
+    if (els.headerIndexBtn && els.indexPopover) {
+        els.headerIndexBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = !els.indexPopover.classList.contains('closed');
+            closeAllPopovers();
+            if (!isOpen) els.indexPopover.classList.remove('closed');
+        });
+    }
+    if (els.readyBadge && els.indexPopover) {
+        els.readyBadge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = !els.indexPopover.classList.contains('closed');
+            closeAllPopovers();
+            if (!isOpen) els.indexPopover.classList.remove('closed');
+        });
+    }
+    if (els.closeIndexPopoverBtn) {
+        els.closeIndexPopoverBtn.addEventListener('click', () => {
+            if (els.indexPopover) els.indexPopover.classList.add('closed');
+        });
+    }
+
+    // Close popovers on click outside
+    document.addEventListener('pointerdown', (e) => {
+        if (!e.target.closest('.floating-popover') &&
+            !e.target.closest('.project-pill') &&
+            !e.target.closest('#layers-toggle-btn') &&
+            !e.target.closest('#header-index-btn') &&
+            !e.target.closest('#ready-badge')) {
+            closeAllPopovers();
+        }
+    });
+
     // Project loading
     els.loadBtn.addEventListener('click', () => {
         persistUiTokenFromInput();
         state.currentProject = els.projectInput.value;
         localStorage.setItem('ckc_project_path', state.currentProject);
+        updateProjectLabel();
+        closeAllPopovers();
         loadProject();
     });
 
@@ -452,6 +550,8 @@ function setupEventListeners() {
         els.projectInput.value = els.samplePicker.value;
         state.currentProject = els.samplePicker.value;
         localStorage.setItem('ckc_project_path', state.currentProject);
+        updateProjectLabel();
+        closeAllPopovers();
         loadProject();
     });
 
@@ -482,17 +582,19 @@ function setupEventListeners() {
     els.fitBtn.addEventListener('click', fitGraphView);
     els.resetCamBtn.addEventListener('click', resetCameraView);
 
-    // Sidebar Toggle
-    els.toggleSidebarBtn.addEventListener('click', () => {
-        els.sidebar.classList.toggle('collapsed');
-        setTimeout(() => {
-            if (state.graph3d && els.container3d) {
-                state.graph3d.width(els.graphViewport.clientWidth);
-                state.graph3d.height(els.graphViewport.clientHeight);
-            }
-            if (state.cy) state.cy.resize();
-        }, 320);
-    });
+    // Sidebar Toggle (compatibility)
+    if (els.toggleSidebarBtn && els.sidebar) {
+        els.toggleSidebarBtn.addEventListener('click', () => {
+            els.sidebar.classList.toggle('collapsed');
+            setTimeout(() => {
+                if (state.graph3d && els.container3d) {
+                    state.graph3d.width(els.graphViewport.clientWidth);
+                    state.graph3d.height(els.graphViewport.clientHeight);
+                }
+                if (state.cy) state.cy.resize();
+            }, 320);
+        });
+    }
 
     // Filters
     ['Code', 'Doc', 'Schema', 'Test'].forEach(type => {
@@ -565,6 +667,7 @@ function setupEventListeners() {
     // Global Hotkeys
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            closeAllPopovers();
             clearSelection();
             clearOverlays();
             els.contextPanel.classList.add('closed');
@@ -573,11 +676,17 @@ function setupEventListeners() {
             els.commandBar.focus();
         } else if (e.key === 'f' && document.activeElement.tagName !== 'INPUT') {
             fitGraphView();
+        } else if ((e.key === 'l' || e.key === 'L') && document.activeElement.tagName !== 'INPUT') {
+            e.preventDefault();
+            if (els.layersToggleBtn) els.layersToggleBtn.click();
         }
     });
 
     // Indexing Actions
-    els.runIndexBtn.addEventListener('click', runIndexing);
+    els.runIndexBtn.addEventListener('click', () => {
+        closeAllPopovers();
+        runIndexing();
+    });
     els.cancelIndexBtn.addEventListener('click', cancelIndexing);
 
     // Window Resize
@@ -915,9 +1024,10 @@ function handleShiftClick(data) {
 }
 
 function showContextPanel(data) {
+    closeAllPopovers();
     els.contextPanel.classList.remove('closed');
-    document.querySelector('.empty-state').classList.add('hidden');
-    document.querySelector('.node-info').classList.remove('hidden');
+    document.querySelector('.empty-state')?.classList.add('hidden');
+    document.querySelector('.node-info')?.classList.remove('hidden');
 
     const label = data.label || data.id;
     els.nodeLabel.textContent = label;
