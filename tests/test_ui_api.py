@@ -74,6 +74,7 @@ class TestWebUIApi(unittest.TestCase):
         payload = {
             "project_path": self.test_repo,
             "query": "authentication and login flow",
+            "use_llm": False,
         }
         res = self.client.post("/api/query", json=payload)
         self.assertEqual(res.status_code, 200)
@@ -86,6 +87,7 @@ class TestWebUIApi(unittest.TestCase):
         payload = {
             "project_path": self.test_repo,
             "symbol": "login",
+            "use_llm": False,
         }
         res = self.client.post("/api/impact", json=payload)
         self.assertEqual(res.status_code, 200)
@@ -101,6 +103,7 @@ class TestWebUIApi(unittest.TestCase):
             "project_path": self.test_repo,
             "from_symbol": "handle_login_request",
             "to_symbol": "verify_password",
+            "use_llm": False,
         }
         res = self.client.post("/api/trace", json=payload)
         self.assertEqual(res.status_code, 200)

@@ -3,13 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CKC Graph-First Explorer</title>
-    <!-- Pinned CDN versions with Subresource Integrity -->
+    <title>CKC | 3D Code Knowledge Explorer</title>
+    
+    <!-- Google Fonts: IBM Plex Sans & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- 3D Graph Engine (3D Force-Directed Graph) -->
+    <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.80.0/dist/3d-force-graph.min.js"></script>
+
+    <!-- 2D Fallback & Analysis Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.4/dist/cytoscape.min.js"
             integrity="sha384-H3uzGzTfGHUAumB8+s4GEdfFwzAceN9wCCndN8AXubWKFIPuBSWKKtWDx7RhSf/z"
-            crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent@4.1.0/cytoscape-cose-bilkent.js"
-            integrity="sha384-CUkVnmwscI7lsYn26xHp4BmwwUaqCgfQlIkPoERUBcg8k0xFypHQjzlS8RuYuooO"
             crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"
             integrity="sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR"
@@ -25,120 +31,367 @@
 </head>
 <body>
     <header class="app-header">
-        <div class="logo">CKC Explorer</div>
+        <div class="brand-group">
+            <button id="toggle-sidebar-btn" class="icon-btn" aria-label="Toggle Sidebar" title="Toggle Sidebar">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="9" y1="3" x2="9" y2="21"></line>
+                </svg>
+            </button>
+            <div class="logo">
+                <span class="logo-text">CKC</span>
+                <span class="logo-sub">Explorer</span>
+            </div>
+        </div>
+
         <div class="project-input-container">
-            <select id="sample-picker" aria-label="Sample projects">
+            <select id="sample-picker" aria-label="Sample projects" class="select-input">
                 <option value="">Samples…</option>
             </select>
-            <input type="text" id="project-path" placeholder="Enter absolute project path..." />
-            <input type="password" id="ui-token" placeholder="UI token" autocomplete="off" title="CKC_UI_TOKEN (stored in localStorage as ckc_ui_token)" />
-            <button id="load-btn">Load</button>
+            <div class="input-wrapper">
+                <svg class="input-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <input type="text" id="project-path" placeholder="Enter absolute repository path..." spellcheck="false" />
+            </div>
+            <input type="password" id="ui-token" placeholder="Token" autocomplete="off" title="CKC_UI_TOKEN" class="token-input" />
+            <button id="load-btn" class="btn btn-primary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                <span>Load</span>
+            </button>
         </div>
+
         <div class="header-badges">
-            <span id="ready-badge" class="badge">Not Ready</span>
-            <span id="docs-chip" class="badge">Docs: —</span>
-            <span id="llm-chip" class="badge">LLM: Off</span>
+            <span id="ready-badge" class="badge badge-neutral">
+                <span class="pulse-dot"></span>
+                <span class="badge-text">Not Ready</span>
+            </span>
+            <span id="docs-chip" class="badge badge-muted">Docs: —</span>
+            <span id="llm-chip" class="badge badge-muted">LLM: Off</span>
+        </div>
+
+        <div class="viewport-controls">
+            <!-- View Mode Switcher -->
+            <div class="mode-switch-group">
+                <button id="view-mode-3d" class="mode-toggle-btn active" title="3D Spatial Universe">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                    <span>3D</span>
+                </button>
+                <button id="view-mode-2d" class="mode-toggle-btn" title="2D Top-Down View">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                    </svg>
+                    <span>2D</span>
+                </button>
+            </div>
+
+            <!-- 3D Camera Controls -->
+            <button id="auto-rotate-btn" class="icon-btn" title="Toggle Auto-Rotation" aria-label="Auto Rotate">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"></path>
+                </svg>
+            </button>
+            <button id="fit-btn" class="icon-btn" title="Fit to Viewport (F)" aria-label="Fit View">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                </svg>
+            </button>
+            <button id="reset-cam-btn" class="icon-btn" title="Reset Camera Perspective" aria-label="Reset Camera">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polygon points="12 8 8 12 12 16 12 8"></polygon>
+                </svg>
+            </button>
         </div>
     </header>
 
     <div class="main-layout">
         <!-- Left Sidebar -->
-        <aside class="sidebar">
-            <section class="filters">
-                <h3>Filters</h3>
-                <label><input type="checkbox" id="filter-code" checked> Code</label>
-                <label><input type="checkbox" id="filter-doc" checked> Docs</label>
-                <label><input type="checkbox" id="filter-schema" checked> Schema</label>
-                <label><input type="checkbox" id="filter-test" checked> Tests</label>
+        <aside class="sidebar" id="sidebar">
+            <section class="sidebar-section filters">
+                <div class="section-header">
+                    <h3>Entity Filters</h3>
+                </div>
+                <div class="filter-pills">
+                    <label class="filter-chip chip-code">
+                        <input type="checkbox" id="filter-code" checked>
+                        <span class="chip-shape shape-circle"></span>
+                        <span class="chip-label">Code</span>
+                        <span class="chip-count" id="count-code">0</span>
+                    </label>
+                    <label class="filter-chip chip-doc">
+                        <input type="checkbox" id="filter-doc" checked>
+                        <span class="chip-shape shape-diamond"></span>
+                        <span class="chip-label">Docs</span>
+                        <span class="chip-count" id="count-doc">0</span>
+                    </label>
+                    <label class="filter-chip chip-schema">
+                        <input type="checkbox" id="filter-schema" checked>
+                        <span class="chip-shape shape-hexagon"></span>
+                        <span class="chip-label">Schema</span>
+                        <span class="chip-count" id="count-schema">0</span>
+                    </label>
+                    <label class="filter-chip chip-test">
+                        <input type="checkbox" id="filter-test" checked>
+                        <span class="chip-shape shape-triangle"></span>
+                        <span class="chip-label">Tests</span>
+                        <span class="chip-count" id="count-test">0</span>
+                    </label>
+                </div>
             </section>
             
-            <section class="communities">
-                <h3>Communities</h3>
-                <ul id="community-list"></ul>
+            <section class="sidebar-section communities">
+                <div class="section-header">
+                    <h3>Communities</h3>
+                    <span class="section-badge" id="comm-total-badge">0 clusters</span>
+                </div>
+                <ul id="community-list" class="custom-scroll"></ul>
             </section>
             
-            <section class="actions">
-                <h3>Actions</h3>
-                <label><input type="checkbox" id="force-index"> Re-index (force)</label>
-                <label><input type="checkbox" id="multimodal-index"> Multimodal</label>
-                <label><input type="checkbox" id="use-llm" checked> Local LLM synthesis</label>
-                <button id="run-index-btn">▶ Run Indexing</button>
-                <button id="cancel-index-btn" class="hidden">Cancel Indexing</button>
+            <section class="sidebar-section actions">
+                <div class="section-header">
+                    <h3>3-Tier Indexing</h3>
+                </div>
+                <div class="options-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="force-index">
+                        <span class="checkbox-custom"></span>
+                        <span>Force Re-index</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="multimodal-index">
+                        <span class="checkbox-custom"></span>
+                        <span>Multimodal (Vision/Docs)</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="use-llm" checked>
+                        <span class="checkbox-custom"></span>
+                        <span>Local LLM Synthesis</span>
+                    </label>
+                </div>
+                <button id="run-index-btn" class="btn btn-action">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    <span>Run Full Indexing</span>
+                </button>
+                <button id="cancel-index-btn" class="btn btn-danger hidden">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    </svg>
+                    <span>Cancel Indexing</span>
+                </button>
             </section>
 
-            <section class="recent-ops">
-                <h3>Recent Operations</h3>
-                <div id="ops-history"></div>
+            <section class="sidebar-section recent-ops">
+                <div class="section-header">
+                    <h3>Recent Operations</h3>
+                </div>
+                <div id="ops-history" class="ops-list"></div>
             </section>
         </aside>
 
         <!-- Center Graph Area -->
-        <main class="graph-area">
+        <main class="graph-area" id="graph-viewport">
+            <!-- Command Bar HUD -->
             <div class="command-bar-wrapper">
-                <input type="text" id="command-bar" placeholder="Search nodes, ask questions, or analyze symbols... (Press '/')">
-                <div class="mode-indicators">
-                    <span class="mode-badge" data-mode="query">Query</span>
-                    <span class="mode-badge" data-mode="impact">Impact</span>
-                    <span class="mode-badge" data-mode="trace">Trace</span>
+                <div class="command-bar-inner">
+                    <div class="search-icon-wrapper">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                    </div>
+                    <input type="text" id="command-bar" placeholder="Search symbols, ask architectural questions, or type 'A -> B' to trace... (Press '/')" spellcheck="false" autocomplete="off" />
+                    <div class="command-hints">
+                        <span class="hotkey-pill">/</span>
+                    </div>
                 </div>
-                <button id="clear-overlays-btn" class="hidden">Clear Overlays</button>
+                
+                <div class="command-bar-footer">
+                    <div class="mode-indicators">
+                        <span class="mode-badge active" data-mode="auto">Auto</span>
+                        <span class="mode-badge" data-mode="query">Query</span>
+                        <span class="mode-badge" data-mode="impact">Impact</span>
+                        <span class="mode-badge" data-mode="trace">Trace</span>
+                    </div>
+                    <button id="clear-overlays-btn" class="btn-clear-overlays hidden">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        <span>Clear Overlays</span>
+                    </button>
+                </div>
             </div>
+
+            <!-- 3D WebGL Canvas Container -->
+            <div id="graph-3d" class="viewport-canvas"></div>
+
+            <!-- 2D Cytoscape Canvas Container (Hidden in 3D mode) -->
+            <div id="cy" class="viewport-canvas hidden"></div>
             
-            <div id="cy"></div>
-            
-            <div class="graph-controls">
-                <button id="fit-btn">Fit [f]</button>
+            <!-- Floating Navigation Compass / Legend -->
+            <div class="canvas-legend">
+                <div class="legend-item"><span class="legend-indicator shape-circle color-code"></span> Code</div>
+                <div class="legend-item"><span class="legend-indicator shape-diamond color-doc"></span> Docs</div>
+                <div class="legend-item"><span class="legend-indicator shape-hexagon color-schema"></span> Schema</div>
+                <div class="legend-item"><span class="legend-indicator shape-triangle color-test"></span> Tests</div>
             </div>
         </main>
 
-        <!-- Right Panel (Context) -->
+        <!-- Right Panel (Context Inspector) -->
         <aside class="right-panel closed" id="context-panel">
             <div class="panel-header">
-                <button id="close-panel-btn">×</button>
+                <div class="panel-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                    <span>Entity Inspector</span>
+                </div>
+                <button id="close-panel-btn" class="icon-btn" aria-label="Close Inspector">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
             </div>
-            <div class="panel-content" id="node-details">
-                <div class="empty-state">Select a node to view context</div>
+            
+            <div class="panel-content custom-scroll" id="node-details">
+                <div class="empty-state">
+                    <div class="empty-state-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                            <path d="M2 12h20"></path>
+                        </svg>
+                    </div>
+                    <h4>No Symbol Selected</h4>
+                    <p>Click any 3D node or search to inspect callers, callees, and run blast radius.</p>
+                </div>
+                
                 <div class="node-info hidden">
-                    <h2 id="node-label"></h2>
-                    <span id="node-category" class="badge"></span>
-                    <div class="metadata">
-                        <div><strong>Source:</strong> <span id="node-source"></span></div>
-                        <div><strong>Community:</strong> <span id="node-community"></span></div>
-                        <div><strong>Connections:</strong> <span id="node-degree"></span></div>
+                    <div class="node-title-card">
+                        <div class="node-title-row">
+                            <h2 id="node-label"></h2>
+                            <button id="copy-symbol-name-btn" class="btn-icon-subtle" title="Copy Symbol Name">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="node-badges-row">
+                            <span id="node-category" class="badge"></span>
+                            <span id="node-type-badge" class="badge badge-subtle"></span>
+                        </div>
                     </div>
                     
+                    <div class="metric-grid">
+                        <div class="metric-card">
+                            <span class="metric-val" id="node-degree">0</span>
+                            <span class="metric-label">Connections</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-val" id="node-community">0</span>
+                            <span class="metric-label">Community</span>
+                        </div>
+                    </div>
+
+                    <div class="source-location-card">
+                        <div class="card-label">Source Location</div>
+                        <div class="source-path" id="node-source"></div>
+                    </div>
+                    
+                    <div class="section-title">Relationships</div>
                     <div class="connections-list" id="node-connections">
                         <!-- Populated dynamically -->
                     </div>
 
-                    <div class="node-actions">
-                        <button id="action-impact">▶ Impact Analysis</button>
-                        <button id="action-trace">▶ Trace From Here</button>
-                        <button id="action-query">▶ Query About This</button>
+                    <div class="node-actions-card">
+                        <div class="card-label">Chained Operations</div>
+                        <button id="action-impact" class="btn btn-action-glow">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                            </svg>
+                            <span>Blast Radius & Impact</span>
+                        </button>
+                        <button id="action-trace" class="btn btn-secondary">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="16 3 21 3 21 8"></polyline>
+                                <line x1="4" y1="20" x2="21" y2="3"></line>
+                                <polyline points="21 16 21 21 16 21"></polyline>
+                                <line x1="15" y1="15" x2="21" y2="21"></line>
+                                <line x1="4" y1="4" x2="9" y2="9"></line>
+                            </svg>
+                            <span>Trace Flow From Here</span>
+                        </button>
+                        <button id="action-query" class="btn btn-secondary">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                            </svg>
+                            <span>Ask Architecture Query</span>
+                        </button>
                     </div>
                 </div>
             </div>
         </aside>
     </div>
 
-    <!-- Bottom Drawer -->
+    <!-- Bottom Drawer (Dockable Terminal & Results) -->
     <div class="bottom-drawer" id="drawer">
         <div class="drawer-header" id="drawer-toggle">
             <div class="drawer-tabs">
-                <button class="tab-btn active" data-tab="terminal">Terminal</button>
-                <button class="tab-btn" data-tab="results">Results</button>
+                <button class="tab-btn active" data-tab="terminal">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="4 17 10 11 4 5"></polyline>
+                        <line x1="12" y1="19" x2="20" y2="19"></line>
+                    </svg>
+                    <span>Terminal Stream</span>
+                </button>
+                <button class="tab-btn" data-tab="results">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <span>Analysis Dossier</span>
+                </button>
             </div>
             <div class="drawer-controls">
-                <button id="copy-results-btn" class="hidden">Copy Results</button>
-                <span class="chevron">▲</span>
+                <button id="copy-results-btn" class="btn btn-sm btn-subtle hidden">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                    <span>Copy Markdown</span>
+                </button>
+                <span class="chevron">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                </span>
             </div>
         </div>
         <div class="drawer-content">
             <div class="tab-pane active" id="pane-terminal">
-                <pre id="terminal-output"></pre>
+                <pre id="terminal-output" class="custom-scroll"></pre>
             </div>
             <div class="tab-pane" id="pane-results">
-                <div id="results-output" class="markdown-body"></div>
+                <div id="results-output" class="markdown-body custom-scroll"></div>
             </div>
         </div>
     </div>

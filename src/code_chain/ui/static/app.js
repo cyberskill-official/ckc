@@ -1,25 +1,34 @@
-// CKC Graph-First Explorer App
+// ==========================================================================
+// CKC Graph-First Explorer Engine (3D WebGL Spatial & 2D Cytoscape)
+// Engineered with NextLevelBuilder UI/UX Pro Max Design Intelligence
+// ==========================================================================
 
 const state = {
     currentProject: localStorage.getItem('ckc_project_path') || '',
     uiToken: localStorage.getItem('ckc_ui_token') || '',
     useLlm: localStorage.getItem('ckc_use_llm') !== '0',
+    viewMode: '3d', // '3d' (default) or '2d'
+    graph3d: null,
     cy: null,
     selectedNode: null,
     traceSource: null,
     graphData: null,
     communities: [],
     filters: { code: true, doc: true, schema: true, test: true },
+    isAutoRotating: false,
     indexingAbort: null,
     indexingCleanClose: false,
     inFlight: false,
     drawerOpen: false,
     drawerTab: 'terminal',
     lastResults: '',
+    highlightNodes: new Set(),
+    highlightLinks: new Set(),
+    hoverNode: null,
     palette: [
-        '#ff7b72', '#79c0ff', '#d2a8ff', '#a5d6ff', '#f0883e',
-        '#3fb950', '#8957e5', '#d29922', '#ff9bce', '#56d364',
-        '#e3b341', '#f85149'
+        '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb7185',
+        '#f59e0b', '#10b981', '#34d399', '#2dd4bf', '#22d3ee',
+        '#a78bfa', '#e879f9', '#fb923c', '#4ade80', '#60a5fa', '#94a3b8'
     ]
 };
 
@@ -32,19 +41,34 @@ if (window.mermaid) {
 }
 
 const els = {
+    // Header
     projectInput: document.getElementById('project-path'),
     uiTokenInput: document.getElementById('ui-token'),
     samplePicker: document.getElementById('sample-picker'),
     loadBtn: document.getElementById('load-btn'),
     readyBadge: document.getElementById('ready-badge'),
+    readyBadgeText: document.querySelector('#ready-badge .badge-text'),
     docsChip: document.getElementById('docs-chip'),
     llmChip: document.getElementById('llm-chip'),
+    viewMode3dBtn: document.getElementById('view-mode-3d'),
+    viewMode2dBtn: document.getElementById('view-mode-2d'),
+    autoRotateBtn: document.getElementById('auto-rotate-btn'),
+    fitBtn: document.getElementById('fit-btn'),
+    resetCamBtn: document.getElementById('reset-cam-btn'),
+    toggleSidebarBtn: document.getElementById('toggle-sidebar-btn'),
 
+    // Sidebar
+    sidebar: document.getElementById('sidebar'),
     filterCode: document.getElementById('filter-code'),
     filterDoc: document.getElementById('filter-doc'),
     filterSchema: document.getElementById('filter-schema'),
     filterTest: document.getElementById('filter-test'),
+    countCode: document.getElementById('count-code'),
+    countDoc: document.getElementById('count-doc'),
+    countSchema: document.getElementById('count-schema'),
+    countTest: document.getElementById('count-test'),
     communityList: document.getElementById('community-list'),
+    commTotalBadge: document.getElementById('comm-total-badge'),
     runIndexBtn: document.getElementById('run-index-btn'),
     cancelIndexBtn: document.getElementById('cancel-index-btn'),
     forceIndex: document.getElementById('force-index'),
@@ -52,20 +76,42 @@ const els = {
     useLlm: document.getElementById('use-llm'),
     opsHistory: document.getElementById('ops-history'),
 
+    // Viewport & HUD
+    graphViewport: document.getElementById('graph-viewport'),
+    container3d: document.getElementById('graph-3d'),
+    container2d: document.getElementById('cy'),
     commandBar: document.getElementById('command-bar'),
-    fitBtn: document.getElementById('fit-btn'),
     clearOverlaysBtn: document.getElementById('clear-overlays-btn'),
+    modeBadges: document.querySelectorAll('.mode-badge'),
 
+    // Right Panel Context Inspector
     contextPanel: document.getElementById('context-panel'),
     closePanelBtn: document.getElementById('close-panel-btn'),
     nodeDetails: document.getElementById('node-details'),
+    nodeLabel: document.getElementById('node-label'),
+    nodeCategory: document.getElementById('node-category'),
+    nodeTypeBadge: document.getElementById('node-type-badge'),
+    nodeSource: document.getElementById('node-source'),
+    nodeCommunity: document.getElementById('node-community'),
+    nodeDegree: document.getElementById('node-degree'),
+    nodeConnections: document.getElementById('node-connections'),
+    copySymbolNameBtn: document.getElementById('copy-symbol-name-btn'),
+    actionImpact: document.getElementById('action-impact'),
+    actionTrace: document.getElementById('action-trace'),
+    actionQuery: document.getElementById('action-query'),
 
+    // Bottom Drawer
     drawer: document.getElementById('drawer'),
     drawerToggle: document.getElementById('drawer-toggle'),
     tabBtns: document.querySelectorAll('.tab-btn'),
     terminalOutput: document.getElementById('terminal-output'),
-    resultsOutput: document.getElementById('results-output')
+    resultsOutput: document.getElementById('results-output'),
+    copyResultsBtn: document.getElementById('copy-results-btn')
 };
+
+// ==========================================================================
+// Initialization
+// ==========================================================================
 
 function init() {
     els.projectInput.value = state.currentProject;
@@ -75,9 +121,12 @@ function init() {
     if (els.useLlm) {
         els.useLlm.checked = state.useLlm;
     }
+
+    init3DGraph();
     initCytoscape();
     setupEventListeners();
     loadSamples();
+
     if (state.currentProject) {
         loadProject();
     }
@@ -108,7 +157,6 @@ function authHeaders(extra) {
     return headers;
 }
 
-/** Normalize FastAPI `detail` (string | list | object) for toasts / UI. */
 function formatApiDetail(detail) {
     if (detail == null) return 'Unknown error';
     if (typeof detail === 'string') return detail;
@@ -153,15 +201,21 @@ function setBusy(busy) {
     els.loadBtn.disabled = busy;
     els.runIndexBtn.disabled = busy;
     els.commandBar.disabled = busy;
-    document.getElementById('action-impact').disabled = busy;
-    document.getElementById('action-trace').disabled = busy;
-    document.getElementById('action-query').disabled = busy;
+    els.actionImpact.disabled = busy;
+    els.actionTrace.disabled = busy;
+    els.actionQuery.disabled = busy;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 function setSafeHtml(el, html) {
     const clean = window.DOMPurify
         ? DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })
-        : '';
+        : html;
     el.innerHTML = clean;
 }
 
@@ -169,7 +223,7 @@ function renderMarkdown(text) {
     const raw = marked.parse(text || '');
     return window.DOMPurify
         ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } })
-        : '';
+        : raw;
 }
 
 async function loadSamples() {
@@ -187,15 +241,109 @@ async function loadSamples() {
     }
 }
 
+function getCommunityColor(commId) {
+    if (commId == null) return '#94a3b8';
+    let hash = 0;
+    const str = String(commId);
+    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    return state.palette[Math.abs(hash) % state.palette.length];
+}
+
+function getNodeColor(node) {
+    if (node.category === 'doc') return '#c084fc';
+    if (node.category === 'schema') return '#fbbf24';
+    if (node.category === 'test') return '#34d399';
+    return getCommunityColor(node.community);
+}
+
+// ==========================================================================
+// 3D Graph Engine (Three.js & 3D Force-Directed Graph)
+// ==========================================================================
+
+function init3DGraph() {
+    if (!els.container3d || !window.ForceGraph3D) {
+        console.warn('ForceGraph3D CDN not available, relying on 2D');
+        return;
+    }
+
+    try {
+        state.graph3d = ForceGraph3D({ controlType: 'orbit' })(els.container3d)
+            .backgroundColor('#070a12')
+            .showNavInfo(false)
+            .nodeId('id')
+            .nodeLabel(n => `<div style="background:rgba(15,23,42,0.92);padding:8px 12px;border-radius:8px;border:1px solid #38bdf8;color:#f8fafc;font-family:var(--font-mono);font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,0.5);"><b style="color:#38bdf8">${escapeHtml(n.label || n.id)}</b> <span style="opacity:0.7">[${escapeHtml(n.category || 'code')}]</span><br><span style="font-size:11px;color:#94a3b8">Degree: ${n.degree || 0} • Community ${n.community ?? 'none'}</span><br><span style="font-size:10px;color:#64748b">${escapeHtml(n.source_file || '')}</span></div>`)
+            .nodeVal(n => Math.sqrt(n.degree || 1) * 2.5 + 3.0)
+            .nodeResolution(16)
+            .nodeColor(n => getNodeColor(n))
+            .linkSource('source')
+            .linkTarget('target')
+            .linkOpacity(0.35)
+            .linkColor(link => {
+                if (link.__highlight) return '#38bdf8';
+                return 'rgba(255, 255, 255, 0.12)';
+            })
+            .linkWidth(link => (link.__highlight ? 2.5 : 0.8))
+            .linkDirectionalParticles(link => link.__particles || 0)
+            .linkDirectionalParticleSpeed(link => link.__particleSpeed || 0.007)
+            .linkDirectionalParticleWidth(link => link.__particleWidth || 3.0)
+            .linkDirectionalArrowLength(3.5)
+            .linkDirectionalArrowRelPos(1)
+            .onNodeClick((node, event) => {
+                if (event?.shiftKey) {
+                    handleShiftClick(node);
+                } else {
+                    selectNode(node);
+                }
+            })
+            .onNodeHover((node, prevNode) => {
+                if (els.container3d) {
+                    els.container3d.style.cursor = node ? 'pointer' : 'default';
+                }
+            })
+            .onBackgroundClick(() => {
+                clearSelection();
+            });
+
+        // Fine-tune 3D force physics for natural community separation
+        state.graph3d.d3Force('charge').strength(-90);
+        state.graph3d.d3Force('link').distance(40);
+        
+    } catch (e) {
+        console.error('Error initializing 3D Force Graph:', e);
+    }
+}
+
+function flyToNode(node, distance = 85) {
+    if (!state.graph3d || !node) return;
+    const nx = node.x || 0;
+    const ny = node.y || 0;
+    const nz = node.z || 0;
+    const dist = Math.hypot(nx, ny, nz) || 1;
+    const ratio = 1 + distance / dist;
+
+    state.graph3d.cameraPosition(
+        { x: nx * ratio, y: ny * ratio + 15, z: nz * ratio + 30 },
+        { x: nx, y: ny, z: nz },
+        900
+    );
+}
+
+// ==========================================================================
+// 2D Graph Engine (Cytoscape.js Fallback)
+// ==========================================================================
+
 function initCytoscape() {
+    if (!els.container2d || !window.cytoscape) return;
+
     state.cy = cytoscape({
-        container: document.getElementById('cy'),
+        container: els.container2d,
         style: [
             {
                 selector: 'node',
                 style: {
                     'label': 'data(label)',
                     'font-size': '10px',
+                    'font-family': 'JetBrains Mono, monospace',
                     'color': '#c9d1d9',
                     'text-valign': 'bottom',
                     'text-halign': 'center',
@@ -205,28 +353,28 @@ function initCytoscape() {
             },
             {
                 selector: 'node[category="code"]',
-                style: { 'shape': 'ellipse', 'background-color': '#8b949e' }
+                style: { 'shape': 'ellipse', 'background-color': '#38bdf8' }
             },
             {
                 selector: 'node[category="doc"]',
-                style: { 'shape': 'diamond', 'background-color': '#d2a8ff' }
+                style: { 'shape': 'diamond', 'background-color': '#c084fc' }
             },
             {
                 selector: 'node[category="schema"]',
-                style: { 'shape': 'hexagon', 'background-color': '#d29922' }
+                style: { 'shape': 'hexagon', 'background-color': '#fbbf24' }
             },
             {
                 selector: 'node[category="test"]',
-                style: { 'shape': 'triangle', 'background-color': '#79c0ff' }
+                style: { 'shape': 'triangle', 'background-color': '#34d399' }
             },
             {
                 selector: 'edge',
                 style: {
                     'width': 1,
-                    'line-color': '#30363d',
+                    'line-color': '#334155',
                     'curve-style': 'bezier',
                     'target-arrow-shape': 'triangle',
-                    'target-arrow-color': '#30363d',
+                    'target-arrow-color': '#334155',
                     'arrow-scale': 0.8
                 }
             },
@@ -234,33 +382,33 @@ function initCytoscape() {
                 selector: ':selected',
                 style: {
                     'border-width': 3,
-                    'border-color': '#58a6ff'
+                    'border-color': '#38bdf8'
                 }
             },
             {
                 selector: '.dimmed',
-                style: { 'opacity': 0.3 }
+                style: { 'opacity': 0.25 }
             },
             {
                 selector: '.trace-source',
                 style: {
                     'border-width': 3,
-                    'border-color': '#f0883e'
+                    'border-color': '#f59e0b'
                 }
             },
             {
                 selector: '.impact-target',
-                style: { 'background-color': '#f85149', 'border-color': '#f85149', 'border-width': 2 }
+                style: { 'background-color': '#f43f5e', 'border-color': '#f43f5e', 'border-width': 3 }
             },
             {
                 selector: '.impact-node',
-                style: { 'background-color': '#f0883e' }
+                style: { 'background-color': '#f59e0b' }
             },
             {
                 selector: '.trace-edge',
                 style: {
-                    'line-color': '#58a6ff',
-                    'target-arrow-color': '#58a6ff',
+                    'line-color': '#38bdf8',
+                    'target-arrow-color': '#38bdf8',
                     'width': 3,
                     'line-style': 'dashed'
                 }
@@ -272,9 +420,9 @@ function initCytoscape() {
     state.cy.on('tap', 'node', function(evt){
         const node = evt.target;
         if (evt.originalEvent?.shiftKey) {
-            handleShiftClick(node);
+            handleShiftClick(node.data());
         } else {
-            selectNode(node);
+            selectNode(node.data());
         }
     });
 
@@ -285,7 +433,12 @@ function initCytoscape() {
     });
 }
 
+// ==========================================================================
+// Event Listeners & Controls
+// ==========================================================================
+
 function setupEventListeners() {
+    // Project loading
     els.loadBtn.addEventListener('click', () => {
         persistUiTokenFromInput();
         state.currentProject = els.projectInput.value;
@@ -320,8 +473,28 @@ function setupEventListeners() {
         els.useLlm.addEventListener('change', persistUseLlmFromInput);
     }
 
-    els.fitBtn.addEventListener('click', () => state.cy.fit(50));
+    // Viewport Mode Switcher (3D vs 2D)
+    els.viewMode3dBtn.addEventListener('click', () => switchViewMode('3d'));
+    els.viewMode2dBtn.addEventListener('click', () => switchViewMode('2d'));
 
+    // Camera Controls
+    els.autoRotateBtn.addEventListener('click', toggleAutoRotate);
+    els.fitBtn.addEventListener('click', fitGraphView);
+    els.resetCamBtn.addEventListener('click', resetCameraView);
+
+    // Sidebar Toggle
+    els.toggleSidebarBtn.addEventListener('click', () => {
+        els.sidebar.classList.toggle('collapsed');
+        setTimeout(() => {
+            if (state.graph3d && els.container3d) {
+                state.graph3d.width(els.graphViewport.clientWidth);
+                state.graph3d.height(els.graphViewport.clientHeight);
+            }
+            if (state.cy) state.cy.resize();
+        }, 320);
+    });
+
+    // Filters
     ['Code', 'Doc', 'Schema', 'Test'].forEach(type => {
         els[`filter${type}`].addEventListener('change', (e) => {
             state.filters[type.toLowerCase()] = e.target.checked;
@@ -329,27 +502,67 @@ function setupEventListeners() {
         });
     });
 
+    // Context Panel Close
     els.closePanelBtn.addEventListener('click', () => {
         els.contextPanel.classList.add('closed');
         clearSelection();
     });
 
-    document.querySelector('.drawer-controls').addEventListener('click', toggleDrawer);
+    // Copy Symbol Name Button
+    els.copySymbolNameBtn.addEventListener('click', () => {
+        if (state.selectedNode) {
+            navigator.clipboard.writeText(state.selectedNode.label || state.selectedNode.id);
+            els.copySymbolNameBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            setTimeout(() => {
+                els.copySymbolNameBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+            }, 1500);
+        }
+    });
+
+    // Bottom Drawer
+    els.drawerToggle.addEventListener('click', (e) => {
+        if (e.target.closest('.drawer-tabs') || e.target.closest('#copy-results-btn')) return;
+        toggleDrawer();
+    });
+
     els.tabBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
+            const targetBtn = e.target.closest('.tab-btn');
+            if (!targetBtn) return;
             els.tabBtns.forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
+            targetBtn.classList.add('active');
 
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-            document.getElementById(`pane-${e.target.dataset.tab}`).classList.add('active');
-            state.drawerTab = e.target.dataset.tab;
+            const pane = document.getElementById(`pane-${targetBtn.dataset.tab}`);
+            if (pane) pane.classList.add('active');
+            state.drawerTab = targetBtn.dataset.tab;
+            if (!state.drawerOpen) openDrawer();
         });
     });
 
+    els.copyResultsBtn.addEventListener('click', () => {
+        if (state.lastResults) {
+            navigator.clipboard.writeText(state.lastResults);
+            els.copyResultsBtn.textContent = 'Copied!';
+            setTimeout(() => { els.copyResultsBtn.textContent = 'Copy Markdown'; }, 1800);
+        }
+    });
+
+    // Command Bar
     els.commandBar.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleCommand(e.target.value);
     });
 
+    els.modeBadges.forEach(badge => {
+        badge.addEventListener('click', () => {
+            els.modeBadges.forEach(b => b.classList.remove('active'));
+            badge.classList.add('active');
+        });
+    });
+
+    els.clearOverlaysBtn.addEventListener('click', clearOverlays);
+
+    // Global Hotkeys
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             clearSelection();
@@ -359,14 +572,76 @@ function setupEventListeners() {
             e.preventDefault();
             els.commandBar.focus();
         } else if (e.key === 'f' && document.activeElement.tagName !== 'INPUT') {
-            state.cy.fit(50);
+            fitGraphView();
         }
     });
 
-    els.clearOverlaysBtn.addEventListener('click', clearOverlays);
+    // Indexing Actions
     els.runIndexBtn.addEventListener('click', runIndexing);
     els.cancelIndexBtn.addEventListener('click', cancelIndexing);
+
+    // Window Resize
+    window.addEventListener('resize', () => {
+        if (state.graph3d && els.container3d) {
+            state.graph3d.width(els.graphViewport.clientWidth);
+            state.graph3d.height(els.graphViewport.clientHeight);
+        }
+        if (state.cy) state.cy.resize();
+    });
 }
+
+function switchViewMode(mode) {
+    state.viewMode = mode;
+    if (mode === '3d') {
+        els.viewMode3dBtn.classList.add('active');
+        els.viewMode2dBtn.classList.remove('active');
+        els.container3d.classList.remove('hidden');
+        els.container2d.classList.add('hidden');
+        if (state.graph3d) {
+            state.graph3d.width(els.graphViewport.clientWidth);
+            state.graph3d.height(els.graphViewport.clientHeight);
+        }
+    } else {
+        els.viewMode2dBtn.classList.add('active');
+        els.viewMode3dBtn.classList.remove('active');
+        els.container2d.classList.remove('hidden');
+        els.container3d.classList.add('hidden');
+        if (state.cy) {
+            state.cy.resize();
+            state.cy.fit(50);
+        }
+    }
+}
+
+function toggleAutoRotate() {
+    state.isAutoRotating = !state.isAutoRotating;
+    els.autoRotateBtn.classList.toggle('active', state.isAutoRotating);
+    if (state.graph3d && state.graph3d.controls) {
+        state.graph3d.controls().autoRotate = state.isAutoRotating;
+        state.graph3d.controls().autoRotateSpeed = 0.8;
+    }
+}
+
+function fitGraphView() {
+    if (state.viewMode === '3d' && state.graph3d) {
+        state.graph3d.zoomToFit(800, 35);
+    } else if (state.cy) {
+        state.cy.fit(50);
+    }
+}
+
+function resetCameraView() {
+    if (state.viewMode === '3d' && state.graph3d) {
+        state.graph3d.cameraPosition({ x: 0, y: 0, z: 420 }, { x: 0, y: 0, z: 0 }, 800);
+    } else if (state.cy) {
+        state.cy.reset();
+        state.cy.fit(50);
+    }
+}
+
+// ==========================================================================
+// Project Loading & Graph Rendering
+// ==========================================================================
 
 async function loadProject() {
     if (!state.currentProject || state.inFlight) return;
@@ -382,11 +657,11 @@ async function loadProject() {
         renderGraph(graphRes);
     } catch (e) {
         console.error('Failed to load project:', e);
-        els.readyBadge.textContent = 'Error';
-        els.readyBadge.className = 'badge error';
+        els.readyBadge.className = 'badge badge-error';
+        if (els.readyBadgeText) els.readyBadgeText.textContent = 'Error';
         setSafeHtml(
             els.resultsOutput,
-            `<span style="color:var(--color-red)">Error: ${escapeHtml(e.message)}</span>`
+            `<span style="color:var(--accent-rose)">Error loading project: ${escapeHtml(e.message)}</span>`
         );
     } finally {
         setBusy(false);
@@ -395,44 +670,30 @@ async function loadProject() {
 
 function updateStatus(res) {
     if (res.status && res.status.all_ready) {
-        els.readyBadge.textContent = 'Ready';
-        els.readyBadge.className = 'badge ready';
+        els.readyBadge.className = 'badge badge-ready';
+        if (els.readyBadgeText) els.readyBadgeText.textContent = 'Ready (3/3)';
     } else {
         const count = res.status?.ready_count ?? 0;
-        els.readyBadge.textContent = `${count}/3`;
-        els.readyBadge.className = 'badge error';
+        els.readyBadge.className = 'badge badge-neutral';
+        if (els.readyBadgeText) els.readyBadgeText.textContent = `${count}/3 Ready`;
     }
 
     const docs = res.local_docs_count;
     if (typeof docs === 'number') {
         els.docsChip.textContent = `Docs: ${docs}`;
-        els.docsChip.className = 'badge ready';
+        els.docsChip.className = 'badge badge-ready';
     } else {
         els.docsChip.textContent = 'Docs: —';
-        els.docsChip.className = 'badge';
+        els.docsChip.className = 'badge badge-muted';
     }
 
     if (res.llm && res.llm.configured) {
-        els.llmChip.textContent = `LLM: ${res.llm.model || 'Configured'}`;
-        els.llmChip.className = 'badge ready';
+        els.llmChip.textContent = `LLM: ${res.llm.model || 'Active'}`;
+        els.llmChip.className = 'badge badge-ready';
     } else {
         els.llmChip.textContent = 'LLM: Off';
-        els.llmChip.className = 'badge error';
+        els.llmChip.className = 'badge badge-muted';
     }
-
-    if (res.engine_errors && Object.keys(res.engine_errors).length) {
-        const lines = Object.entries(res.engine_errors)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join('\n');
-        console.info('Engine status notes:\n' + lines);
-    }
-}
-
-function getCommunityColor(commId) {
-    let hash = 0;
-    const str = String(commId);
-    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    return state.palette[Math.abs(hash) % state.palette.length];
 }
 
 function renderGraph(res) {
@@ -441,134 +702,216 @@ function renderGraph(res) {
     state.graphData = res;
     state.communities = res.meta?.communities || [];
 
-    (res.elements.nodes || []).forEach(n => {
-        const degree = n.data.degree || 1;
-        const size = Math.max(20, Math.min(60, 20 + degree * 3));
-        n.data.width = size;
-        n.data.height = size;
+    const rawNodes = (res.elements.nodes || []).map(n => n.data);
+    const rawLinks = (res.elements.edges || []).map(e => e.data);
 
-        if (n.data.category === 'code' && n.data.community) {
-            n.data.color = getCommunityColor(n.data.community);
-        }
+    // Update entity filter counts
+    const counts = { code: 0, doc: 0, schema: 0, test: 0 };
+    rawNodes.forEach(n => {
+        const cat = n.category || 'code';
+        counts[cat] = (counts[cat] || 0) + 1;
     });
+    els.countCode.textContent = counts.code || 0;
+    els.countDoc.textContent = counts.doc || 0;
+    els.countSchema.textContent = counts.schema || 0;
+    els.countTest.textContent = counts.test || 0;
 
-    state.cy.elements().remove();
-    state.cy.add(res.elements);
+    // Populate communities list
+    renderCommunities();
 
-    state.cy.style().selector('node[category="code"]').style({
-        'background-color': function(ele) { return ele.data('color') || '#8b949e'; },
-        'width': 'data(width)',
-        'height': 'data(height)'
-    }).update();
+    // 1. Render 3D Graph
+    if (state.graph3d) {
+        const gData = {
+            nodes: rawNodes.map(n => Object.assign({}, n)),
+            links: rawLinks.map(l => Object.assign({}, l))
+        };
+        state.graph3d.graphData(gData);
+        setTimeout(() => fitGraphView(), 600);
+    }
 
-    try {
-        const nodeCount = (res.elements.nodes || []).length;
-        // Skip heavy cose-bilkent above this threshold (server may also subsample).
-        const HEAVY_LAYOUT_CAP = 400;
-        if (nodeCount > HEAVY_LAYOUT_CAP) {
-            console.info(
-                `[graph] ${nodeCount} nodes — using fast cose layout (skip cose-bilkent).`
-            );
+    // 2. Render 2D Cytoscape fallback
+    if (state.cy) {
+        state.cy.elements().remove();
+        state.cy.add(res.elements);
+
+        state.cy.nodes().forEach(node => {
+            const degree = node.data('degree') || 1;
+            const size = Math.max(20, Math.min(55, 20 + degree * 2.5));
+            node.style({
+                'width': size,
+                'height': size,
+                'background-color': getNodeColor(node.data())
+            });
+        });
+
+        try {
             state.cy.layout({
                 name: 'cose',
                 animate: false,
                 randomize: true,
-                numIter: 400,
+                idealEdgeLength: 70,
+                nodeRepulsion: 6000
             }).run();
-        } else {
-            state.cy.layout({
-                name: 'cose-bilkent',
-                animate: false,
-                randomize: true,
-                idealEdgeLength: 80,
-                nodeRepulsion: 6500,
-                nestingFactor: 0.1,
-                gravity: 0.25,
-                numIter: 2500,
-                tile: true,
-                tilingPaddingVertical: 10,
-                tilingPaddingHorizontal: 10,
-            }).run();
+        } catch (_e) {
+            state.cy.layout({ name: 'grid' }).run();
         }
-    } catch (e) {
-        console.warn('Primary layout unavailable, falling back to cose:', e);
-        state.cy.layout({ name: 'cose', animate: false }).run();
     }
-
-    if (res.meta?.subsampled) {
-        console.info(
-            `Graph subsampled: showing ${res.meta.node_count}/${res.meta.total_node_count} nodes`
-        );
-    }
-
-    renderCommunities();
 }
 
 function renderCommunities() {
-    els.communityList.replaceChildren();
-    state.communities.sort((a,b) => b.size - a.size).slice(0, 15).forEach(c => {
+    els.communityList.innerHTML = '';
+    const total = state.communities.length;
+    els.commTotalBadge.textContent = `${total} cluster${total === 1 ? '' : 's'}`;
+
+    state.communities.sort((a,b) => b.size - a.size).slice(0, 18).forEach(c => {
         const li = document.createElement('li');
-        const swatch = document.createElement('div');
-        swatch.className = 'comm-color';
-        swatch.style.background = getCommunityColor(c.id);
-        const label = document.createElement('span');
-        label.textContent = `Community ${c.id} (${c.size})`;
-        li.appendChild(swatch);
-        li.appendChild(label);
+        const color = getCommunityColor(c.id);
+        li.innerHTML = `<span class="comm-color" style="background:${color}"></span> <span>Community ${c.id}</span> <span style="margin-left:auto;opacity:0.6">${c.size}</span>`;
         li.addEventListener('click', () => {
-            const nodes = state.cy.nodes().filter(n => n.data('community') === c.id);
-            if (nodes.length) {
-                state.cy.nodes().addClass('dimmed');
-                nodes.removeClass('dimmed');
-                state.cy.fit(nodes, 50);
-            }
+            focusCommunity(c.id);
         });
         els.communityList.appendChild(li);
     });
 }
 
-function applyFilters() {
-    state.cy.nodes().forEach(node => {
-        const cat = node.data('category') || 'code';
-        if (state.filters[cat]) node.style('display', 'element');
-        else node.style('display', 'none');
-    });
-}
+function focusCommunity(commId) {
+    if (state.viewMode === '3d' && state.graph3d) {
+        const nodes = state.graph3d.graphData().nodes.filter(n => n.community === commId);
+        if (nodes.length) {
+            // Find centroid of community
+            let cx = 0, cy = 0, cz = 0;
+            nodes.forEach(n => { cx += n.x || 0; cy += n.y || 0; cz += n.z || 0; });
+            cx /= nodes.length; cy /= nodes.length; cz /= nodes.length;
 
-function selectNode(node) {
-    state.cy.nodes().addClass('dimmed');
-    node.removeClass('dimmed');
-    node.neighborhood().removeClass('dimmed');
+            state.graph3d.cameraPosition(
+                { x: cx * 1.5, y: cy * 1.5 + 40, z: cz * 1.5 + 80 },
+                { x: cx, y: cy, z: cz },
+                1000
+            );
 
-    state.selectedNode = node.id();
-    showContextPanel(node.data());
-}
-
-function clearSelection() {
-    state.cy.nodes().removeClass('dimmed');
-    state.selectedNode = null;
-    els.contextPanel.classList.add('closed');
-}
-
-function handleShiftClick(node) {
-    if (!state.traceSource) {
-        state.traceSource = node.id();
-        node.addClass('trace-source');
-        els.commandBar.placeholder = `Select target node for trace from ${node.data('label')}...`;
-    } else if (state.traceSource !== node.id()) {
-        runTrace(state.traceSource, node.id());
-        state.cy.getElementById(state.traceSource).removeClass('trace-source');
-        state.traceSource = null;
-        els.commandBar.placeholder = `Search nodes, ask questions, or analyze symbols... (Press '/')`;
+            // Highlight community nodes
+            state.highlightNodes = new Set(nodes.map(n => n.id));
+            state.graph3d.nodeColor(state.graph3d.nodeColor());
+        }
+    } else if (state.cy) {
+        const nodes = state.cy.nodes().filter(n => n.data('community') === commId);
+        if (nodes.length) {
+            state.cy.nodes().addClass('dimmed');
+            nodes.removeClass('dimmed');
+            state.cy.fit(nodes, 50);
+        }
     }
 }
 
-function escapeHtml(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+function applyFilters() {
+    // 3D Filters
+    if (state.graph3d && state.graphData) {
+        const rawNodes = state.graphData.elements.nodes.map(n => n.data);
+        const filteredNodes = rawNodes.filter(n => state.filters[n.category || 'code']);
+        const validIds = new Set(filteredNodes.map(n => n.id));
+        const rawLinks = state.graphData.elements.edges.map(e => e.data);
+        const filteredLinks = rawLinks.filter(l => {
+            const src = typeof l.source === 'object' ? l.source.id : l.source;
+            const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+            return validIds.has(src) && validIds.has(tgt);
+        });
+
+        state.graph3d.graphData({
+            nodes: filteredNodes.map(n => Object.assign({}, n)),
+            links: filteredLinks.map(l => Object.assign({}, l))
+        });
+    }
+
+    // 2D Filters
+    if (state.cy) {
+        state.cy.nodes().forEach(node => {
+            const cat = node.data('category') || 'code';
+            if (state.filters[cat]) node.style('display', 'element');
+            else node.style('display', 'none');
+        });
+    }
+}
+
+// ==========================================================================
+// Node Selection & Context Inspector
+// ==========================================================================
+
+function selectNode(data) {
+    if (!data) return;
+    state.selectedNode = data;
+
+    // 1. Update 3D graph highlights & camera
+    if (state.graph3d) {
+        const gNodes = state.graph3d.graphData().nodes;
+        const targetNode = gNodes.find(n => n.id === data.id);
+        const gLinks = state.graph3d.graphData().links;
+
+        const neighbors = new Set([data.id]);
+        gLinks.forEach(link => {
+            const s = typeof link.source === 'object' ? link.source.id : link.source;
+            const t = typeof link.target === 'object' ? link.target.id : link.target;
+            if (s === data.id) {
+                neighbors.add(t);
+                link.__highlight = true;
+            } else if (t === data.id) {
+                neighbors.add(s);
+                link.__highlight = true;
+            } else {
+                link.__highlight = false;
+            }
+        });
+
+        state.highlightNodes = neighbors;
+        state.graph3d.nodeColor(state.graph3d.nodeColor());
+        state.graph3d.linkColor(state.graph3d.linkColor());
+        state.graph3d.linkWidth(state.graph3d.linkWidth());
+
+        if (targetNode) flyToNode(targetNode);
+    }
+
+    // 2. Update 2D Cytoscape highlights
+    if (state.cy) {
+        const cyNode = state.cy.getElementById(data.id);
+        if (cyNode.length) {
+            state.cy.nodes().addClass('dimmed');
+            cyNode.removeClass('dimmed');
+            cyNode.neighborhood().removeClass('dimmed');
+        }
+    }
+
+    // 3. Populate Right Context Panel
+    showContextPanel(data);
+}
+
+function clearSelection() {
+    state.selectedNode = null;
+    state.highlightNodes.clear();
+
+    if (state.graph3d) {
+        state.graph3d.graphData().links.forEach(l => { l.__highlight = false; });
+        state.graph3d.nodeColor(state.graph3d.nodeColor());
+        state.graph3d.linkColor(state.graph3d.linkColor());
+        state.graph3d.linkWidth(state.graph3d.linkWidth());
+    }
+
+    if (state.cy) {
+        state.cy.nodes().removeClass('dimmed');
+    }
+
+    els.contextPanel.classList.add('closed');
+}
+
+function handleShiftClick(data) {
+    if (!state.traceSource) {
+        state.traceSource = data.id;
+        els.commandBar.placeholder = `Select target destination node for trace from ${data.label || data.id}...`;
+        if (state.cy) state.cy.getElementById(data.id).addClass('trace-source');
+    } else if (state.traceSource !== data.id) {
+        runTrace(state.traceSource, data.id);
+        if (state.cy) state.cy.getElementById(state.traceSource).removeClass('trace-source');
+        state.traceSource = null;
+        els.commandBar.placeholder = "Search symbols, ask architectural questions, or type 'A -> B' to trace... (Press '/')";
+    }
 }
 
 function showContextPanel(data) {
@@ -576,88 +919,130 @@ function showContextPanel(data) {
     document.querySelector('.empty-state').classList.add('hidden');
     document.querySelector('.node-info').classList.remove('hidden');
 
-    document.getElementById('node-label').textContent = data.label || data.id;
-    const catBadge = document.getElementById('node-category');
-    catBadge.textContent = data.category || 'unknown';
-    catBadge.className = `badge cat-${data.category || 'code'}`;
-    document.getElementById('node-source').textContent = (data.source_file || '') + (data.source_location ? `:${data.source_location}` : '');
-    document.getElementById('node-community').textContent = data.community ?? 'none';
-    document.getElementById('node-degree').textContent = data.degree || 0;
+    const label = data.label || data.id;
+    els.nodeLabel.textContent = label;
+    els.nodeCategory.textContent = data.category || 'code';
+    els.nodeCategory.className = `badge cat-${data.category || 'code'}`;
+    els.nodeTypeBadge.textContent = data.file_type || (data.is_class ? 'class' : (data.is_callable ? 'callable' : 'symbol'));
 
-    const connList = document.getElementById('node-connections');
-    connList.replaceChildren();
-    const cyNode = state.cy.getElementById(data.id);
-    if (cyNode.length) {
-        const grouped = {};
-        cyNode.connectedEdges().forEach(edge => {
-            const rel = edge.data('relation') || 'related';
-            if (!grouped[rel]) grouped[rel] = [];
-            const other = edge.source().id() === data.id ? edge.target() : edge.source();
-            grouped[rel].push(other.data('label') || other.id());
+    els.nodeSource.textContent = (data.source_file || '') + (data.source_location ? `:${data.source_location}` : '');
+    els.nodeCommunity.textContent = data.community != null ? `Community ${data.community}` : 'None';
+    els.nodeDegree.textContent = data.degree || 0;
+
+    // Build connections list grouped by relation
+    els.nodeConnections.innerHTML = '';
+    const grouped = {};
+    if (state.graphData && state.graphData.elements.edges) {
+        state.graphData.elements.edges.forEach(edge => {
+            const e = edge.data;
+            if (e.source === data.id) {
+                const rel = e.relation || 'out';
+                if (!grouped[rel]) grouped[rel] = [];
+                grouped[rel].push(e.target);
+            } else if (e.target === data.id) {
+                const rel = `in (${e.relation || 'ref'})`;
+                if (!grouped[rel]) grouped[rel] = [];
+                grouped[rel].push(e.source);
+            }
         });
-        for (const [rel, targets] of Object.entries(grouped)) {
-            const relDiv = document.createElement('div');
-            relDiv.className = 'conn-group';
-            const strong = document.createElement('strong');
-            strong.textContent = rel;
-            relDiv.appendChild(strong);
-            relDiv.appendChild(document.createTextNode(': '));
-            targets.slice(0, 8).forEach((t, idx) => {
-                if (idx > 0) relDiv.appendChild(document.createTextNode(', '));
+    }
+
+    if (Object.keys(grouped).length === 0) {
+        els.nodeConnections.innerHTML = '<div style="color:var(--text-muted);font-size:0.75rem;">No direct connections recorded.</div>';
+    } else {
+        for (const [rel, nodeIds] of Object.entries(grouped)) {
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'conn-group';
+            const header = document.createElement('div');
+            header.className = 'conn-group-header';
+            header.textContent = `${rel} (${nodeIds.length})`;
+            groupDiv.appendChild(header);
+
+            const chipsDiv = document.createElement('div');
+            chipsDiv.className = 'conn-chips';
+
+            nodeIds.slice(0, 12).forEach(tid => {
                 const a = document.createElement('a');
                 a.className = 'symbol-link';
-                a.href = '#';
-                a.textContent = t;
-                a.addEventListener('click', (ev) => {
-                    ev.preventDefault();
-                    const target = state.cy.nodes().filter(n => n.data('label') === t);
-                    if (target.length) selectNode(target[0]);
-                });
-                relDiv.appendChild(a);
+                // Resolve friendly label
+                let friendly = tid;
+                if (state.graphData) {
+                    const found = state.graphData.elements.nodes.find(n => n.data.id === tid);
+                    if (found) friendly = found.data.label || tid;
+                }
+                a.textContent = friendly;
+                a.title = tid;
+                a.onclick = () => selectNodeByLabel(friendly);
+                chipsDiv.appendChild(a);
             });
-            if (targets.length > 8) {
-                relDiv.appendChild(document.createTextNode(` +${targets.length - 8} more`));
+
+            if (nodeIds.length > 12) {
+                const more = document.createElement('span');
+                more.style.cssText = 'color:var(--text-muted);font-size:0.7rem;align-self:center;';
+                more.textContent = `+${nodeIds.length - 12} more`;
+                chipsDiv.appendChild(more);
             }
-            connList.appendChild(relDiv);
+
+            groupDiv.appendChild(chipsDiv);
+            els.nodeConnections.appendChild(groupDiv);
         }
     }
 
-    const symbolName = data.label || data.id;
-    document.getElementById('action-impact').onclick = () => runImpact(symbolName);
-    document.getElementById('action-trace').onclick = () => {
+    // Action button triggers
+    els.actionImpact.onclick = () => runImpact(label);
+    els.actionTrace.onclick = () => {
         state.traceSource = data.id;
-        state.cy.getElementById(data.id).addClass('trace-source');
-        els.commandBar.placeholder = `Shift-click target node for trace from ${symbolName}...`;
+        els.commandBar.placeholder = `Select destination node to trace path from ${label}...`;
+        if (state.cy) state.cy.getElementById(data.id).addClass('trace-source');
     };
-    document.getElementById('action-query').onclick = () => runQuery(`How does ${symbolName} work?`);
+    els.actionQuery.onclick = () => runQuery(`Explain the architecture and purpose of ${label}`);
 }
 
-async function handleCommand(val) {
-    if (!val.trim() || state.inFlight) return;
-
-    const searchLower = val.trim().toLowerCase();
-    const matchNode = state.cy.nodes().filter(n =>
-        (n.data('label') || '').toLowerCase() === searchLower
+window.selectNodeByLabel = function(label) {
+    if (!state.graphData) return;
+    const lower = label.toLowerCase();
+    const found = state.graphData.elements.nodes.find(n => 
+        (n.data.label || '').toLowerCase() === lower || n.data.id.toLowerCase() === lower
     );
+    if (found) {
+        selectNode(found.data);
+    }
+};
 
-    if (val.includes('->') || val.includes('→')) {
-        const parts = val.split(/->|→/);
-        if (parts.length === 2) runTrace(parts[0].trim(), parts[1].trim());
-    } else if (matchNode.length > 0) {
-        selectNode(matchNode[0]);
-        state.cy.fit(matchNode[0].neighborhood().union(matchNode[0]), 80);
-    } else if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(val.trim())) {
-        const fuzzy = state.cy.nodes().filter(n =>
-            (n.data('label') || '').toLowerCase().includes(searchLower)
-        );
-        if (fuzzy.length > 0) {
-            selectNode(fuzzy[0]);
-            state.cy.fit(fuzzy[0].neighborhood().union(fuzzy[0]), 80);
-        } else {
-            runImpact(val.trim());
+// ==========================================================================
+// Operations (Query, Impact, Trace, Indexing)
+// ==========================================================================
+
+async function handleCommand(val) {
+    if (!val || !val.trim()) return;
+    const q = val.trim();
+
+    if (q.includes('->') || q.includes('→') || q.includes('=>')) {
+        const parts = q.split(/->|→|=>/);
+        if (parts.length === 2) {
+            runTrace(parts[0].trim(), parts[1].trim());
+            els.commandBar.value = '';
+            return;
         }
+    }
+
+    // Direct symbol match on graph
+    if (state.graphData) {
+        const match = state.graphData.elements.nodes.find(n => 
+            (n.data.label || '').toLowerCase() === q.toLowerCase() || n.data.id.toLowerCase() === q.toLowerCase()
+        );
+        if (match) {
+            selectNode(match.data);
+            els.commandBar.value = '';
+            return;
+        }
+    }
+
+    // Auto-routing: Single identifier -> Impact analysis; Natural language -> Query
+    if (/^[a-zA-Z0-9_:.#-]+$/.test(q) && !q.includes(' ')) {
+        runImpact(q);
     } else {
-        runQuery(val);
+        runQuery(q);
     }
     els.commandBar.value = '';
 }
@@ -665,7 +1050,10 @@ async function handleCommand(val) {
 function openDrawer(tab) {
     els.drawer.classList.add('open');
     state.drawerOpen = true;
-    if (tab) document.querySelector(`.tab-btn[data-tab="${tab}"]`).click();
+    if (tab) {
+        const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+        if (btn) btn.click();
+    }
 }
 
 function toggleDrawer() {
@@ -678,24 +1066,50 @@ function toggleDrawer() {
 }
 
 function clearOverlays() {
-    state.cy.elements().removeClass('impact-target impact-node trace-edge trace-source');
+    // 3D graph reset
+    if (state.graph3d) {
+        const gData = state.graph3d.graphData();
+        gData.nodes.forEach(n => {
+            n.__isTarget = false;
+            n.__isCaller = false;
+            n.__isTraceHop = false;
+        });
+        gData.links.forEach(l => {
+            l.__highlight = false;
+            l.__particles = 0;
+        });
+        state.highlightNodes.clear();
+        state.graph3d.nodeColor(state.graph3d.nodeColor());
+        state.graph3d.linkColor(state.graph3d.linkColor());
+        state.graph3d.linkWidth(state.graph3d.linkWidth());
+        state.graph3d.linkDirectionalParticles(state.graph3d.linkDirectionalParticles());
+    }
+
+    // 2D cytoscape reset
+    if (state.cy) {
+        state.cy.elements().removeClass('impact-target impact-node trace-edge trace-source dimmed');
+    }
+
     els.clearOverlaysBtn.classList.add('hidden');
 }
 
 function addOpToHistory(type, label) {
-    const div = document.createElement('div');
-    div.className = 'op-chip';
-    div.textContent = `${type}: ${label}`;
-    els.opsHistory.prepend(div);
+    const chip = document.createElement('div');
+    chip.className = 'op-chip';
+    chip.textContent = `${type.toUpperCase()}: ${label}`;
+    chip.onclick = () => {
+        if (type === 'impact') runImpact(label);
+        else if (type === 'query') runQuery(label);
+    };
+    els.opsHistory.prepend(chip);
     if (els.opsHistory.children.length > 5) els.opsHistory.lastChild.remove();
 }
 
 async function runQuery(q) {
-    if (state.inFlight) return;
     openDrawer('results');
-    setSafeHtml(els.resultsOutput, '<i>Running query...</i>');
-    addOpToHistory('query', q.substring(0, 20));
-    setBusy(true);
+    setSafeHtml(els.resultsOutput, '<i>Searching architecture & cross-domain graph…</i>');
+    addOpToHistory('query', q.substring(0, 24));
+    els.copyResultsBtn.classList.add('hidden');
 
     try {
         const res = await apiFetch('/api/query', {
@@ -706,42 +1120,23 @@ async function runQuery(q) {
                 use_llm: state.useLlm
             })
         });
-        const html = renderMarkdown(res.synthesized_context || JSON.stringify(res, null, 2));
-        let note = '';
-        if (res.engine_errors && Object.keys(res.engine_errors).length) {
-            note = `<p><em>Engine notes: ${escapeHtml(Object.entries(res.engine_errors).map(([k,v]) => `${k}: ${v}`).join('; '))}</em></p>`;
-        } else if (res.outcome === 'empty') {
-            note = '<p><em>No engine hits (empty result).</em></p>';
-        }
-        setSafeHtml(els.resultsOutput, note + linkifySymbols(html));
-        await maybeRenderMermaid(els.resultsOutput);
+
+        const markdown = res.synthesized_context || JSON.stringify(res, null, 2);
+        state.lastResults = markdown;
+        setSafeHtml(els.resultsOutput, linkifySymbols(renderMarkdown(markdown)));
+        els.copyResultsBtn.classList.remove('hidden');
     } catch (e) {
-        setSafeHtml(
-            els.resultsOutput,
-            `<span style="color:var(--color-red)">Error: ${escapeHtml(e.message)}</span>`
-        );
-    } finally {
-        setBusy(false);
+        setSafeHtml(els.resultsOutput, `<span style="color:var(--accent-rose)">Error: ${escapeHtml(e.message)}</span>`);
     }
 }
 
 async function runImpact(symbol) {
-    if (state.inFlight) return;
     clearOverlays();
     openDrawer('results');
-    setSafeHtml(els.resultsOutput, `<i>Running impact analysis for <code>${escapeHtml(symbol)}</code>...</i>`);
+    setSafeHtml(els.resultsOutput, `<i>Calculating blast radius for <code>${escapeHtml(symbol)}</code>…</i>`);
     els.clearOverlaysBtn.classList.remove('hidden');
     addOpToHistory('impact', symbol);
-    setBusy(true);
-
-    const nodes = state.cy.nodes().filter(n =>
-        (n.data('label') || '').toLowerCase() === symbol.toLowerCase() ||
-        (n.data('label') || '').toLowerCase().includes(symbol.toLowerCase())
-    );
-    if (nodes.length > 0) {
-        nodes[0].addClass('impact-target');
-        state.cy.fit(nodes[0].neighborhood().union(nodes[0]), 50);
-    }
+    els.copyResultsBtn.classList.add('hidden');
 
     try {
         const res = await apiFetch('/api/impact', {
@@ -753,40 +1148,74 @@ async function runImpact(symbol) {
             })
         });
 
-        const html = renderMarkdown(res.synthesized_report || JSON.stringify(res, null, 2));
-        setSafeHtml(els.resultsOutput, linkifySymbols(html));
-        await maybeRenderMermaid(els.resultsOutput);
+        const markdown = res.synthesized_report || JSON.stringify(res, null, 2);
+        state.lastResults = markdown;
+        setSafeHtml(els.resultsOutput, linkifySymbols(renderMarkdown(markdown)));
+        els.copyResultsBtn.classList.remove('hidden');
 
-        if (res.call_hierarchy && res.call_hierarchy.length) {
-            res.call_hierarchy.forEach(item => {
-                const symName = item.symbol || '';
-                const match = state.cy.nodes().filter(n =>
-                    (n.data('label') || '').toLowerCase() === symName.toLowerCase()
-                );
-                if (match.length) match[0].addClass('impact-node');
+        // 3D Graph Impact Highlight
+        if (state.graph3d) {
+            const symLower = symbol.toLowerCase();
+            const gNodes = state.graph3d.graphData().nodes;
+            const target = gNodes.find(n => (n.label || '').toLowerCase() === symLower || n.id.toLowerCase() === symLower);
+
+            const callerSyms = new Set((res.call_hierarchy || []).map(c => (c.symbol || '').toLowerCase()));
+            const affectedNodeIds = new Set();
+
+            gNodes.forEach(n => {
+                const l = (n.label || '').toLowerCase();
+                if (target && n.id === target.id) {
+                    n.__isTarget = true;
+                    affectedNodeIds.add(n.id);
+                } else if (callerSyms.has(l)) {
+                    n.__isCaller = true;
+                    affectedNodeIds.add(n.id);
+                }
             });
+
+            // Particles flowing to blast radius
+            state.graph3d.graphData().links.forEach(l => {
+                const s = typeof l.source === 'object' ? l.source.id : l.source;
+                const t = typeof l.target === 'object' ? l.target.id : l.target;
+                if (affectedNodeIds.has(s) || affectedNodeIds.has(t)) {
+                    l.__highlight = true;
+                    l.__particles = 3;
+                    l.__particleSpeed = 0.01;
+                }
+            });
+
+            state.highlightNodes = affectedNodeIds;
+            state.graph3d.nodeColor(state.graph3d.nodeColor());
+            state.graph3d.linkColor(state.graph3d.linkColor());
+            state.graph3d.linkWidth(state.graph3d.linkWidth());
+            state.graph3d.linkDirectionalParticles(state.graph3d.linkDirectionalParticles());
+
+            if (target) flyToNode(target);
+        }
+
+        // 2D Cytoscape Impact Highlight
+        if (state.cy) {
+            const match = state.cy.nodes().filter(n => (n.data('label') || '').toLowerCase() === symbol.toLowerCase());
+            if (match.length) match[0].addClass('impact-target');
+            if (res.call_hierarchy) {
+                res.call_hierarchy.forEach(item => {
+                    const cMatch = state.cy.nodes().filter(n => (n.data('label') || '').toLowerCase() === (item.symbol || '').toLowerCase());
+                    if (cMatch.length) cMatch[0].addClass('impact-node');
+                });
+            }
         }
     } catch (e) {
-        setSafeHtml(
-            els.resultsOutput,
-            `<span style="color:#f85149">Error: ${escapeHtml(e.message)}</span>`
-        );
-    } finally {
-        setBusy(false);
+        setSafeHtml(els.resultsOutput, `<span style="color:var(--accent-rose)">Error: ${escapeHtml(e.message)}</span>`);
     }
 }
 
 async function runTrace(fromSym, toSym) {
-    if (state.inFlight) return;
     clearOverlays();
     openDrawer('results');
-    setSafeHtml(
-        els.resultsOutput,
-        `<i>Tracing <code>${escapeHtml(fromSym)}</code> → <code>${escapeHtml(toSym)}</code>...</i>`
-    );
+    setSafeHtml(els.resultsOutput, `<i>Tracing execution path <code>${escapeHtml(fromSym)}</code> ➔ <code>${escapeHtml(toSym)}</code>…</i>`);
     els.clearOverlaysBtn.classList.remove('hidden');
     addOpToHistory('trace', `${fromSym}→${toSym}`);
-    setBusy(true);
+    els.copyResultsBtn.classList.add('hidden');
 
     try {
         const res = await apiFetch('/api/trace', {
@@ -799,235 +1228,227 @@ async function runTrace(fromSym, toSym) {
             })
         });
 
-        const html = renderMarkdown(res.synthesized_flow || JSON.stringify(res, null, 2));
-        setSafeHtml(els.resultsOutput, linkifySymbols(html));
-        await maybeRenderMermaid(els.resultsOutput);
+        const markdown = res.synthesized_flow || JSON.stringify(res, null, 2);
+        state.lastResults = markdown;
+        setSafeHtml(els.resultsOutput, linkifySymbols(renderMarkdown(markdown)));
+        els.copyResultsBtn.classList.remove('hidden');
 
-        if (res.path_found && res.steps && res.steps.length > 0) {
-            const stepNames = res.steps.map(s => s.symbol_name || '');
-            stepNames.forEach(name => {
-                const match = state.cy.nodes().filter(n =>
-                    (n.data('label') || '').toLowerCase() === name.toLowerCase()
-                );
-                if (match.length) match[0].addClass('impact-node');
-            });
-            for (let i = 0; i < stepNames.length - 1; i++) {
-                state.cy.edges().forEach(edge => {
-                    const srcLabel = edge.source().data('label') || '';
-                    const tgtLabel = edge.target().data('label') || '';
-                    if (srcLabel.toLowerCase() === stepNames[i].toLowerCase() &&
-                        tgtLabel.toLowerCase() === stepNames[i+1].toLowerCase()) {
-                        edge.addClass('trace-edge');
+        // Highlight trace path in 3D
+        let stepNames = [];
+        if (res.steps && res.steps.length > 0) {
+            stepNames = res.steps.map(s => (s.symbol_name || '').toLowerCase());
+        } else if (markdown.includes('-->')) {
+            const lines = markdown.split('\n');
+            for (const line of lines) {
+                if (line.includes('-->')) {
+                    const hops = line.split(/\s*--.*?-->\s*/);
+                    hops.forEach(h => {
+                        const clean = h.trim().toLowerCase().replace(/^[`'"]+|[`'"]+$/g, '').replace(/\(\)$/, '');
+                        if (clean) stepNames.push(clean);
+                    });
+                    break;
+                }
+            }
+        }
+        if (!stepNames.includes(fromSym.toLowerCase())) stepNames.unshift(fromSym.toLowerCase());
+        if (!stepNames.includes(toSym.toLowerCase())) stepNames.push(toSym.toLowerCase());
+
+        const cleanSteps = stepNames.map(s => s.toLowerCase().replace(/\(\)$/, '').replace(/^[`'"]+|[`'"]+$/g, '').trim()).filter(Boolean);
+
+        if (cleanSteps.length > 0) {
+            if (state.graph3d) {
+                const gNodes = state.graph3d.graphData().nodes;
+                const pathNodeIds = new Set();
+
+                gNodes.forEach(n => {
+                    const l = (n.label || '').toLowerCase().replace(/\(\)$/, '').trim();
+                    const id = (n.id || '').toLowerCase().trim();
+                    const isMatch = cleanSteps.some(s => s === l || s === id || l.endsWith(`.${s}`) || id.endsWith(`:${s}`) || id.endsWith(`::${s}`));
+                    if (isMatch) {
+                        n.__isTraceHop = true;
+                        pathNodeIds.add(n.id);
                     }
+                });
+
+                // Stream particles continuously along trace hops
+                state.graph3d.graphData().links.forEach(l => {
+                    const s = typeof l.source === 'object' ? l.source.id : l.source;
+                    const t = typeof l.target === 'object' ? l.target.id : l.target;
+                    if (pathNodeIds.has(s) && pathNodeIds.has(t)) {
+                        l.__highlight = true;
+                        l.__particles = 4;
+                        l.__particleSpeed = 0.012;
+                        l.__particleWidth = 4.0;
+                    }
+                });
+
+                state.highlightNodes = pathNodeIds;
+                state.graph3d.nodeColor(state.graph3d.nodeColor());
+                state.graph3d.linkColor(state.graph3d.linkColor());
+                state.graph3d.linkWidth(state.graph3d.linkWidth());
+                state.graph3d.linkDirectionalParticles(state.graph3d.linkDirectionalParticles());
+            }
+
+            if (state.cy) {
+                cleanSteps.forEach(name => {
+                    const match = state.cy.nodes().filter(n => {
+                        const l = (n.data('label') || '').toLowerCase().replace(/\(\)$/, '').trim();
+                        const id = (n.data('id') || '').toLowerCase().trim();
+                        return l === name || id === name || l.endsWith(`.${name}`);
+                    });
+                    if (match.length) match[0].addClass('impact-node');
                 });
             }
         }
     } catch (e) {
-        setSafeHtml(
-            els.resultsOutput,
-            `<span style="color:#f85149">Error: ${escapeHtml(e.message)}</span>`
-        );
-    } finally {
-        setBusy(false);
+        setSafeHtml(els.resultsOutput, `<span style="color:var(--accent-rose)">Error: ${escapeHtml(e.message)}</span>`);
     }
 }
 
-async function maybeRenderMermaid(container) {
-    if (!window.mermaid) return;
-    const codes = container.querySelectorAll('code.language-mermaid, pre > code');
-    for (const code of codes) {
-        const text = code.textContent || '';
-        const parent = code.closest('pre') || code;
-        const isMermaid = code.classList.contains('language-mermaid') ||
-            /^\s*(graph|flowchart|sequenceDiagram|classDiagram)/.test(text);
-        if (!isMermaid) continue;
-        const holder = document.createElement('div');
-        holder.className = 'mermaid';
-        holder.textContent = text;
-        parent.replaceWith(holder);
-        try {
-            await mermaid.run({ nodes: [holder] });
-        } catch (e) {
-            console.warn('Mermaid render failed:', e);
-        }
-    }
-}
+// ==========================================================================
+// Indexing Pipeline Execution & SSE Stream
+// ==========================================================================
 
 async function runIndexing() {
-    if (!state.currentProject) return alert('Please load a project first.');
-    if (state.inFlight) return;
-    persistUiTokenFromInput();
+    if (!state.currentProject) return alert('Please load a repository first.');
     openDrawer('terminal');
     els.terminalOutput.textContent = '';
-    setBusy(true);
+    els.runIndexBtn.classList.add('hidden');
     els.cancelIndexBtn.classList.remove('hidden');
 
     if (state.indexingAbort) {
-        try { state.indexingAbort.abort(); } catch (_) { /* ignore */ }
+        state.indexingCleanClose = true;
+        state.indexingAbort.abort();
     }
     state.indexingCleanClose = false;
     state.indexingAbort = new AbortController();
 
+    const force = !!els.forceIndex.checked;
+    const multimodal = !!els.multimodalIndex.checked;
+
+    appendTerminal('[CKC] Initializing 3-tier indexing pipeline...', 'info');
+
     try {
-        const res = await fetch('/api/index/stream', {
+        const response = await fetch('/api/index/stream', {
             method: 'POST',
-            headers: authHeaders({ Accept: 'text/event-stream' }),
+            headers: authHeaders(),
             body: JSON.stringify({
                 project_path: state.currentProject,
-                multimodal: els.multimodalIndex.checked,
-                force: els.forceIndex.checked,
+                multimodal: multimodal,
+                force: force
             }),
-            signal: state.indexingAbort.signal,
+            signal: state.indexingAbort.signal
         });
-        if (!res.ok) {
-            let detail = `HTTP ${res.status}`;
+
+        if (!response.ok) {
+            let detail = response.statusText;
             try {
-                const errBody = await res.json();
-                detail = formatApiDetail(errBody.detail) || detail;
-            } catch (_) { /* ignore */ }
-            appendTerminal(`[CKC] ${detail}`, 'error');
-            finishIndexingUi();
+                const j = await response.json();
+                detail = formatApiDetail(j.detail || j.message);
+            } catch (_e) {}
+            appendTerminal(`\nIndexing stream HTTP ${response.status}: ${detail}`, 'error');
+            resetIndexButtons();
             return;
         }
-        await consumeIndexSse(res.body);
-    } catch (e) {
-        if (e && e.name === 'AbortError') {
-            appendTerminal('[CKC] Index stream aborted.', 'error');
-        } else {
-            appendTerminal(`\nStream interrupted: ${e.message || e}`, 'error');
-        }
-        finishIndexingUi();
-    }
-}
 
-async function consumeIndexSse(body) {
-    if (!body) {
-        appendTerminal('No stream body received.', 'error');
-        finishIndexingUi();
-        return;
-    }
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split(/\n\n/);
-        buffer = parts.pop() || '';
-        for (const chunk of parts) {
-            const dataLines = chunk
-                .split('\n')
-                .filter((line) => line.startsWith('data:'))
-                .map((line) => line.slice(5).trimStart());
-            if (!dataLines.length) continue;
-            const raw = dataLines.join('\n');
-            handleIndexEvent(raw);
-            if (state.indexingCleanClose) {
-                try { await reader.cancel(); } catch (_) { /* ignore */ }
-                return;
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('data:')) {
+                    const payload = trimmed.slice(5).trim();
+                    if (payload) processIndexEvent(payload);
+                }
             }
         }
-    }
-    if (!state.indexingCleanClose) {
-        appendTerminal('\nStream ended unexpectedly.', 'error');
-    }
-    finishIndexingUi();
-}
 
-function handleIndexEvent(raw) {
-    try {
-        const data = JSON.parse(raw);
-        if (data.event === 'start') {
-            appendTerminal(`[CKC] ${data.message}`, 'success');
-        } else if (data.event === 'step_start') {
-            appendTerminal(`\n[Step ${data.step}/${data.total_steps}] ${data.label}...`, 'info');
-        } else if (data.event === 'log') {
-            appendTerminal(data.line, data.engine);
-        } else if (data.event === 'step_finish') {
-            const icon = data.success ? '✓' : '✗';
-            appendTerminal(`[${data.engine}] ${icon} ${data.success ? 'Succeeded' : 'Failed (code ' + data.returncode + ')'}`, data.success ? 'success' : 'error');
-        } else if (data.event === 'step_error') {
-            appendTerminal(`[${data.engine}] Error: ${data.error}`, 'error');
-        } else if (data.event === 'error') {
-            appendTerminal(`[CKC] ${data.message}`, 'error');
-            state.indexingCleanClose = true;
-            finishIndexingUi();
-        } else if (data.event === 'cancelled') {
-            appendTerminal(`[CKC] ${data.message}`, 'error');
-            state.indexingCleanClose = true;
-            finishIndexingUi();
-        } else if (data.event === 'complete') {
-            appendTerminal(`\n[CKC] Indexing complete! Readiness: ${data.status?.ready_count}/3 engines.`, 'success');
-            state.indexingCleanClose = true;
-            finishIndexingUi();
+        if (!state.indexingCleanClose) {
+            appendTerminal('\n[CKC] Index stream concluded.', 'success');
             loadProject();
         }
     } catch (err) {
-        appendTerminal(raw, '');
+        if (err.name !== 'AbortError') {
+            appendTerminal(`\n[Stream Error] ${err.message}`, 'error');
+        }
+    } finally {
+        resetIndexButtons();
     }
-}
-
-function finishIndexingUi() {
-    els.cancelIndexBtn.classList.add('hidden');
-    setBusy(false);
 }
 
 async function cancelIndexing() {
-    if (!state.currentProject) return;
-    if (state.indexingAbort) {
-        try { state.indexingAbort.abort(); } catch (_) { /* ignore */ }
-    }
+    appendTerminal('\n[CKC] Requesting cancellation...', 'info');
     try {
         await apiFetch('/api/index/cancel', {
             method: 'POST',
             body: JSON.stringify({ project_path: state.currentProject })
         });
-        appendTerminal('[CKC] Cancel requested…', 'info');
+        appendTerminal('[CKC] Cancellation registered.', 'error');
     } catch (e) {
-        appendTerminal(`[CKC] Cancel failed: ${e.message}`, 'error');
+        appendTerminal(`[Cancel Error] ${e.message}`, 'error');
+    }
+}
+
+function processIndexEvent(raw) {
+    try {
+        const data = JSON.parse(raw);
+        if (data.event === 'start') {
+            appendTerminal(`[CKC] ${data.message}`, 'info');
+        } else if (data.event === 'step_start') {
+            appendTerminal(`\n── [Step ${data.step}/${data.total_steps}] ${data.label} ──`, 'info');
+        } else if (data.event === 'log') {
+            appendTerminal(data.line, data.engine);
+        } else if (data.event === 'step_finish') {
+            const mark = data.success ? '✓' : '✗';
+            appendTerminal(`[${data.engine}] ${mark} ${data.success ? 'Success' : 'Failed'}`, data.success ? 'success' : 'error');
+        } else if (data.event === 'step_error') {
+            appendTerminal(`[${data.engine}] Error: ${data.error}`, 'error');
+        } else if (data.event === 'complete') {
+            appendTerminal(`\n[CKC] 3-Tier indexing complete! (${data.status?.ready_count || 3}/3 Ready)`, 'success');
+            loadProject();
+        }
+    } catch (_e) {
+        appendTerminal(raw, '');
     }
 }
 
 function appendTerminal(text, type) {
-    const line = document.createElement('div');
-    line.className = `terminal-line ${type ? 'log-' + type : ''}`;
-    line.textContent = text;
-    els.terminalOutput.appendChild(line);
+    const div = document.createElement('div');
+    div.className = `terminal-line ${type ? 'log-' + type : ''}`;
+    div.textContent = text;
+    els.terminalOutput.appendChild(div);
     els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
 }
 
-/** Make symbol names in rendered HTML clickable if they match graph nodes */
+function resetIndexButtons() {
+    els.runIndexBtn.classList.remove('hidden');
+    els.cancelIndexBtn.classList.add('hidden');
+}
+
+/** Linkify recognized code symbols inside synthesized markdown reports */
 function linkifySymbols(html) {
-    if (!state.cy || !state.graphData) return html;
+    if (!state.graphData) return html;
     const labels = new Set();
-    state.cy.nodes().forEach(n => {
-        const l = n.data('label');
+    state.graphData.elements.nodes.forEach(n => {
+        const l = n.data.label;
         if (l && l.length > 2 && /^[a-zA-Z_]/.test(l)) labels.add(l);
     });
+
     let result = html;
     labels.forEach(label => {
         const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(`<code>(${escaped})</code>`, 'g');
-        result = result.replace(
-            regex,
-            `<code><a class="symbol-link" data-symbol="${escapeHtml(label)}" href="#" style="cursor:pointer;color:#58a6ff">$1</a></code>`
-        );
+        result = result.replace(regex, `<code><a class="symbol-link" onclick="selectNodeByLabel('${label}')">$1</a></code>`);
     });
     return result;
 }
-
-document.addEventListener('click', (e) => {
-    const link = e.target.closest('a.symbol-link[data-symbol]');
-    if (!link) return;
-    e.preventDefault();
-    const label = link.getAttribute('data-symbol');
-    const node = state.cy.nodes().filter(n => n.data('label') === label);
-    if (node.length) {
-        selectNode(node[0]);
-        state.cy.fit(node[0].neighborhood().union(node[0]), 80);
-    }
-});
 
 window.onload = init;
