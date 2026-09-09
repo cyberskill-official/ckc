@@ -11,6 +11,7 @@ Run: pytest tests/test_e2e_playwright.py -v            (headless)
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 
@@ -48,7 +49,7 @@ class TestPageLoad:
 
     def test_meta_description(self, page: Page):
         meta = page.locator('meta[name="description"]')
-        expect(meta).to_have_attribute("content", lambda c: "CKC" in c)
+        expect(meta).to_have_attribute("content", re.compile(r"CKC"))
 
     def test_favicon_present(self, page: Page):
         link = page.locator('link[rel="icon"]')
