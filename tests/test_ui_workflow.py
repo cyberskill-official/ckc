@@ -5,7 +5,9 @@ Validates graph elements, links consistency, search payloads, trace flows, and U
 
 import unittest
 from pathlib import Path
+
 from fastapi.testclient import TestClient
+
 from code_chain.ui.server import app
 
 
@@ -13,7 +15,9 @@ class TestUIWorkflowIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(app)
-        cls.test_repo = str(Path(__file__).resolve().parent.parent / "examples" / "python-auth-service")
+        cls.test_repo = str(
+            Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
+        )
         cls.ckc_repo = str(Path(__file__).resolve().parent.parent)
 
     def test_static_assets_contract(self):

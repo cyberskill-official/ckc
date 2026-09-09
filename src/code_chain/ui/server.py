@@ -163,7 +163,9 @@ def _rate_limit_exceeded(request: Request) -> bool:
         if _rate_limit_evict_counter >= 100:
             _rate_limit_evict_counter = 0
             for k in list(_rate_limit_hits.keys()):
-                _rate_limit_hits[k] = [t for t in _rate_limit_hits[k] if now - t < _RATE_LIMIT_WINDOW_S]
+                _rate_limit_hits[k] = [
+                    t for t in _rate_limit_hits[k] if now - t < _RATE_LIMIT_WINDOW_S
+                ]
                 if not _rate_limit_hits[k]:
                     del _rate_limit_hits[k]
 
@@ -258,10 +260,8 @@ async def lifespan(app: FastAPI):
     with _active_indexing_lock:
         procs = list(_active_indexing_processes.values())
     for proc in procs:
-        try:
+        with contextlib.suppress(Exception):
             await _terminate_process(proc)
-        except Exception:
-            pass
 
 app = FastAPI(
     title="Code Knowledge Chain UI",
@@ -856,7 +856,13 @@ async def run_query_stream(payload: QueryPayload):
     resolved = validate_project_path(payload.project_path)
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        yield json.dumps({"event": "progress", "phase": "context", "message": "Retrieving multi-tier context..."})
+        yield json.dumps(
+            {
+                "event": "progress",
+                "phase": "context",
+                "message": "Retrieving multi-tier context...",
+            }
+        )
 
         try:
             chain = _get_chain(str(resolved))
@@ -869,7 +875,13 @@ async def run_query_stream(payload: QueryPayload):
 
             # Phase 2: LLM synthesis (if requested)
             if payload.use_llm:
-                yield json.dumps({"event": "progress", "phase": "synthesis", "message": "Synthesizing with LLM..."})
+                yield json.dumps(
+                    {
+                        "event": "progress",
+                        "phase": "synthesis",
+                        "message": "Synthesizing with LLM...",
+                    }
+                )
                 full_result = await asyncio.to_thread(
                     lambda: chain.query(payload.query, use_llm=True).model_dump()
                 )
