@@ -59,7 +59,18 @@ python3 scripts/setup.py --no-ui
 
 ## CI & branch protection
 
-GitHub Actions runs Ruff + the pytest matrix on every push/PR to `main` (see `.github/workflows/ci.yml`).
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
+
+| Job | What it gates |
+| --- | --- |
+| `lint` | `ruff check` + `ruff format --check` (format drift fails CI) |
+| `lockfile` | `uv lock --check` (fails if `uv.lock` is stale vs `pyproject.toml`) |
+| `test` | pytest matrix (Linux/macOS × Python 3.10–3.12), excluding Playwright |
+| `audit` | `pip-audit` on installed deps |
+| `docker` | `docker build -t ckc:ci .` smoke |
+| `e2e-smoke` | Playwright `TestPageLoad` against a local UI |
+
+Dependabot (`.github/dependabot.yml`) opens weekly PRs for pip and GitHub Actions.
 
 **Platform support:** CI and primary development target **Linux and macOS**. Windows is used for setup scripts (`setup.ps1`) but is **not** covered by a GitHub Actions Windows job today — treat Windows as best-effort / unsupported for CI parity unless you add a matrix runner.
 
@@ -75,7 +86,7 @@ UI argv builders in `server._build_index_steps` mirror adapter command helpers; 
 **Recommended repository settings** (GitHub → Settings → Branches → Branch protection rules for `main`):
 
 - Require a pull request before merging
-- Require status checks to pass: `Lint (Ruff)` and the `Test (...)` matrix jobs
+- Require status checks to pass: `Lint (Ruff)`, `uv.lock check`, and the `Test (...)` matrix jobs
 - Do not allow force pushes to `main`
 
 Branch protection itself requires org/repo admin and is intentionally not automated by CKC.
@@ -114,13 +125,23 @@ code-knowledge-chain/
 
 ### Running Tests
 
-Run the full automated test suite using `pytest`:
+Automated tests use `pytest` against self-contained sample repositories in `examples/`.
 
 ```bash
-pytest tests -v
+# Unit / API / adapter tests (offline — no external network required)
+pytest tests -v --ignore=tests/test_e2e_playwright.py
 ```
 
-All tests run against self-contained sample repositories inside `examples/` and require zero mock servers or network access.
+Optional Playwright E2E tests need a running UI and a browser:
+
+```bash
+pip install -e ".[dev,e2e]"
+playwright install chromium
+# In another terminal: code-chain ui
+pytest tests/test_e2e_playwright.py -v
+```
+
+Without the `playwright` package, the E2E module is skipped automatically.
 
 ### Linting & Formatting
 
@@ -130,9 +151,14 @@ We maintain clean, PEP 8-compliant Python code:
 # Check with ruff
 ruff check .
 
-# Format with ruff
+# Format check (CI also runs this)
+ruff format --check .
+
+# Apply formatting
 ruff format .
 ```
+
+Reproducible installs: prefer `uv sync --frozen` when using the committed `uv.lock`.
 
 ---
 

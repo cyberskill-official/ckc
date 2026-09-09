@@ -27,9 +27,7 @@ from code_chain.pipelines import (
 class CodeKnowledgeChain:
     """The central unified orchestrator for the 3-engine code knowledge graph chain."""
 
-    def __init__(
-        self, project_path: str | None = None, config: ChainConfig | None = None
-    ):
+    def __init__(self, project_path: str | None = None, config: ChainConfig | None = None):
         self.config = config or ChainConfig()
         self.project_path = self.config.resolve_project_path(project_path)
         self.index_pipe = IndexPipeline(self.project_path, self.config)
@@ -46,21 +44,15 @@ class CodeKnowledgeChain:
         """Indexes the target project across Graphify, GitNexus, and CodeGraph."""
         return self.index_pipe.run(code_only=code_only, force=force)
 
-    def query(
-        self, concept_or_question: str, use_llm: bool = True
-    ) -> ChainedQueryResult:
+    def query(self, concept_or_question: str, use_llm: bool = True) -> ChainedQueryResult:
         """Runs the 3-tier chained intelligence query."""
         return self.query_pipe.run(concept_or_question, use_llm=use_llm)
 
-    def impact(
-        self, target_symbol: str, use_llm: bool = True
-    ) -> ChainedImpactResult:
+    def impact(self, target_symbol: str, use_llm: bool = True) -> ChainedImpactResult:
         """Runs the 3-tier refactoring blast radius analysis."""
         return self.impact_pipe.run(target_symbol, use_llm=use_llm)
 
-    def trace(
-        self, from_symbol: str, to_symbol: str, use_llm: bool = True
-    ) -> ChainedTraceResult:
+    def trace(self, from_symbol: str, to_symbol: str, use_llm: bool = True) -> ChainedTraceResult:
         """Traces the execution path between two symbols across all 3 engines."""
         return self.trace_pipe.run(from_symbol, to_symbol, use_llm=use_llm)
 

@@ -39,9 +39,7 @@ class TracePipeline:
         self.gitnexus = GitNexusAdapter(config.gitnexus_bin, project_path)
         self.codegraph = CodeGraphAdapter(config.codegraph_bin, project_path)
 
-    def run(
-        self, from_symbol: str, to_symbol: str, use_llm: bool = True
-    ) -> ChainedTraceResult:
+    def run(self, from_symbol: str, to_symbol: str, use_llm: bool = True) -> ChainedTraceResult:
         # Tier 1: GitNexus AST Trace
         trace_data = self.gitnexus.trace_path(from_symbol, to_symbol)
         if not trace_data or trace_data.get("status") != "ok":
@@ -108,11 +106,7 @@ class TracePipeline:
 
             # Check Graphify for domain artifacts
             domain_entities = self.graphify.find_cross_domain_entities(name, limit=2)
-            tags = [
-                f"{e.entity_type}:{e.name}"
-                for e in domain_entities
-                if e.entity_type != "code"
-            ]
+            tags = [f"{e.entity_type}:{e.name}" for e in domain_entities if e.entity_type != "code"]
             cross_domain_touchpoints.extend(tags)
 
             snippet = None
@@ -139,12 +133,8 @@ class TracePipeline:
             s_curr = steps[i]
             s_next = steps[i + 1]
             rel_label = _mermaid_escape(s_curr.relation_to_next or "CALLS")
-            curr_label = _mermaid_escape(
-                f"{s_curr.symbol_name} ({s_curr.file_path})"
-            )
-            next_label = _mermaid_escape(
-                f"{s_next.symbol_name} ({s_next.file_path})"
-            )
+            curr_label = _mermaid_escape(f"{s_curr.symbol_name} ({s_curr.file_path})")
+            next_label = _mermaid_escape(f"{s_next.symbol_name} ({s_next.file_path})")
             diagram_lines.append(
                 f'  n{i}["{curr_label}"] -->|{rel_label}| n{i + 1}["{next_label}"]'
             )
@@ -162,11 +152,7 @@ class TracePipeline:
         ]
 
         for s in steps:
-            rel_str = (
-                f" ➔ *({s.relation_to_next})*"
-                if s.relation_to_next
-                else " 🏁 *(Terminal)*"
-            )
+            rel_str = f" ➔ *({s.relation_to_next})*" if s.relation_to_next else " 🏁 *(Terminal)*"
             tag_str = f" [Tags: {', '.join(s.domain_tags)}]" if s.domain_tags else ""
             report_lines.append(
                 f"{s.step_number}. **`{s.symbol_name}`** (`{s.file_path}`){rel_str}{tag_str}"

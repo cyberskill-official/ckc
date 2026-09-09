@@ -50,8 +50,7 @@ def get_available_tools() -> list:
                     "project_path": {
                         "type": "string",
                         "description": (
-                            "Path to the repository "
-                            "(defaults to server working directory)"
+                            "Path to the repository (defaults to server working directory)"
                         ),
                     },
                     "format": _FORMAT_PROP,
@@ -137,8 +136,7 @@ def get_available_tools() -> list:
                     "symbol": {
                         "type": "string",
                         "description": (
-                            "The function, class, or method name to analyze for "
-                            "refactoring impact"
+                            "The function, class, or method name to analyze for refactoring impact"
                         ),
                     },
                     "use_llm": {
@@ -316,9 +314,7 @@ def run_mcp_server(default_project_path: str = ".") -> None:
             tool_name = params.get("name")
             tool_args = params.get("arguments", {})
             try:
-                text_result = handle_tool_call(
-                    tool_name, tool_args, default_project_path
-                )
+                text_result = handle_tool_call(tool_name, tool_args, default_project_path)
                 resp = {
                     "jsonrpc": "2.0",
                     "id": req_id,

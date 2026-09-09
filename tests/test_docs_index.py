@@ -31,8 +31,7 @@ class TestDocsIndex(unittest.TestCase):
             root = Path(tmp)
             (root / "docs").mkdir()
             (root / "docs" / "ARCH.md").write_text(
-                "# Architecture Document\n"
-                "Authentication is handled by AuthService.\n",
+                "# Architecture Document\nAuthentication is handled by AuthService.\n",
                 encoding="utf-8",
             )
             (root / "src").mkdir()
@@ -71,20 +70,13 @@ class TestDocsIndex(unittest.TestCase):
             self.assertIn("Real Heading", names)
 
     def test_auth_service_query_surfaces_arch_doc(self):
-        sample = (
-            Path(__file__).resolve().parent.parent
-            / "examples"
-            / "python-auth-service"
-        )
+        sample = Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
         index_docs_overlay(sample, code_only=True, announce=False)
         adapter = GraphifyAdapter("graphify", sample)
         hits = adapter.find_cross_domain_entities("AuthService", limit=8)
         doc_hits = [e for e in hits if e.entity_type == "doc"]
         self.assertTrue(
-            any(
-                "ARCH" in (e.source_path or "") or "Architecture" in e.name
-                for e in doc_hits
-            ),
+            any("ARCH" in (e.source_path or "") or "Architecture" in e.name for e in doc_hits),
             (
                 "Expected ARCH.md doc hit, got: "
                 f"{[(e.name, e.source_path, e.entity_type) for e in hits]}"

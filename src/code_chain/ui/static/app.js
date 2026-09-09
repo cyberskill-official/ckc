@@ -15,6 +15,9 @@ const state = {
     communities: [],
     filters: { code: true, doc: true, schema: true, test: true },
     isAutoRotating: false,
+    prefersReducedMotion: typeof window !== 'undefined'
+        && window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     indexingAbort: null,
     queryAbort: null,
     inFlight: false,
@@ -168,10 +171,28 @@ function showToast(message, type = 'info') {
 // App Initialization
 // ==========================================================================
 
+function initReducedMotionWatcher() {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const apply = () => {
+        state.prefersReducedMotion = !!mq.matches;
+        if (state.prefersReducedMotion && state.graph3d) {
+            state.isAutoRotating = false;
+            if (els.autoRotateBtn) els.autoRotateBtn.classList.remove('active');
+            state.graph3d.controls().autoRotate = false;
+            state.graph3d.linkDirectionalParticles(() => 0);
+        }
+    };
+    if (mq.addEventListener) mq.addEventListener('change', apply);
+    else if (mq.addListener) mq.addListener(apply);
+}
+
 function init() {
+    initReducedMotionWatcher();
     if (els.projectInput) els.projectInput.value = state.currentProject;
     if (els.uiTokenInput) els.uiTokenInput.value = state.uiToken;
     if (els.useLlm) els.useLlm.checked = state.useLlm;
+    updateAiDisclosure();
 
     updateProjectLabel();
     init3DGraph();
@@ -241,10 +262,17 @@ function closeAllPopovers() {
     if (els.headerIndexBtn) els.headerIndexBtn.setAttribute('aria-expanded', 'false');
 }
 
+function updateAiDisclosure() {
+    const el = document.getElementById('ai-disclosure');
+    if (!el) return;
+    el.hidden = !state.useLlm;
+}
+
 function persistUseLlmFromInput() {
     if (!els.useLlm) return;
     state.useLlm = !!els.useLlm.checked;
     localStorage.setItem('ckc_use_llm', state.useLlm ? '1' : '0');
+    updateAiDisclosure();
 }
 
 function persistUiTokenFromInput() {
@@ -379,6 +407,7 @@ function init3DGraph() {
             return 0.8;
         })
         .linkDirectionalParticles(link => {
+            if (state.prefersReducedMotion) return 0;
             if (link.__trace || link.__impact) return 4;
             if (link.__highlight) return 2;
             return 0;
@@ -458,7 +487,7 @@ function flyToNode(node) {
     state.graph3d.cameraPosition(
         { x: nx, y: ny, z: nz },
         { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
-        800
+        motionMs(800)
     );
 }
 
@@ -733,6 +762,12 @@ function setupEventListeners() {
     }
 
     // Bottom Drawer
+    els.drawerToggle.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            els.drawerToggle.click();
+        }
+    });
     els.drawerToggle.addEventListener('click', (e) => {
         if (e.target.closest('.drawer-tabs') || e.target.closest('#copy-results-btn')) return;
         toggleDrawer();
@@ -834,18 +869,20 @@ function setSearchMode(mode) {
     }
     if (els.searchModeDropdown) {
         els.searchModeDropdown.querySelectorAll('.mode-option').forEach(opt => {
-            opt.classList.toggle('active', opt.dataset.mode === mode);
+            const active = opt.dataset.mode === mode;
+            opt.classList.toggle('active', active);
+            opt.setAttribute('aria-selected', active ? 'true' : 'false');
         });
     }
 
     if (mode === 'query') {
         els.commandBar.placeholder = 'Ask a question about codebase architecture...';
     } else if (mode === 'impact') {
-        els.commandBar.placeholder = 'Enter symbol for blast radius analysis (e.g. AuthService)...';
+        els.commandBar.placeholder = 'Enter symbol for impact analysis (e.g. AuthService)...';
     } else if (mode === 'trace') {
-        els.commandBar.placeholder = 'Enter flow trace: symbolA -> symbolB...';
+        els.commandBar.placeholder = 'Enter flow trace: symbolA → symbolB...';
     } else {
-        els.commandBar.placeholder = 'Search symbols, ask questions, or "A -> B" to trace...';
+        els.commandBar.placeholder = 'Search symbols, ask a question, or A → B to trace';
     }
 }
 
@@ -896,7 +933,8 @@ function renderSearchResults(query, matches) {
         els.searchResultsList.innerHTML = `<div class="search-empty">No matching symbols found for "<strong>${escapeHtml(query)}</strong>"</div>`;
     } else {
         matches.forEach((node, idx) => {
-            const item = document.createElement('div');
+            const item = document.createElement('button');
+            item.type = 'button';
             item.className = `search-result-item ${idx === state.searchSelectedIndex ? 'selected' : ''}`;
             const cat = node.category || 'code';
             const colorClass = `color-${cat}`;
@@ -923,11 +961,12 @@ function renderSearchResults(query, matches) {
     // Quick Actions
     els.searchActionsBar.innerHTML = '';
 
-    const actionImpact = document.createElement('div');
+    const actionImpact = document.createElement('button');
+    actionImpact.type = 'button';
     actionImpact.className = 'search-action-btn';
     actionImpact.innerHTML = `
         <svg class="search-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-        <span>Analyze Blast Radius for <strong>"${escapeHtml(query)}"</strong></span>
+        <span>Analyze impact for <strong>"${escapeHtml(query)}"</strong></span>
     `;
     actionImpact.addEventListener('click', () => {
         closeAllPopovers();
@@ -935,7 +974,8 @@ function renderSearchResults(query, matches) {
     });
     els.searchActionsBar.appendChild(actionImpact);
 
-    const actionQuery = document.createElement('div');
+    const actionQuery = document.createElement('button');
+    actionQuery.type = 'button';
     actionQuery.className = 'search-action-btn';
     actionQuery.innerHTML = `
         <svg class="search-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -975,15 +1015,19 @@ function executeSelectedSearchResult() {
 // Camera & Viewport Controls
 // ==========================================================================
 
+function motionMs(preferred) {
+    return state.prefersReducedMotion ? 0 : preferred;
+}
+
 function fitGraphView() {
     if (state.graph3d) {
-        state.graph3d.zoomToFit(800, 40);
+        state.graph3d.zoomToFit(motionMs(800), 40);
     }
 }
 
 function resetCameraView() {
     if (state.graph3d) {
-        state.graph3d.cameraPosition({ x: 0, y: 0, z: 300 }, { x: 0, y: 0, z: 0 }, 800);
+        state.graph3d.cameraPosition({ x: 0, y: 0, z: 300 }, { x: 0, y: 0, z: 0 }, motionMs(800));
     }
 }
 
@@ -1028,11 +1072,15 @@ async function loadProject() {
 function updateStatus(res) {
     if (res.status && res.status.all_ready) {
         els.readyBadge.className = 'badge-status badge-ready';
-        if (els.readyBadgeText) els.readyBadgeText.textContent = 'Ready (3/3)';
+        if (els.readyBadgeText) els.readyBadgeText.textContent = '3 of 3 tiers ready';
     } else {
         const count = res.status?.ready_count ?? 0;
         els.readyBadge.className = 'badge-status';
-        if (els.readyBadgeText) els.readyBadgeText.textContent = `${count}/3 Engines`;
+        if (els.readyBadgeText) {
+            els.readyBadgeText.textContent = count
+                ? `${count} of 3 tiers ready`
+                : 'Not indexed';
+        }
     }
 
     const docs = res.local_docs_count;
@@ -1139,7 +1187,7 @@ function zoomToCommunity(commId) {
     state.graph3d.cameraPosition(
         { x: cx, y: cy, z: cz + 120 },
         { x: cx, y: cy, z: cz },
-        900
+        motionMs(900)
     );
 }
 
@@ -1420,6 +1468,13 @@ async function runQuery(query) {
         addOperationHistory('query', query);
         renderOperationResults(res.synthesized_context || 'No response generated.');
         showToast(`Query completed for "${query}"`, 'success');
+        if (state.useLlm && els.resultsOutput) {
+            const badge = document.createElement('div');
+            badge.className = 'ai-synthesis-badge';
+            badge.textContent = 'AI synthesis';
+            badge.setAttribute('role', 'status');
+            els.resultsOutput.prepend(badge);
+        }
     } catch (e) {
         if (e.name === 'AbortError') {
             setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);">Query cancelled.</div>`);

@@ -7,12 +7,107 @@ Soft-fails on timeout or connection errors so stacked markdown stays usable.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import logging
 import os
+import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from code_chain.core.config import llm_http_timeout
+
+logger = logging.getLogger("code_chain.llm")
+
+
+class LlmUrlDeniedError(ValueError):
+    """Raised when the configured LLM base URL is blocked by SSRF policy."""
+
+
+def _env_truthy(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_private_or_link_local(host: str) -> bool:
+    """True for private, loopback, link-local, and unspecified addresses."""
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        # Hostname — resolve and inspect (best-effort).
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except OSError:
+            return False
+        for info in infos:
+            try:
+                addr = ipaddress.ip_address(info[4][0])
+            except (ValueError, IndexError, TypeError):
+                continue
+            if (
+                addr.is_private
+                or addr.is_loopback
+                or addr.is_link_local
+                or addr.is_reserved
+                or addr.is_multicast
+                or addr.is_unspecified
+            ):
+                return True
+        return False
+    return (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_reserved
+        or addr.is_multicast
+        or addr.is_unspecified
+    )
+
+
+def _is_loopback_host(host: str) -> bool:
+    h = host.strip().lower().strip("[]")
+    if h in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_llm_base_url(base_url: str) -> str:
+    """
+    Enforce scheme/host SSRF policy (FIND-007).
+
+    - http/https only
+    - loopback always allowed (local LM Studio)
+    - other private/link-local hosts denied unless CKC_LLM_ALLOW_PRIVATE=1
+    - optional CKC_LLM_URL_ALLOWLIST comma-separated hostnames (exact match)
+    """
+    cleaned = base_url.strip().rstrip("/")
+    parsed = urllib.parse.urlparse(cleaned)
+    if parsed.scheme not in {"http", "https"}:
+        raise LlmUrlDeniedError(
+            f"LLM base URL scheme must be http or https (got {parsed.scheme!r})."
+        )
+    host = (parsed.hostname or "").strip()
+    if not host:
+        raise LlmUrlDeniedError("LLM base URL is missing a host.")
+
+    allowlist_raw = (os.environ.get("CKC_LLM_URL_ALLOWLIST") or "").strip()
+    if allowlist_raw:
+        allowed = {h.strip().lower() for h in allowlist_raw.split(",") if h.strip()}
+        if host.lower() not in allowed and not _is_loopback_host(host):
+            raise LlmUrlDeniedError(f"LLM host {host!r} is not in CKC_LLM_URL_ALLOWLIST.")
+
+    if _is_loopback_host(host):
+        return cleaned
+
+    if _is_private_or_link_local(host) and not _env_truthy("CKC_LLM_ALLOW_PRIVATE"):
+        raise LlmUrlDeniedError(
+            f"LLM host {host!r} is private/link-local; set CKC_LLM_ALLOW_PRIVATE=1 "
+            "to opt in (SSRF guard)."
+        )
+    return cleaned
 
 
 def resolve_llm_config() -> tuple[str, str, str] | None:
@@ -20,21 +115,23 @@ def resolve_llm_config() -> tuple[str, str, str] | None:
     Return (base_url, model, api_key) when LLM synthesis is configured.
 
     Enabled when CKC_LLM_BASE_URL or OPENAI_BASE_URL is set.
+    Returns None (and logs) when the URL fails SSRF validation.
     """
     base = (os.environ.get("CKC_LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "").strip()
     if not base:
         return None
-    model = (
-        os.environ.get("CKC_LLM_MODEL") or os.environ.get("OPENAI_MODEL") or ""
-    ).strip()
+    try:
+        base = validate_llm_base_url(base)
+    except LlmUrlDeniedError as exc:
+        logger.warning("Refusing LLM base URL: %s", exc)
+        return None
+    model = (os.environ.get("CKC_LLM_MODEL") or os.environ.get("OPENAI_MODEL") or "").strip()
     if not model:
         model = "local-model"
     api_key = (
-        os.environ.get("CKC_LLM_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or "lm-studio"
+        os.environ.get("CKC_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or "lm-studio"
     ).strip()
-    return base.rstrip("/"), model, api_key
+    return base, model, api_key
 
 
 def llm_is_configured() -> bool:
@@ -181,12 +278,7 @@ def maybe_append_llm_section(
             stacked_markdown.rstrip()
             + "\n\n*Local model synthesis unavailable: no response from configured endpoint.*\n"
         )
-    return (
-        stacked_markdown.rstrip()
-        + "\n\n## Local model synthesis\n\n"
-        + synthesis
-        + "\n"
-    )
+    return stacked_markdown.rstrip() + "\n\n## Local model synthesis\n\n" + synthesis + "\n"
 
 
 def finalize_stacked_markdown(

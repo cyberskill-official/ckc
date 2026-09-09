@@ -31,9 +31,7 @@ class TestUIStreaming(unittest.TestCase):
         time.sleep(0.05)
 
     def test_indexing_stream_initial_events(self):
-        with self.client.stream(
-            "GET", f"/api/index/stream?project={self.test_repo}"
-        ) as response:
+        with self.client.stream("GET", f"/api/index/stream?project={self.test_repo}") as response:
             self.assertEqual(response.status_code, 200)
             events = []
             for line in response.iter_lines():
@@ -51,9 +49,7 @@ class TestUIStreaming(unittest.TestCase):
         self.client.post("/api/index/cancel", json={"project_path": self.test_repo})
 
     def test_indexing_cancellation_flow(self):
-        res = self.client.post(
-            "/api/index/cancel", json={"project_path": self.test_repo}
-        )
+        res = self.client.post("/api/index/cancel", json={"project_path": self.test_repo})
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()["success"])
 

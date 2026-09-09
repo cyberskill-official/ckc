@@ -19,9 +19,7 @@ class TestUseLlmParity(unittest.TestCase):
     def setUpClass(cls):
         cls.client = TestClient(app)
         cls.test_repo = str(
-            Path(__file__).resolve().parent.parent
-            / "examples"
-            / "python-auth-service"
+            Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
         )
 
     def test_ui_query_use_llm_false_omits_synthesis(self):
@@ -29,10 +27,13 @@ class TestUseLlmParity(unittest.TestCase):
             "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
             "CKC_LLM_MODEL": "local-model",
         }
-        with patch.dict("os.environ", env, clear=False), patch(
-            "code_chain.core.llm.synthesize_stacked_context",
-            return_value="SHOULD NOT APPEAR",
-        ) as synth:
+        with (
+            patch.dict("os.environ", env, clear=False),
+            patch(
+                "code_chain.core.llm.synthesize_stacked_context",
+                return_value="SHOULD NOT APPEAR",
+            ) as synth,
+        ):
             res = self.client.post(
                 "/api/query",
                 json={

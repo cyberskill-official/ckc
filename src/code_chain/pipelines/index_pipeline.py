@@ -73,9 +73,7 @@ class IndexPipeline:
             code_only = self.config.graphify_code_only
 
         if force:
-            logger.info(
-                "[force] Clearing prior Graphify / GitNexus / CodeGraph indexes..."
-            )
+            logger.info("[force] Clearing prior Graphify / GitNexus / CodeGraph indexes...")
             self._clear_engine_indexes()
 
         start_time = time.time()
@@ -88,9 +86,7 @@ class IndexPipeline:
         }
 
         # 1. Index Graphify (Broad multi-modal & community graph)
-        logger.info(
-            "[1/3] Indexing with Graphify (Holistic multi-modal & community layer)..."
-        )
+        logger.info("[1/3] Indexing with Graphify (Holistic multi-modal & community layer)...")
         t0 = time.time()
         timeout = self.config.index_timeout if code_only else self.config.multimodal_index_timeout
         res_graphify = self.graphify.index_project(
@@ -111,9 +107,7 @@ class IndexPipeline:
         }
 
         # 2. Index GitNexus (Structural Tree-sitter AST & call graph)
-        logger.info(
-            "[2/3] Indexing with GitNexus (Structural AST & execution flow layer)..."
-        )
+        logger.info("[2/3] Indexing with GitNexus (Structural AST & execution flow layer)...")
         t0 = time.time()
         res_gitnexus = self.gitnexus.index_project(timeout=self.config.index_timeout)
         t_gitnexus = time.time() - t0
@@ -124,9 +118,7 @@ class IndexPipeline:
         }
 
         # 3. Index CodeGraph (Fine-grained symbol index & fast code exploration)
-        logger.info(
-            "[3/3] Indexing with CodeGraph (Symbol intelligence & test impact layer)..."
-        )
+        logger.info("[3/3] Indexing with CodeGraph (Symbol intelligence & test impact layer)...")
         t0 = time.time()
         res_codegraph = self.codegraph.index_project(timeout=self.config.index_timeout)
         t_codegraph = time.time() - t0

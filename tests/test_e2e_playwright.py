@@ -186,15 +186,11 @@ class TestAPI:
         assert isinstance(result.get("samples"), list)
 
     def test_invalid_project_returns_400(self, page: Page):
-        result = page.evaluate(
-            "fetch('/api/status?project=').then(r => ({status: r.status}))"
-        )
+        result = page.evaluate("fetch('/api/status?project=').then(r => ({status: r.status}))")
         assert result["status"] == 400
 
     def test_system_path_rejected(self, page: Page):
-        result = page.evaluate(
-            "fetch('/api/status?project=/etc').then(r => ({status: r.status}))"
-        )
+        result = page.evaluate("fetch('/api/status?project=/etc').then(r => ({status: r.status}))")
         assert result["status"] == 400
 
 

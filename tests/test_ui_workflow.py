@@ -72,7 +72,7 @@ class TestUIWorkflowIntegration(unittest.TestCase):
         payload = {
             "project_path": self.test_repo,
             "query": "How is authentication handled?",
-            "use_llm": False
+            "use_llm": False,
         }
         res = self.client.post("/api/query", json=payload)
         self.assertEqual(res.status_code, 200)
@@ -82,11 +82,7 @@ class TestUIWorkflowIntegration(unittest.TestCase):
 
     def test_impact_workflow(self):
         """Verify /api/impact returns risk level and blast radius hierarchy."""
-        payload = {
-            "project_path": self.test_repo,
-            "symbol": "login",
-            "use_llm": False
-        }
+        payload = {"project_path": self.test_repo, "symbol": "login", "use_llm": False}
         res = self.client.post("/api/impact", json=payload)
         self.assertEqual(res.status_code, 200)
         data = res.json()
@@ -101,7 +97,7 @@ class TestUIWorkflowIntegration(unittest.TestCase):
             "project_path": self.test_repo,
             "from_symbol": "handle_login_request",
             "to_symbol": "verify_password",
-            "use_llm": False
+            "use_llm": False,
         }
         res = self.client.post("/api/trace", json=payload)
         self.assertEqual(res.status_code, 200)

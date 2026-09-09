@@ -1,15 +1,16 @@
 # docker-compose.yml — Full-stack CKC development environment
 #
 # Usage:
-#   docker compose up              # start CKC server
-#   docker compose up --build      # rebuild and start
+#   export CKC_UI_TOKEN="$(openssl rand -hex 16)"   # REQUIRED (non-loopback bind)
+#   PROJECT_PATH=/path/to/repo docker compose up --build
 #
-# Mount your project directory via the PROJECT_PATH env var:
-#   PROJECT_PATH=/path/to/repo docker compose up
+# Compose binds 0.0.0.0 — the server refuses to start without CKC_UI_TOKEN.
+# Mount your project directory via PROJECT_PATH.
 #
 # For LLM synthesis, run LM Studio (or Ollama) on the host and set:
 #   CKC_LLM_BASE_URL=http://host.docker.internal:1234/v1
 #   CKC_LLM_MODEL=your-model-name
+#   CKC_LLM_ALLOW_PRIVATE=1   # required for host.docker.internal / private hosts
 
 services:
   ckc:
@@ -29,8 +30,9 @@ services:
       - CKC_LLM_BASE_URL=${CKC_LLM_BASE_URL:-}
       - CKC_LLM_MODEL=${CKC_LLM_MODEL:-}
       - CKC_LLM_API_KEY=${CKC_LLM_API_KEY:-lm-studio}
-      # Security (set a token for non-local access)
-      - CKC_UI_TOKEN=${CKC_UI_TOKEN:-}
+      - CKC_LLM_ALLOW_PRIVATE=${CKC_LLM_ALLOW_PRIVATE:-1}
+      # REQUIRED: compose publishes beyond loopback
+      - CKC_UI_TOKEN=${CKC_UI_TOKEN:?CKC_UI_TOKEN is required for docker compose (non-loopback bind)}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]

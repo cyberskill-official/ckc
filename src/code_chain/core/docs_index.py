@@ -32,9 +32,7 @@ SKIP_DIR_NAMES = {
     ".pytest_cache",
 }
 EXCERPT_CHARS = 400
-_HEADING_RE = re.compile(
-    r"^(?:=+\s+(.+?)\s*=+\s*$|#{1,6}\s+(.+))$", re.MULTILINE
-)
+_HEADING_RE = re.compile(r"^(?:=+\s+(.+?)\s*=+\s*$|#{1,6}\s+(.+))$", re.MULTILINE)
 _FRONTMATTER_RE = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
 
 logger = logging.getLogger("code_chain.docs_index")

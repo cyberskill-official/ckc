@@ -56,9 +56,7 @@ def print_error(msg: str):
 def run_cmd(
     cmd: list[str], cwd: Path | None = None, check: bool = True
 ) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd, cwd=cwd or ROOT_DIR, check=check, text=True, capture_output=True
-    )
+    return subprocess.run(cmd, cwd=cwd or ROOT_DIR, check=check, text=True, capture_output=True)
 
 
 def check_prerequisites() -> dict[str, bool]:
@@ -101,7 +99,12 @@ def check_prerequisites() -> dict[str, bool]:
         print_warn("npm not found.")
         results["npm"] = False
 
-    # Check 3 graph engine binaries
+    # Check 3 graph engine binaries (pinned versions — see pyproject engines table)
+    ENGINE_GRAPHIFYY = "graphifyy==0.9.56"
+    ENGINE_GRAPHIFYY_SQL = "graphifyy[sql]==0.9.56"
+    ENGINE_GITNEXUS = "gitnexus@1.6.11"
+    ENGINE_CODEGRAPH = "@colbymchenry/codegraph@1.6.0"
+
     has_graphify = shutil.which("graphify") is not None
     has_gitnexus = shutil.which("gitnexus") is not None
     has_codegraph = shutil.which("codegraph") is not None
@@ -109,19 +112,20 @@ def check_prerequisites() -> dict[str, bool]:
     if has_graphify:
         print_success("Graphify binary detected")
         try:
-            run_cmd([sys.executable, "-m", "pip", "install", "graphifyy[sql]"])
+            run_cmd([sys.executable, "-m", "pip", "install", ENGINE_GRAPHIFYY_SQL])
             print_success("Graphify SQL extra available (tree-sitter-sql)")
         except Exception as e:
             print_warn(f"Could not install graphifyy[sql]: {e}")
     else:
         print_warn("Graphify not detected on PATH. Installing via pip...")
         try:
-            run_cmd([sys.executable, "-m", "pip", "install", "graphifyy[sql]"])
+            run_cmd([sys.executable, "-m", "pip", "install", ENGINE_GRAPHIFYY_SQL])
             print_success("Graphify installed successfully")
             has_graphify = True
         except Exception as e:
             print_warn(
-                f"Automatic graphify install failed: {e}. Can run via: pip install graphifyy"
+                f"Automatic graphify install failed: {e}. "
+                f"Can run via: pip install {ENGINE_GRAPHIFYY}"
             )
 
     if has_gitnexus:
@@ -130,12 +134,13 @@ def check_prerequisites() -> dict[str, bool]:
         if results.get("npm"):
             print_warn("GitNexus not detected. Installing globally via npm...")
             try:
-                run_cmd(["npm", "install", "-g", "gitnexus"])
+                run_cmd(["npm", "install", "-g", ENGINE_GITNEXUS])
                 print_success("GitNexus installed successfully")
                 has_gitnexus = True
             except Exception as e:
                 print_warn(
-                    f"Automatic gitnexus install failed: {e}. Can run: npm install -g gitnexus"
+                    f"Automatic gitnexus install failed: {e}. "
+                    f"Can run: npm install -g {ENGINE_GITNEXUS}"
                 )
 
     if has_codegraph:
@@ -144,13 +149,13 @@ def check_prerequisites() -> dict[str, bool]:
         if results.get("npm"):
             print_warn("CodeGraph not detected. Installing globally via npm...")
             try:
-                run_cmd(["npm", "install", "-g", "@colbymchenry/codegraph"])
+                run_cmd(["npm", "install", "-g", ENGINE_CODEGRAPH])
                 print_success("CodeGraph installed successfully")
                 has_codegraph = True
             except Exception as e:
                 print_warn(
                     f"Automatic codegraph install failed: {e}. "
-                    f"Can run: npm install -g @colbymchenry/codegraph"
+                    f"Can run: npm install -g {ENGINE_CODEGRAPH}"
                 )
 
     results["engines_ready"] = has_graphify and has_gitnexus and has_codegraph
@@ -229,26 +234,16 @@ def run_health_checks():
         if res.returncode == 0:
             print_success("All test suites passed cleanly!")
         else:
-            print_warn(
-                f"Some tests failed or reported warnings:\n{res.stdout or res.stderr}"
-            )
+            print_warn(f"Some tests failed or reported warnings:\n{res.stdout or res.stderr}")
     except Exception as e:
         print_warn(f"Health check pytest run skipped or failed: {e}")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="One-Click Setup for Code Knowledge Chain"
-    )
-    parser.add_argument(
-        "--no-ui", action="store_true", help="Do not launch the Web UI after setup"
-    )
-    parser.add_argument(
-        "--port", type=int, default=8000, help="Web UI port (default: 8000)"
-    )
-    parser.add_argument(
-        "--host", default="127.0.0.1", help="Web UI host (default: 127.0.0.1)"
-    )
+    parser = argparse.ArgumentParser(description="One-Click Setup for Code Knowledge Chain")
+    parser.add_argument("--no-ui", action="store_true", help="Do not launch the Web UI after setup")
+    parser.add_argument("--port", type=int, default=8000, help="Web UI port (default: 8000)")
+    parser.add_argument("--host", default="127.0.0.1", help="Web UI host (default: 127.0.0.1)")
     parser.add_argument(
         "--force", action="store_true", help="Force re-indexing sample repositories"
     )
@@ -266,10 +261,7 @@ def main():
         sys.exit(1)
 
     if is_ci and not prereqs.get("engines_ready"):
-        print_error(
-            "CI requires Graphify, GitNexus, and CodeGraph on PATH after setup. "
-            "Aborting."
-        )
+        print_error("CI requires Graphify, GitNexus, and CodeGraph on PATH after setup. Aborting.")
         sys.exit(1)
 
     install_package()
@@ -289,9 +281,7 @@ def main():
     print("  • Python API: from code_chain import CodeKnowledgeChain")
 
     if not args.no_ui:
-        print(
-            f"\nStarting Web UI at http://{args.host}:{args.port} (Press Ctrl+C to stop)..."
-        )
+        print(f"\nStarting Web UI at http://{args.host}:{args.port} (Press Ctrl+C to stop)...")
         try:
             import uvicorn
 

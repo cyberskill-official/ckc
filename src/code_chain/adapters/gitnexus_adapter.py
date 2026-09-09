@@ -216,9 +216,7 @@ class GitNexusAdapter(BaseGraphAdapter):
             self.record_error("query_concepts", e)
         return {"processes": [], "definitions": []}
 
-    def _run_context(
-        self, symbol_name: str, *, uid: str | None = None
-    ) -> dict[str, Any] | None:
+    def _run_context(self, symbol_name: str, *, uid: str | None = None) -> dict[str, Any] | None:
         cmd = [self.bin_path, "context"]
         if uid:
             cmd.extend(["-u", uid])
@@ -231,8 +229,8 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=20,
-                check=False,
-            )
+            check=False,
+        )
         return _extract_json(res.stdout)
 
     def get_symbol_context(self, symbol_name: str) -> dict[str, Any] | None:
@@ -244,9 +242,7 @@ class GitNexusAdapter(BaseGraphAdapter):
             if parsed.get("status") != "ambiguous":
                 return parsed
             candidates = parsed.get("candidates") or []
-            best = pick_best_candidate(
-                candidates if isinstance(candidates, list) else []
-            )
+            best = pick_best_candidate(candidates if isinstance(candidates, list) else [])
             uid = _candidate_uid(best) if best else None
             if not uid:
                 return parsed
@@ -321,13 +317,11 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=30,
-                check=False,
-            )
+            check=False,
+        )
         return _extract_json(res.stdout)
 
-    def _resolve_impact_target(
-        self, target_symbol: str, parsed: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _resolve_impact_target(self, target_symbol: str, parsed: dict[str, Any]) -> dict[str, Any]:
         """When GitNexus returns ambiguous matches, re-query the best candidate by UID."""
         if parsed.get("status") != "ambiguous":
             return parsed
@@ -425,8 +419,8 @@ class GitNexusAdapter(BaseGraphAdapter):
             capture_output=True,
             text=True,
             timeout=25,
-                check=False,
-            )
+            check=False,
+        )
         return _extract_json(res.stdout)
 
     def trace_path(self, from_symbol: str, to_symbol: str) -> dict[str, Any] | None:
@@ -442,9 +436,7 @@ class GitNexusAdapter(BaseGraphAdapter):
                 if parsed.get("status") != "ambiguous":
                     break
                 candidates = parsed.get("candidates") or []
-                best = pick_best_candidate(
-                    candidates if isinstance(candidates, list) else []
-                )
+                best = pick_best_candidate(candidates if isinstance(candidates, list) else [])
                 uid = _candidate_uid(best) if best else None
                 if not uid:
                     break
@@ -453,9 +445,7 @@ class GitNexusAdapter(BaseGraphAdapter):
                     to_uid = uid
                 else:
                     from_uid = uid
-                parsed = self._run_trace(
-                    from_symbol, to_symbol, from_uid=from_uid, to_uid=to_uid
-                )
+                parsed = self._run_trace(from_symbol, to_symbol, from_uid=from_uid, to_uid=to_uid)
                 if not parsed:
                     return None
             return parsed

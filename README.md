@@ -132,28 +132,66 @@ The package includes an interactive **Graph-First Explorer** (FastAPI + Server-S
 
 ### Starting the Web UI
 ```bash
-# Start on default loopback bind (safe CORS default)
+# Start on default loopback bind (same-origin CORS by default)
 code-chain ui
 
 # Custom port / host and open browser
 code-chain ui --port 8080 --open
 
-# Non-loopback binds require CKC_UI_TOKEN for mutating routes
-# export CKC_UI_TOKEN=change-me
-# code-chain ui --host 0.0.0.0
+# Non-loopback binds REQUIRE CKC_UI_TOKEN (server refuses to start without it)
+export CKC_UI_TOKEN=change-me
+code-chain ui --host 0.0.0.0
 ```
 
 Once running, navigate to `http://127.0.0.1:8000`.
 
+### Docker
+
+Images are built from the repo `Dockerfile` (pinned engine CLIs). Compose publishes
+`0.0.0.0:8000` and **requires** `CKC_UI_TOKEN`:
+
+```bash
+export CKC_UI_TOKEN="$(openssl rand -hex 16)"
+PROJECT_PATH=/path/to/repo docker compose up --build
+# UI: http://127.0.0.1:8000 — send Authorization: Bearer $CKC_UI_TOKEN for /api/*
+```
+
+Plain Docker without compose:
+
+```bash
+docker build -t ckc .
+docker run --rm -p 8000:8000 \
+  -e CKC_UI_TOKEN=change-me \
+  -v /path/to/repo:/project \
+  ckc
+```
+
 ### UI Features
 1. **Header project bar**: absolute path input, sample project picker (`/api/samples`), readiness badge, local docs count, and LLM chip.
-2. **Cytoscape graph canvas**: community-colored nodes, category filters (code / docs / schema / tests), fit/clear overlays, command bar (`/` focus).
-3. **Streaming indexing**: POST fetch SSE (token via Authorization header; no query-string token), force / multimodal / local-LLM toggles, cancel (terminate→kill + AbortController), and per-project job serialization.
-4. **Query / Impact / Trace**: results drawer with DOMPurify-sanitized markdown; Mermaid diagrams render with `securityLevel: 'strict'`; Explorer can toggle local LLM synthesis.
-5. **Security defaults**: loopback-only CORS wildcard; optional `CKC_UI_TOKEN`; CDN SRI + CSP headers; path-safe artifact APIs with size caps; off-loopback mutating rate limit.
+2. **3D graph canvas**: community-colored nodes, category filters (code / docs / schema / tests), fit/clear overlays, command bar (`/` focus).
+3. **Streaming indexing**: POST fetch SSE (token via Authorization header; GET `?token=` disabled unless `CKC_ALLOW_QUERY_TOKEN=1`), force / multimodal / local-LLM toggles, cancel (terminate→kill + AbortController), and per-project job serialization with a global concurrency cap.
+4. **Query / Impact / Trace**: results drawer with DOMPurify-sanitized markdown; Mermaid diagrams render with `securityLevel: 'strict'`; Explorer can toggle local LLM synthesis (AI disclosure when enabled).
+5. **Security defaults**: same-origin CORS by default (set `CKC_CORS_ORIGINS` for tooling; `*` only on loopback); optional loopback unauth (`CKC_UI_ALLOW_UNAUTH_LOOPBACK`, default on); required `CKC_UI_TOKEN` off-loopback; CDN SRI + CSP headers; path-safe artifact APIs with size caps; off-loopback mutating rate limit (XFF only via `CKC_TRUSTED_PROXIES`).
 
-See `.env.example` for `CKC_UI_TOKEN`, `CKC_CORS_ORIGINS`, and the LM Studio / `OPENAI_BASE_URL` SSRF threat model.
+See `.env.example` for `CKC_UI_TOKEN`, `CKC_CORS_ORIGINS`, `CKC_TRUSTED_PROXIES`, and the LM Studio / `OPENAI_BASE_URL` SSRF threat model (`CKC_LLM_ALLOW_PRIVATE`).
 
+### Privacy / AI data flow
+
+When LLM synthesis is enabled (`CKC_LLM_BASE_URL` / UI toggle), stacked graph context
+and prompts are sent to that HTTP endpoint. Loopback hosts are allowed by default;
+other private/link-local hosts require `CKC_LLM_ALLOW_PRIVATE=1`. The Explorer shows
+an AI disclosure when synthesis is on.
+
+### Observability
+
+- `GET /api/health` — liveness (`{"status":"ok"}`)
+- `GET /api/health?ready=1` — readiness; `503` when engine CLIs are missing from PATH
+- `CKC_LOG_FORMAT=json` emits structured logs with fields: `timestamp`, `level`,
+  `logger`, `message`, `module`, `function`, `line`
+
+### Security
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 ---
 
 ## CLI Usage

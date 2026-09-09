@@ -21,6 +21,16 @@ dev = [
     "ruff==0.16.6",
     "httpx",
 ]
+e2e = [
+    "playwright>=1.40,<2",
+]
+
+# Pinned engine CLI versions used by Docker / setup (FIND-020).
+# Bump deliberately and rebuild images after changing.
+[tool.code-knowledge-chain.engines]
+graphifyy = "0.9.56"
+gitnexus = "1.6.11"
+codegraph = "1.6.0"
 
 [project.scripts]
 code-chain = "code_chain.cli.main:main"

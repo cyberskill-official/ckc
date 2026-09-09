@@ -66,9 +66,7 @@ class TestTraceCodeGraphEnrichment(unittest.TestCase):
         status = MagicMock()
         status.indexed = True
         pipe.codegraph.get_status.return_value = status
-        pipe.codegraph.get_node.side_effect = lambda name: (
-            f"SOURCE FOR {name}\n" + ("x" * 50)
-        )
+        pipe.codegraph.get_node.side_effect = lambda name: f"SOURCE FOR {name}\n" + ("x" * 50)
 
         with patch(
             "code_chain.pipelines.trace_pipeline.finalize_stacked_markdown",
