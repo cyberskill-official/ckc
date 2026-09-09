@@ -45,6 +45,28 @@ load_dotenv()
 
 logger = logging.getLogger("code_chain.ui")
 
+def _configure_logging() -> None:
+    log_format = (os.environ.get("CKC_LOG_FORMAT") or "").strip().lower()
+    if log_format == "json":
+        import json as _json
+        class JsonFormatter(logging.Formatter):
+            def format(self, record: logging.LogRecord) -> str:
+                return _json.dumps({
+                    "timestamp": self.formatTime(record),
+                    "level": record.levelname,
+                    "logger": record.name,
+                    "message": record.getMessage(),
+                    "module": record.module,
+                    "function": record.funcName,
+                    "line": record.lineno,
+                })
+        handler = logging.StreamHandler()
+        handler.setFormatter(JsonFormatter())
+        logging.root.handlers = [handler]
+        logging.root.setLevel(logging.INFO)
+
+_configure_logging()
+
 _MAX_ARTIFACT_BYTES = 2 * 1024 * 1024  # 2 MiB
 _MAX_GRAPH_BYTES = 20 * 1024 * 1024  # 20 MiB raw graph.json
 _GRAPH_SUBSAMPLE_NODE_CAP = 2500
@@ -60,17 +82,15 @@ _RATE_LIMIT_WINDOW_S = 60.0
 _RATE_LIMIT_MAX = 30
 _rate_limit_hits: dict[str, list[float]] = {}
 _rate_limit_lock = threading.Lock()
-
+_rate_limit_evict_counter = 0
 
 def _bind_host() -> str:
     return (os.environ.get("CKC_HOST") or "127.0.0.1").strip() or "127.0.0.1"
-
 
 def is_loopback_host(host: str | None = None) -> bool:
     """True when the UI bind address is loopback-only (not all-interfaces)."""
     h = (host or _bind_host()).strip().lower()
     return h in {"127.0.0.1", "localhost", "::1"}
-
 
 def resolve_cors_origins(host: str | None = None) -> list[str]:
     """
@@ -92,11 +112,9 @@ def resolve_cors_origins(host: str | None = None) -> list[str]:
         return ["*"]
     return []
 
-
 def ui_token() -> str | None:
     token = (os.environ.get("CKC_UI_TOKEN") or "").strip()
     return token or None
-
 
 def auth_required() -> bool:
     """Enforce shared secret when configured, or when listening beyond loopback."""
@@ -104,10 +122,8 @@ def auth_required() -> bool:
         return True
     return not is_loopback_host()
 
-
 # Backward-compatible alias used by older callers / docs snippets.
 auth_required_for_mutations = auth_required
-
 
 def tokens_match(provided: str, expected: str) -> bool:
     """Constant-time token compare; unequal lengths never raise."""
@@ -116,16 +132,13 @@ def tokens_match(provided: str, expected: str) -> bool:
     except (TypeError, ValueError):
         return False
 
-
 def _is_public_api_path(path: str) -> bool:
     return path == "/api/health" or path.startswith("/api/health/")
-
 
 def _artifact_path_allowed(clean_file: str) -> bool:
     """True when clean_file is under an allowlisted root as a path component."""
     first = clean_file.split("/", 1)[0]
     return first in _ARTIFACT_ALLOWED_ROOTS
-
 
 def _client_rate_key(request: Request) -> str:
     forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
@@ -134,7 +147,6 @@ def _client_rate_key(request: Request) -> str:
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
-
 
 def _rate_limit_exceeded(request: Request) -> bool:
     """True when off-loopback mutating traffic exceeds the simple window budget."""
@@ -145,7 +157,16 @@ def _rate_limit_exceeded(request: Request) -> bool:
         return False
     key = _client_rate_key(request)
     now = time.monotonic()
+    global _rate_limit_evict_counter
     with _rate_limit_lock:
+        _rate_limit_evict_counter += 1
+        if _rate_limit_evict_counter >= 100:
+            _rate_limit_evict_counter = 0
+            for k in list(_rate_limit_hits.keys()):
+                _rate_limit_hits[k] = [t for t in _rate_limit_hits[k] if now - t < _RATE_LIMIT_WINDOW_S]
+                if not _rate_limit_hits[k]:
+                    del _rate_limit_hits[k]
+
         hits = [t for t in _rate_limit_hits.get(key, []) if now - t < _RATE_LIMIT_WINDOW_S]
         if len(hits) >= _RATE_LIMIT_MAX:
             _rate_limit_hits[key] = hits
@@ -165,7 +186,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "Content-Security-Policy",
             (
                 "default-src 'self'; "
-                "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+                "script-src 'self' https://cdn.jsdelivr.net; "
                 "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
                 "img-src 'self' data: blob:; "
                 "connect-src 'self'; "
@@ -177,6 +198,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
         return response
 
 
@@ -230,12 +252,24 @@ class UIAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    with _active_indexing_lock:
+        procs = list(_active_indexing_processes.values())
+    for proc in procs:
+        try:
+            await _terminate_process(proc)
+        except Exception:
+            pass
+
 app = FastAPI(
     title="Code Knowledge Chain UI",
     description=(
         "Interactive Web Dashboard for Graphify + GitNexus + CodeGraph 3-Tier Code Intelligence"
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 _cors_origins = resolve_cors_origins()
@@ -269,6 +303,18 @@ def validate_project_path(path_str: str) -> Path:
         return assert_safe_project_path(path_str)
     except UnsafeProjectPathError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+_chain_cache: dict[str, tuple[CodeKnowledgeChain, float]] = {}
+_CHAIN_CACHE_TTL = 300.0  # 5 minutes
+
+def _get_chain(project_path: str) -> CodeKnowledgeChain:
+    now = time.monotonic()
+    cached = _chain_cache.get(project_path)
+    if cached and (now - cached[1]) < _CHAIN_CACHE_TTL:
+        return cached[0]
+    chain = CodeKnowledgeChain(project_path=project_path)
+    _chain_cache[project_path] = (chain, now)
+    return chain
 
 
 def _engine_error_map(status: Any) -> dict[str, str]:
@@ -320,9 +366,9 @@ def _build_index_steps(
     """
     Shared engine argv lists for UI SSE indexing.
 
-    Mirrors adapter ``_extract_cmd`` / ``_analyze_cmd`` / ``_init_cmd`` used by
-    ``IndexPipeline``. Full merge into one IndexPipeline streaming path is
-    deferred (argv drift risk); keep these command builders in sync manually.
+    Delegates to adapter ``_extract_cmd`` / ``_analyze_cmd`` / ``_init_cmd``
+    methods — the same methods used by ``IndexPipeline`` — so command
+    construction has a single source of truth in the adapter layer.
     Timeout semantics differ intentionally: UI uses one wall-clock deadline;
     CLI/MCP give each engine a full per-engine timeout (see ChainConfig docstring).
     Returns (steps, code_only).
@@ -414,7 +460,7 @@ def get_status(
     project: str = Query(..., description="Absolute path to target project"),
 ):
     resolved = validate_project_path(project)
-    chain = CodeKnowledgeChain(project_path=str(resolved))
+    chain = _get_chain(str(resolved))
     status = chain.status()
 
     # Check git metadata if present
@@ -740,6 +786,7 @@ async def stream_indexing(
 
             gitignore_added = await asyncio.to_thread(ensure_engine_gitignore, resolved)
 
+            _chain_cache.pop(str(resolved), None)
             chain = CodeKnowledgeChain(project_path=str(resolved))
             status = await asyncio.to_thread(chain.status)
             manifest_dir = resolved / ".code_chain"
@@ -797,10 +844,43 @@ async def run_query(payload: QueryPayload):
     resolved = validate_project_path(payload.project_path)
 
     def _work() -> dict[str, Any]:
-        chain = CodeKnowledgeChain(project_path=str(resolved))
+        chain = _get_chain(str(resolved))
         return chain.query(payload.query, use_llm=payload.use_llm).model_dump()
 
     return await _run_with_query_timeout(_work)
+
+
+@app.post("/api/query/stream")
+async def run_query_stream(payload: QueryPayload):
+    """SSE streaming query endpoint — sends progress events during execution."""
+    resolved = validate_project_path(payload.project_path)
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        yield json.dumps({"event": "progress", "phase": "context", "message": "Retrieving multi-tier context..."})
+
+        try:
+            chain = _get_chain(str(resolved))
+
+            # Phase 1: non-LLM context retrieval
+            context_result = await asyncio.to_thread(
+                lambda: chain.query(payload.query, use_llm=False).model_dump()
+            )
+            yield json.dumps({"event": "context", "data": context_result})
+
+            # Phase 2: LLM synthesis (if requested)
+            if payload.use_llm:
+                yield json.dumps({"event": "progress", "phase": "synthesis", "message": "Synthesizing with LLM..."})
+                full_result = await asyncio.to_thread(
+                    lambda: chain.query(payload.query, use_llm=True).model_dump()
+                )
+                yield json.dumps({"event": "complete", "data": full_result})
+            else:
+                yield json.dumps({"event": "complete", "data": context_result})
+
+        except Exception as e:
+            yield json.dumps({"event": "error", "message": str(e)})
+
+    return EventSourceResponse(event_generator())
 
 
 @app.post("/api/impact")
@@ -808,7 +888,7 @@ async def run_impact(payload: ImpactPayload):
     resolved = validate_project_path(payload.project_path)
 
     def _work() -> dict[str, Any]:
-        chain = CodeKnowledgeChain(project_path=str(resolved))
+        chain = _get_chain(str(resolved))
         return chain.impact(payload.symbol, use_llm=payload.use_llm).model_dump()
 
     return await _run_with_query_timeout(_work)
@@ -819,7 +899,7 @@ async def run_trace(payload: TracePayload):
     resolved = validate_project_path(payload.project_path)
 
     def _work() -> dict[str, Any]:
-        chain = CodeKnowledgeChain(project_path=str(resolved))
+        chain = _get_chain(str(resolved))
         return chain.trace(
             payload.from_symbol, payload.to_symbol, use_llm=payload.use_llm
         ).model_dump()

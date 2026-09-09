@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CKC | 3D Code Knowledge Explorer</title>
+    <meta name="description" content="CKC — 3D Code Knowledge Explorer. Visualize and query your codebase architecture with a three-tier knowledge graph, impact analysis, and execution tracing.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='28' fill='%230F172A'/><circle cx='24' cy='28' r='6' fill='%2306B6D4'/><circle cx='40' cy='24' r='4' fill='%23A78BFA'/><circle cx='36' cy='40' r='5' fill='%23EC4899'/><line x1='24' y1='28' x2='40' y2='24' stroke='%23334155' stroke-width='1.5'/><line x1='24' y1='28' x2='36' y2='40' stroke='%23334155' stroke-width='1.5'/><line x1='40' y1='24' x2='36' y2='40' stroke='%23334155' stroke-width='1.5'/></svg>" type="image/svg+xml">
     
     <!-- Google Fonts: IBM Plex Sans & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -37,7 +39,7 @@
             </div>
 
             <!-- Repository Switcher Button -->
-            <button id="project-pill-btn" class="project-pill" title="Switch Repository (P)">
+            <button id="project-pill-btn" class="project-pill" title="Switch Repository (P)" aria-expanded="false" aria-controls="project-popover">
                 <svg class="pill-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                 </svg>
@@ -116,7 +118,7 @@
             </button>
 
             <!-- Layers / Filter Popover Toggle -->
-            <button id="layers-toggle-btn" class="btn btn-secondary" title="Filters & Clusters (L)">
+            <button id="layers-toggle-btn" class="btn btn-secondary" title="Filters & Clusters (L)" aria-expanded="false" aria-controls="layers-popover">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
                     <polyline points="2 17 12 22 22 17"></polyline>
@@ -126,7 +128,7 @@
             </button>
 
             <!-- Index Action Button -->
-            <button id="header-index-btn" class="btn btn-primary" title="Index Codebase">
+            <button id="header-index-btn" class="btn btn-primary" title="Index Codebase" aria-expanded="false" aria-controls="index-popover">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                 </svg>
@@ -309,11 +311,11 @@
         </div>
 
         <!-- Legend Indicator (Bottom-Left) -->
-        <div class="canvas-legend">
-            <div class="legend-item"><span class="legend-dot color-code"></span> Code</div>
-            <div class="legend-item"><span class="legend-dot color-doc"></span> Docs</div>
-            <div class="legend-item"><span class="legend-dot color-schema"></span> Schema</div>
-            <div class="legend-item"><span class="legend-dot color-test"></span> Tests</div>
+        <div id="graph-legend" class="graph-legend hidden">
+            <div class="legend-item"><span class="legend-dot" style="background:#06B6D4"></span> Code</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#EC4899"></span> Doc</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#A78BFA"></span> Schema</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#34D399"></span> Test</div>
         </div>
 
         <!-- Floating Minimalist HUD Controls Dock (Bottom-Right) -->

@@ -16,6 +16,7 @@ const state = {
     filters: { code: true, doc: true, schema: true, test: true },
     isAutoRotating: false,
     indexingAbort: null,
+    queryAbort: null,
     inFlight: false,
     drawerOpen: false,
     drawerTab: 'terminal',
@@ -179,6 +180,38 @@ function init() {
 
     if (state.currentProject) {
         loadProject();
+    } else {
+        showWelcomeOverlay();
+    }
+}
+
+function showWelcomeOverlay() {
+    const container = els.container3d || document.getElementById('graph-3d');
+    if (!container || document.getElementById('welcome-overlay')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'welcome-overlay';
+    overlay.innerHTML = DOMPurify.sanitize(`
+        <div class="welcome-card">
+            <h1 class="welcome-title">CKC</h1>
+            <p class="welcome-subtitle">3D Code Knowledge Explorer</p>
+            <div class="welcome-steps">
+                <div class="welcome-step"><span class="step-num">1</span> Enter a project path or pick a sample</div>
+                <div class="welcome-step"><span class="step-num">2</span> Click any node to inspect it</div>
+                <div class="welcome-step"><span class="step-num">3</span> Search, query, trace, or analyze impact</div>
+            </div>
+            <div class="welcome-actions">
+                <button class="btn-welcome-sample" id="welcome-open-btn">Open a Project</button>
+            </div>
+            <p class="welcome-shortcut">Press <kbd>/</kbd> to search · <kbd>P</kbd> to switch projects</p>
+        </div>
+    `);
+    container.appendChild(overlay);
+    const openBtn = document.getElementById('welcome-open-btn');
+    if (openBtn) {
+        openBtn.addEventListener('click', () => {
+            if (els.projectPillBtn) els.projectPillBtn.click();
+            overlay.remove();
+        });
     }
 }
 
@@ -202,6 +235,10 @@ function closeAllPopovers() {
     if (els.indexPopover) els.indexPopover.classList.add('closed');
     if (els.searchModeDropdown) els.searchModeDropdown.classList.add('closed');
     if (els.searchResultsDropdown) els.searchResultsDropdown.classList.add('closed');
+    // Update ARIA expanded state on trigger buttons
+    if (els.projectPillBtn) els.projectPillBtn.setAttribute('aria-expanded', 'false');
+    if (els.layersToggleBtn) els.layersToggleBtn.setAttribute('aria-expanded', 'false');
+    if (els.headerIndexBtn) els.headerIndexBtn.setAttribute('aria-expanded', 'false');
 }
 
 function persistUseLlmFromInput() {
@@ -436,12 +473,16 @@ function setupEventListeners() {
             e.stopPropagation();
             const isOpen = !els.projectPopover.classList.contains('closed');
             closeAllPopovers();
-            if (!isOpen) els.projectPopover.classList.remove('closed');
+            if (!isOpen) {
+                els.projectPopover.classList.remove('closed');
+                els.projectPillBtn.setAttribute('aria-expanded', 'true');
+            }
         });
     }
     if (els.closeProjectPopoverBtn) {
         els.closeProjectPopoverBtn.addEventListener('click', () => {
             if (els.projectPopover) els.projectPopover.classList.add('closed');
+            if (els.projectPillBtn) els.projectPillBtn.setAttribute('aria-expanded', 'false');
         });
     }
 
@@ -450,12 +491,16 @@ function setupEventListeners() {
             e.stopPropagation();
             const isOpen = !els.layersPopover.classList.contains('closed');
             closeAllPopovers();
-            if (!isOpen) els.layersPopover.classList.remove('closed');
+            if (!isOpen) {
+                els.layersPopover.classList.remove('closed');
+                els.layersToggleBtn.setAttribute('aria-expanded', 'true');
+            }
         });
     }
     if (els.closeLayersPopoverBtn) {
         els.closeLayersPopoverBtn.addEventListener('click', () => {
             if (els.layersPopover) els.layersPopover.classList.add('closed');
+            if (els.layersToggleBtn) els.layersToggleBtn.setAttribute('aria-expanded', 'false');
         });
     }
 
@@ -464,7 +509,10 @@ function setupEventListeners() {
             e.stopPropagation();
             const isOpen = !els.indexPopover.classList.contains('closed');
             closeAllPopovers();
-            if (!isOpen) els.indexPopover.classList.remove('closed');
+            if (!isOpen) {
+                els.indexPopover.classList.remove('closed');
+                els.headerIndexBtn.setAttribute('aria-expanded', 'true');
+            }
         });
     }
     if (els.readyBadge && els.indexPopover) {
@@ -472,12 +520,16 @@ function setupEventListeners() {
             e.stopPropagation();
             const isOpen = !els.indexPopover.classList.contains('closed');
             closeAllPopovers();
-            if (!isOpen) els.indexPopover.classList.remove('closed');
+            if (!isOpen) {
+                els.indexPopover.classList.remove('closed');
+                if (els.headerIndexBtn) els.headerIndexBtn.setAttribute('aria-expanded', 'true');
+            }
         });
     }
     if (els.closeIndexPopoverBtn) {
         els.closeIndexPopoverBtn.addEventListener('click', () => {
             if (els.indexPopover) els.indexPopover.classList.add('closed');
+            if (els.headerIndexBtn) els.headerIndexBtn.setAttribute('aria-expanded', 'false');
         });
     }
 
@@ -941,6 +993,13 @@ function resetCameraView() {
 
 async function loadProject() {
     if (!state.currentProject || state.inFlight) return;
+
+    // Clear stale analysis results from previous project
+    if (els.resultsOutput) els.resultsOutput.innerHTML = '';
+    state.lastResults = null;
+    document.getElementById('welcome-overlay')?.remove();
+    document.getElementById('graph-legend')?.classList.remove('hidden');
+
     persistUiTokenFromInput();
     setBusy(true);
     try {
@@ -1337,10 +1396,14 @@ function clearOverlays() {
 
 async function runQuery(query) {
     if (state.inFlight) return;
+    if (state.queryAbort) state.queryAbort.abort();
+    state.queryAbort = new AbortController();
     setBusy(true);
     openDrawer();
     switchDrawerTab('results');
-    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);"><svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>Synthesizing multi-tier architecture context for: <strong>${escapeHtml(query)}</strong>...</div>`);
+    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);"><svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>Synthesizing multi-tier architecture context for: <strong>${escapeHtml(query)}</strong>...<button id="cancel-query-btn" style="margin-left:12px;padding:4px 12px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:12px;">Cancel</button></div>`);
+    const cancelBtn = document.getElementById('cancel-query-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { if (state.queryAbort) state.queryAbort.abort(); });
 
     try {
         const payload = {
@@ -1350,26 +1413,37 @@ async function runQuery(query) {
         };
         const res = await apiFetch('/api/query', {
             method: 'POST',
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: state.queryAbort.signal
         });
 
         addOperationHistory('query', query);
         renderOperationResults(res.synthesized_context || 'No response generated.');
         showToast(`Query completed for "${query}"`, 'success');
     } catch (e) {
-        setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--accent-rose);">Query Error: ${escapeHtml(e.message)}</div>`);
-        showToast(`Query failed: ${e.message}`, 'error');
+        if (e.name === 'AbortError') {
+            setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);">Query cancelled.</div>`);
+            showToast('Query cancelled', 'info');
+        } else {
+            setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--accent-rose);">Query Error: ${escapeHtml(e.message)}</div>`);
+            showToast(`Query failed: ${e.message}`, 'error');
+        }
     } finally {
+        state.queryAbort = null;
         setBusy(false);
     }
 }
 
 async function runImpact(symbol) {
     if (state.inFlight) return;
+    if (state.queryAbort) state.queryAbort.abort();
+    state.queryAbort = new AbortController();
     setBusy(true);
     openDrawer();
     switchDrawerTab('results');
-    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);"><svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>Calculating blast radius for <strong>${escapeHtml(symbol)}</strong>...</div>`);
+    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);"><svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>Calculating blast radius for <strong>${escapeHtml(symbol)}</strong>...<button id="cancel-query-btn" style="margin-left:12px;padding:4px 12px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:12px;">Cancel</button></div>`);
+    const cancelBtn = document.getElementById('cancel-query-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { if (state.queryAbort) state.queryAbort.abort(); });
 
     try {
         const payload = {
@@ -1379,7 +1453,8 @@ async function runImpact(symbol) {
         };
         const res = await apiFetch('/api/impact', {
             method: 'POST',
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: state.queryAbort.signal
         });
 
         addOperationHistory('impact', symbol);
@@ -1387,9 +1462,15 @@ async function runImpact(symbol) {
         renderOperationResults(res.synthesized_report || 'No impact report generated.');
         showToast(`Blast radius: ${res.blast_radius_count || 0} dependent components (${res.risk_level || 'OK'})`, 'success');
     } catch (e) {
-        setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--accent-rose);">Impact Error: ${escapeHtml(e.message)}</div>`);
-        showToast(`Impact failed: ${e.message}`, 'error');
+        if (e.name === 'AbortError') {
+            setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);">Impact analysis cancelled.</div>`);
+            showToast('Impact analysis cancelled', 'info');
+        } else {
+            setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--accent-rose);">Impact Error: ${escapeHtml(e.message)}</div>`);
+            showToast(`Impact failed: ${e.message}`, 'error');
+        }
     } finally {
+        state.queryAbort = null;
         setBusy(false);
     }
 }
@@ -1434,10 +1515,14 @@ function applyImpactOverlay(symbol, report) {
 
 async function runTrace(fromSym, toSym) {
     if (state.inFlight) return;
+    if (state.queryAbort) state.queryAbort.abort();
+    state.queryAbort = new AbortController();
     setBusy(true);
     openDrawer();
     switchDrawerTab('results');
-    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);"><svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>Tracing execution path: <strong>${escapeHtml(fromSym)} &rarr; ${escapeHtml(toSym)}</strong>...</div>`);
+    setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);"><svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>Tracing execution path: <strong>${escapeHtml(fromSym)} &rarr; ${escapeHtml(toSym)}</strong>...<button id="cancel-query-btn" style="margin-left:12px;padding:4px 12px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:12px;">Cancel</button></div>`);
+    const cancelBtn = document.getElementById('cancel-query-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { if (state.queryAbort) state.queryAbort.abort(); });
 
     try {
         const payload = {
@@ -1448,7 +1533,8 @@ async function runTrace(fromSym, toSym) {
         };
         const res = await apiFetch('/api/trace', {
             method: 'POST',
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: state.queryAbort.signal
         });
 
         addOperationHistory('trace', `${fromSym} -> ${toSym}`);
@@ -1456,9 +1542,15 @@ async function runTrace(fromSym, toSym) {
         renderOperationResults(res.synthesized_flow || 'No path found.');
         showToast(res.path_found ? `Trace path found: ${res.path_length || 0} steps` : 'No path found between symbols', res.path_found ? 'success' : 'info');
     } catch (e) {
-        setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--accent-rose);">Trace Error: ${escapeHtml(e.message)}</div>`);
-        showToast(`Trace failed: ${e.message}`, 'error');
+        if (e.name === 'AbortError') {
+            setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--text-secondary);">Trace cancelled.</div>`);
+            showToast('Trace cancelled', 'info');
+        } else {
+            setSafeHtml(els.resultsOutput, `<div style="padding:16px;color:var(--accent-rose);">Trace Error: ${escapeHtml(e.message)}</div>`);
+            showToast(`Trace failed: ${e.message}`, 'error');
+        }
     } finally {
+        state.queryAbort = null;
         setBusy(false);
     }
 }

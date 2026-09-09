@@ -1,0 +1,40 @@
+# docker-compose.yml — Full-stack CKC development environment
+#
+# Usage:
+#   docker compose up              # start CKC server
+#   docker compose up --build      # rebuild and start
+#
+# Mount your project directory via the PROJECT_PATH env var:
+#   PROJECT_PATH=/path/to/repo docker compose up
+#
+# For LLM synthesis, run LM Studio (or Ollama) on the host and set:
+#   CKC_LLM_BASE_URL=http://host.docker.internal:1234/v1
+#   CKC_LLM_MODEL=your-model-name
+
+services:
+  ckc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${CKC_PORT:-8000}:8000"
+    volumes:
+      # Mount a project directory for indexing and exploration
+      - "${PROJECT_PATH:-.}:/project"
+    environment:
+      - CKC_HOST=0.0.0.0
+      - CKC_PORT=8000
+      - CKC_LOG_FORMAT=json
+      # LLM config (point to host LM Studio / Ollama)
+      - CKC_LLM_BASE_URL=${CKC_LLM_BASE_URL:-}
+      - CKC_LLM_MODEL=${CKC_LLM_MODEL:-}
+      - CKC_LLM_API_KEY=${CKC_LLM_API_KEY:-lm-studio}
+      # Security (set a token for non-local access)
+      - CKC_UI_TOKEN=${CKC_UI_TOKEN:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
