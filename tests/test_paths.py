@@ -22,10 +22,12 @@ class TestProjectPathSafety(unittest.TestCase):
         with self.assertRaises(UnsafeProjectPathError):
             assert_safe_project_path("/non/existent/path/999")
 
-    def test_accepts_bundled_sample(self):
-        sample = Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
-        resolved = assert_safe_project_path(str(sample))
-        self.assertEqual(resolved, sample.resolve())
+    def test_rejects_src_only_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            with self.assertRaises(UnsafeProjectPathError):
+                assert_safe_project_path(str(root))
 
     def test_gitignore_appends_engine_dirs(self):
         with tempfile.TemporaryDirectory() as tmp:

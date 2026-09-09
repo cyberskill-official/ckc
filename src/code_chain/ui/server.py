@@ -9,9 +9,11 @@ import asyncio
 import contextlib
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable
@@ -45,25 +47,31 @@ load_dotenv()
 
 logger = logging.getLogger("code_chain.ui")
 
+
 def _configure_logging() -> None:
     log_format = (os.environ.get("CKC_LOG_FORMAT") or "").strip().lower()
     if log_format == "json":
         import json as _json
+
         class JsonFormatter(logging.Formatter):
             def format(self, record: logging.LogRecord) -> str:
-                return _json.dumps({
-                    "timestamp": self.formatTime(record),
-                    "level": record.levelname,
-                    "logger": record.name,
-                    "message": record.getMessage(),
-                    "module": record.module,
-                    "function": record.funcName,
-                    "line": record.lineno,
-                })
+                return _json.dumps(
+                    {
+                        "timestamp": self.formatTime(record),
+                        "level": record.levelname,
+                        "logger": record.name,
+                        "message": record.getMessage(),
+                        "module": record.module,
+                        "function": record.funcName,
+                        "line": record.lineno,
+                    }
+                )
+
         handler = logging.StreamHandler()
         handler.setFormatter(JsonFormatter())
         logging.root.handlers = [handler]
         logging.root.setLevel(logging.INFO)
+
 
 _configure_logging()
 
@@ -83,20 +91,29 @@ _RATE_LIMIT_MAX = 30
 _rate_limit_hits: dict[str, list[float]] = {}
 _rate_limit_lock = threading.Lock()
 _rate_limit_evict_counter = 0
+# Global concurrent index jobs (in addition to per-project serialization).
+_MAX_CONCURRENT_INDEX_JOBS = max(
+    1, int((os.environ.get("CKC_MAX_CONCURRENT_INDEX") or "2").strip() or "2")
+)
+
 
 def _bind_host() -> str:
     return (os.environ.get("CKC_HOST") or "127.0.0.1").strip() or "127.0.0.1"
+
 
 def is_loopback_host(host: str | None = None) -> bool:
     """True when the UI bind address is loopback-only (not all-interfaces)."""
     h = (host or _bind_host()).strip().lower()
     return h in {"127.0.0.1", "localhost", "::1"}
 
+
 def resolve_cors_origins(host: str | None = None) -> list[str]:
     """
-    Loopback binds may use wildcard CORS for local tooling.
-    Non-loopback binds refuse '*' and default to same-origin only (empty allow-list)
-    unless CKC_CORS_ORIGINS lists explicit origins.
+    Default CORS is same-origin only (empty allow-list) on every bind.
+
+    Cross-origin tooling must set CKC_CORS_ORIGINS to an explicit list.
+    Wildcard '*' is allowed only on loopback (opt-in via CKC_CORS_ORIGINS=*),
+    and is refused for non-loopback binds.
     """
     bind = host or _bind_host()
     explicit = (os.environ.get("CKC_CORS_ORIGINS") or "").strip()
@@ -108,22 +125,51 @@ def resolve_cors_origins(host: str | None = None) -> list[str]:
                 f"(got {bind!r}). Set explicit origins or bind to 127.0.0.1."
             )
         return origins
-    if is_loopback_host(bind):
-        return ["*"]
     return []
+
 
 def ui_token() -> str | None:
     token = (os.environ.get("CKC_UI_TOKEN") or "").strip()
     return token or None
 
+
+def allow_unauth_loopback() -> bool:
+    """
+    Loopback may stay unauthenticated for local DX unless a token is set.
+
+    Set CKC_UI_ALLOW_UNAUTH_LOOPBACK=0 to require CKC_UI_TOKEN even on loopback.
+    """
+    raw = (os.environ.get("CKC_UI_ALLOW_UNAUTH_LOOPBACK") or "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def allow_query_token() -> bool:
+    """Legacy GET ?token= for SSE; off by default (FIND-004)."""
+    raw = (os.environ.get("CKC_ALLOW_QUERY_TOKEN") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def auth_required() -> bool:
     """Enforce shared secret when configured, or when listening beyond loopback."""
     if ui_token():
         return True
-    return not is_loopback_host()
+    if not is_loopback_host():
+        return True
+    return not allow_unauth_loopback()
+
 
 # Backward-compatible alias used by older callers / docs snippets.
 auth_required_for_mutations = auth_required
+
+
+def assert_bind_auth_config() -> None:
+    """Refuse to serve when bound beyond loopback without CKC_UI_TOKEN (FIND-026)."""
+    if not is_loopback_host() and not ui_token():
+        raise RuntimeError(
+            f"CKC_UI_TOKEN must be set when CKC_HOST is not loopback "
+            f"(got {_bind_host()!r}). Refusing to start."
+        )
+
 
 def tokens_match(provided: str, expected: str) -> bool:
     """Constant-time token compare; unequal lengths never raise."""
@@ -132,21 +178,66 @@ def tokens_match(provided: str, expected: str) -> bool:
     except (TypeError, ValueError):
         return False
 
+
 def _is_public_api_path(path: str) -> bool:
     return path == "/api/health" or path.startswith("/api/health/")
+
 
 def _artifact_path_allowed(clean_file: str) -> bool:
     """True when clean_file is under an allowlisted root as a path component."""
     first = clean_file.split("/", 1)[0]
     return first in _ARTIFACT_ALLOWED_ROOTS
 
+
+def _parse_trusted_proxies() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    raw = (os.environ.get("CKC_TRUSTED_PROXIES") or "").strip()
+    if not raw:
+        return []
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for part in raw.split(","):
+        item = part.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            logger.warning("Ignoring invalid CKC_TRUSTED_PROXIES entry: %r", item)
+    return networks
+
+
+def _ip_in_networks(
+    host: str, networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network]
+) -> bool:
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(addr in net for net in networks)
+
+
 def _client_rate_key(request: Request) -> str:
-    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    if forwarded:
-        return forwarded
-    if request.client and request.client.host:
-        return request.client.host
+    """
+    Rate-limit key: peer address by default.
+
+    X-Forwarded-For is honored only when the direct peer is in CKC_TRUSTED_PROXIES
+    (FIND-005). Spoofed XFF from untrusted clients is ignored.
+    """
+    peer = request.client.host if request.client else None
+    trusted = _parse_trusted_proxies()
+    if trusted and peer and _ip_in_networks(peer, trusted):
+        forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+    if peer:
+        return peer
     return "unknown"
+
+
+def _public_error_detail(exc: BaseException, *, public: str) -> str:
+    """Log unexpected errors server-side; return a generic client message (FIND-021)."""
+    logger.exception("%s", public, exc_info=exc)
+    return public
+
 
 def _rate_limit_exceeded(request: Request) -> bool:
     """True when off-loopback mutating traffic exceeds the simple window budget."""
@@ -235,15 +326,18 @@ class UIAuthMiddleware(BaseHTTPMiddleware):
             )
 
         provided = (
-            request.headers.get("x-ckc-token")
-            or request.headers.get("X-CKC-Token")
-            or ""
+            request.headers.get("x-ckc-token") or request.headers.get("X-CKC-Token") or ""
         ).strip()
         auth = (request.headers.get("authorization") or "").strip()
         if auth.lower().startswith("bearer "):
             provided = auth[7:].strip() or provided
-        # Legacy EventSource fallback: ?token= for GET SSE only (prefer POST + header).
-        if not provided and request.method == "GET" and path.startswith("/api/index/stream"):
+        # Legacy EventSource fallback: ?token= only when CKC_ALLOW_QUERY_TOKEN=1.
+        if (
+            not provided
+            and allow_query_token()
+            and request.method == "GET"
+            and path.startswith("/api/index/stream")
+        ):
             provided = (request.query_params.get("token") or "").strip()
 
         if not tokens_match(provided, token):
@@ -256,12 +350,14 @@ class UIAuthMiddleware(BaseHTTPMiddleware):
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    assert_bind_auth_config()
     yield
     with _active_indexing_lock:
         procs = list(_active_indexing_processes.values())
     for proc in procs:
         with contextlib.suppress(Exception):
             await _terminate_process(proc)
+
 
 app = FastAPI(
     title="Code Knowledge Chain UI",
@@ -283,13 +379,6 @@ app.add_middleware(
 app.add_middleware(UIAuthMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
-if not is_loopback_host() and not ui_token():
-    logger.warning(
-        "CKC UI is binding to non-loopback host %s without CKC_UI_TOKEN; "
-        "API routes will return 503 until a token is configured.",
-        _bind_host(),
-    )
-
 # Active indexing process tracker for cancellation
 _active_indexing_lock = threading.Lock()
 _active_indexing_processes: dict[str, asyncio.subprocess.Process] = {}
@@ -304,8 +393,10 @@ def validate_project_path(path_str: str) -> Path:
     except UnsafeProjectPathError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+
 _chain_cache: dict[str, tuple[CodeKnowledgeChain, float]] = {}
 _CHAIN_CACHE_TTL = 300.0  # 5 minutes
+
 
 def _get_chain(project_path: str) -> CodeKnowledgeChain:
     now = time.monotonic()
@@ -433,8 +524,27 @@ class IndexStreamPayload(BaseModel):
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "code-knowledge-chain-ui"}
+def health(ready: bool = Query(False, description="When true, check engine CLIs on PATH")):
+    """Liveness by default; readiness when ready=1 (FIND-024)."""
+    payload: dict[str, Any] = {
+        "status": "ok",
+        "service": "code-knowledge-chain-ui",
+    }
+    if not ready:
+        return payload
+    engines = {
+        "graphify": shutil.which("graphify") is not None,
+        "gitnexus": shutil.which("gitnexus") is not None,
+        "codegraph": shutil.which("codegraph") is not None,
+    }
+    payload["engines"] = engines
+    missing = [name for name, present in engines.items() if not present]
+    if missing:
+        payload["status"] = "not_ready"
+        payload["missing_engines"] = missing
+        return JSONResponse(status_code=503, content=payload)
+    payload["ready"] = True
+    return payload
 
 
 @app.get("/api/samples")
@@ -501,7 +611,10 @@ async def cancel_indexing(payload: CancelPayload):
                 "message": "Indexing process terminated.",
             }
         except Exception as e:
-            return {"success": False, "message": f"Error terminating process: {e}"}
+            return {
+                "success": False,
+                "message": _public_error_detail(e, public="Error terminating process."),
+            }
     return {"success": True, "message": "No active process or already finished."}
 
 
@@ -515,7 +628,7 @@ async def stream_indexing(
     """Stream indexing progress via SSE.
 
     Prefer POST with JSON body + Authorization header so the UI token never
-    appears in the query string. GET + optional ?token= remains for legacy clients.
+    appears in the query string. GET ?token= is disabled unless CKC_ALLOW_QUERY_TOKEN=1.
     """
     if request.method == "POST":
         try:
@@ -539,18 +652,23 @@ async def stream_indexing(
 
     with _active_indexing_lock:
         if proj_key in _active_index_jobs:
-            busy = True
+            busy_reason = "Indexing already in progress for this project."
+        elif len(_active_index_jobs) >= _MAX_CONCURRENT_INDEX_JOBS:
+            busy_reason = (
+                f"Too many concurrent index jobs "
+                f"(max {_MAX_CONCURRENT_INDEX_JOBS}). Try again shortly."
+            )
         else:
             _active_index_jobs.add(proj_key)
-            busy = False
+            busy_reason = None
 
-    if busy:
+    if busy_reason:
 
         async def busy_generator() -> AsyncGenerator[str, None]:
             yield json.dumps(
                 {
                     "event": "error",
-                    "message": "Indexing already in progress for this project.",
+                    "message": busy_reason,
                 }
             )
 
@@ -561,12 +679,8 @@ async def stream_indexing(
             with _active_indexing_lock:
                 _cancellation_flags[proj_key] = False
 
-            steps, code_only = _build_index_steps(
-                resolved, config, multimodal=multimodal
-            )
-            index_timeout = (
-                config.index_timeout if code_only else config.multimodal_index_timeout
-            )
+            steps, code_only = _build_index_steps(resolved, config, multimodal=multimodal)
+            index_timeout = config.index_timeout if code_only else config.multimodal_index_timeout
             deadline = time.monotonic() + index_timeout
 
             yield json.dumps(
@@ -780,7 +894,9 @@ async def stream_indexing(
                             "event": "step_error",
                             "step": step_idx,
                             "engine": engine,
-                            "error": str(e),
+                            "error": _public_error_detail(
+                                e, public=f"Indexing step failed for {engine}."
+                            ),
                         }
                     )
 
@@ -890,7 +1006,12 @@ async def run_query_stream(payload: QueryPayload):
                 yield json.dumps({"event": "complete", "data": context_result})
 
         except Exception as e:
-            yield json.dumps({"event": "error", "message": str(e)})
+            yield json.dumps(
+                {
+                    "event": "error",
+                    "message": _public_error_detail(e, public="Query failed."),
+                }
+            )
 
     return EventSourceResponse(event_generator())
 
@@ -946,30 +1067,28 @@ def _subsample_graph_nodes(
     kept_links = [
         link
         for link in raw_links
-        if str(link.get("source", "")) in kept_ids
-        and str(link.get("target", "")) in kept_ids
+        if str(link.get("source", "")) in kept_ids and str(link.get("target", "")) in kept_ids
     ]
     return kept, kept_links, True
 
 
-def _build_cytoscape_graph(
-    resolved: Path, graph_file: Path
-) -> tuple[dict[str, Any], float, int]:
+def _build_cytoscape_graph(resolved: Path, graph_file: Path) -> tuple[dict[str, Any], float, int]:
     """Read/transform graph.json off the event loop. Returns (payload, mtime, size)."""
     st = graph_file.stat()
     size = st.st_size
     if size > _MAX_GRAPH_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=(
-                f"Graph exceeds size limit ({size} bytes > {_MAX_GRAPH_BYTES} bytes)."
-            ),
+            detail=(f"Graph exceeds size limit ({size} bytes > {_MAX_GRAPH_BYTES} bytes)."),
         )
 
     try:
         raw = json.loads(graph_file.read_text(encoding="utf-8"))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading graph: {e}") from e
+        raise HTTPException(
+            status_code=500,
+            detail=_public_error_detail(e, public="Error reading graph."),
+        ) from e
 
     raw_nodes = list(raw.get("nodes", []))
     raw_links = list(raw.get("links", []))
@@ -992,9 +1111,7 @@ def _build_cytoscape_graph(
     for node in raw_nodes:
         c = node.get("community")
         if c is not None:
-            community_members.setdefault(c, []).append(
-                node.get("label", node.get("id", ""))
-            )
+            community_members.setdefault(c, []).append(node.get("label", node.get("id", "")))
 
     # Transform to Cytoscape elements (categories via shared classify_entity_type)
     cy_nodes = []
@@ -1094,9 +1211,7 @@ async def get_graph(request: Request, project: str = Query(...)):
             detail="Graph not yet indexed. Run indexing first.",
         )
 
-    payload, mtime, size = await asyncio.to_thread(
-        _build_cytoscape_graph, resolved, graph_file
-    )
+    payload, mtime, size = await asyncio.to_thread(_build_cytoscape_graph, resolved, graph_file)
     etag = _graph_etag(mtime, size, bool(payload["meta"].get("subsampled")))
     if_none_match = (request.headers.get("if-none-match") or "").strip()
     if if_none_match and if_none_match == etag:
@@ -1106,9 +1221,7 @@ async def get_graph(request: Request, project: str = Query(...)):
         content=payload,
         headers={
             "ETag": etag,
-            "Last-Modified": time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(mtime)
-            ),
+            "Last-Modified": time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(mtime)),
             "Cache-Control": "private, max-age=0, must-revalidate",
         },
     )
@@ -1204,7 +1317,10 @@ def get_artifact_content(
             "message": None,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading artifact: {e}") from e
+        raise HTTPException(
+            status_code=500,
+            detail=_public_error_detail(e, public="Error reading artifact."),
+        ) from e
 
 
 # Mount static assets

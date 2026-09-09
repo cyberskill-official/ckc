@@ -47,16 +47,12 @@ class QueryPipeline:
                 nid = node.get("id")
                 label = node.get("label")
                 if isinstance(nid, str) and nid:
-                    self._label_cache[nid] = (
-                        label if isinstance(label, str) and label else nid
-                    )
+                    self._label_cache[nid] = label if isinstance(label, str) and label else nid
         return self._label_cache.get(neighbor_id, neighbor_id)
 
     def run(self, query: str, use_llm: bool = True) -> ChainedQueryResult:
         # Tier 1: Graphify broad cross-domain scan
-        tier1_entities = self.graphify.find_cross_domain_entities(
-            query, limit=_MAX_TIER1
-        )
+        tier1_entities = self.graphify.find_cross_domain_entities(query, limit=_MAX_TIER1)
 
         # Tier 2: GitNexus structural execution flows
         gitnexus_data = self.gitnexus.query_concepts(query)
@@ -67,11 +63,7 @@ class QueryPipeline:
         seen: set = set()
         for d in gitnexus_data.get("definitions", []):
             name = d.get("name")
-            if (
-                name
-                and not name.endswith((".md", ".txt", ".json", ".sql"))
-                and name not in seen
-            ):
+            if name and not name.endswith((".md", ".txt", ".json", ".sql")) and name not in seen:
                 seen.add(name)
                 candidate_symbols.append(name)
 
@@ -96,10 +88,8 @@ class QueryPipeline:
                     name=symbol_info.get("name", sym),
                     entity_type=symbol_info.get("kind", "Symbol"),
                     file_path=symbol_info.get("filePath", ""),
-                    upstream_callers=incoming.get("calls", [])
-                    + incoming.get("imports", []),
-                    downstream_callees=outgoing.get("calls", [])
-                    + outgoing.get("has_method", []),
+                    upstream_callers=incoming.get("calls", []) + incoming.get("imports", []),
+                    downstream_callees=outgoing.get("calls", []) + outgoing.get("has_method", []),
                     affected_processes=processes,
                 )
                 tier2_flows.append(flow)
@@ -108,8 +98,7 @@ class QueryPipeline:
         raw_explore = self.codegraph.explore(query) or ""
         if len(raw_explore) > _MAX_EXPLORE_CHARS:
             raw_explore = (
-                raw_explore[:_MAX_EXPLORE_CHARS].rstrip()
-                + "\n… *(explore output truncated)*\n"
+                raw_explore[:_MAX_EXPLORE_CHARS].rstrip() + "\n… *(explore output truncated)*\n"
             )
         tier3_symbols: list[SymbolDetail] = []
         cg_symbols = self.codegraph.query_symbols(query)
@@ -136,9 +125,7 @@ class QueryPipeline:
             tier3_symbols.append(sym_detail)
 
         # Tier 4: Grounded Synthesis
-        synthesis = self._synthesize(
-            query, tier1_entities, tier2_flows, tier3_symbols, raw_explore
-        )
+        synthesis = self._synthesize(query, tier1_entities, tier2_flows, tier3_symbols, raw_explore)
         synthesis = finalize_stacked_markdown(
             synthesis,
             task="query",
@@ -215,14 +202,10 @@ class QueryPipeline:
                         for c in ent.connections[:3]
                     ]
                 )
+                lines.append(f"- {icon} **{ent.name}** (`{ent.source_path or 'unknown'}`)")
                 lines.append(
-                    f"- {icon} **{ent.name}** (`{ent.source_path or 'unknown'}`)"
-                )
-                lines.append(
-                    
-                        f"  - Type: `{ent.entity_type}`, Community: `{ent.community_id}`, "
-                        f"Degree: `{ent.degree}`"
-                    
+                    f"  - Type: `{ent.entity_type}`, Community: `{ent.community_id}`, "
+                    f"Degree: `{ent.degree}`"
                 )
                 if ent.description and ent.entity_type == "doc":
                     lines.append(f"  - Excerpt: {ent.description}")
@@ -236,9 +219,7 @@ class QueryPipeline:
         lines.append("## 2. Structural Execution Flows (GitNexus AST)")
         if tier2:
             for flow in tier2:
-                lines.append(
-                    f"### Flow: `{flow.name}` ({flow.entity_type} in `{flow.file_path}`)"
-                )
+                lines.append(f"### Flow: `{flow.name}` ({flow.entity_type} in `{flow.file_path}`)")
                 if flow.upstream_callers:
                     callers = ", ".join(
                         [c.get("name", "unknown") for c in flow.upstream_callers[:4]]
@@ -251,16 +232,11 @@ class QueryPipeline:
                     lines.append(f"- **Invokes (Downstream):** {callees}")
                 if flow.affected_processes:
                     procs = ", ".join(
-                        [
-                            p.get("label", p.get("id", "proc"))
-                            for p in flow.affected_processes[:3]
-                        ]
+                        [p.get("label", p.get("id", "proc")) for p in flow.affected_processes[:3]]
                     )
                     lines.append(f"- **Business Processes:** {procs}")
         else:
-            lines.append(
-                "- *No multi-hop execution flow cycles detected for this query.*"
-            )
+            lines.append("- *No multi-hop execution flow cycles detected for this query.*")
         lines.append("")
 
         # 3. Precision Code Blocks & Source (CodeGraph)
@@ -278,14 +254,10 @@ class QueryPipeline:
                     lines.append("```")
                     lines.append("")
                 if sym.callers:
-                    caller_names = ", ".join(
-                        c.get("name", "?") for c in sym.callers[:5]
-                    )
+                    caller_names = ", ".join(c.get("name", "?") for c in sym.callers[:5])
                     lines.append(f"- **Callers:** {caller_names}")
                 if sym.callees:
-                    callee_names = ", ".join(
-                        c.get("name", "?") for c in sym.callees[:5]
-                    )
+                    callee_names = ", ".join(c.get("name", "?") for c in sym.callees[:5])
                     lines.append(f"- **Callees:** {callee_names}")
         if raw_explore:
             if tier3:

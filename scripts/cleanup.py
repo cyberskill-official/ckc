@@ -44,8 +44,7 @@ def safe_remove_file(path: Path):
     if path.exists() and path.is_file():
         path.unlink(missing_ok=True)
         print_success(
-            f"Removed file: "
-            f"{path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path}"
+            f"Removed file: {path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path}"
         )
 
 
@@ -55,7 +54,9 @@ def kill_background_daemons():
     if shutil.which("codegraph"):
         try:
             subprocess.run(
-                ["codegraph", "daemon", "stop"], capture_output=True, timeout=5,
+                ["codegraph", "daemon", "stop"],
+                capture_output=True,
+                timeout=5,
                 check=False,
             )
             print_success("Stopped codegraph daemons (if any)")
@@ -132,17 +133,13 @@ def clean_full():
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="One-Click Cleanup for Code Knowledge Chain"
-    )
+    parser = argparse.ArgumentParser(description="One-Click Cleanup for Code Knowledge Chain")
     parser.add_argument(
         "--all",
         action="store_true",
         help="Full reset: removes generated graph indexes and stops daemons",
     )
-    parser.add_argument(
-        "-y", "--yes", action="store_true", help="Skip interactive confirmation"
-    )
+    parser.add_argument("-y", "--yes", action="store_true", help="Skip interactive confirmation")
     args = parser.parse_args()
 
     mode_label = (

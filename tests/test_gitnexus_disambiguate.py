@@ -95,9 +95,7 @@ class TestGitNexusContextDisambiguate(unittest.TestCase):
             "outgoing": {"calls": []},
             "processes": [],
         }
-        with patch.object(
-            adapter, "_run_context", side_effect=[ambiguous, found]
-        ) as mocked:
+        with patch.object(adapter, "_run_context", side_effect=[ambiguous, found]) as mocked:
             result = adapter.get_symbol_context("login")
         self.assertEqual(result["status"], "found")
         self.assertEqual(result["_resolved_uid"], "Function:b.py:AuthService.login")

@@ -11,6 +11,7 @@ Run: pytest tests/test_e2e_playwright.py -v            (headless)
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 
@@ -48,7 +49,7 @@ class TestPageLoad:
 
     def test_meta_description(self, page: Page):
         meta = page.locator('meta[name="description"]')
-        expect(meta).to_have_attribute("content", lambda c: "CKC" in c)
+        expect(meta).to_have_attribute("content", re.compile(r"CKC"))
 
     def test_favicon_present(self, page: Page):
         link = page.locator('link[rel="icon"]')
@@ -186,15 +187,11 @@ class TestAPI:
         assert isinstance(result.get("samples"), list)
 
     def test_invalid_project_returns_400(self, page: Page):
-        result = page.evaluate(
-            "fetch('/api/status?project=').then(r => ({status: r.status}))"
-        )
+        result = page.evaluate("fetch('/api/status?project=').then(r => ({status: r.status}))")
         assert result["status"] == 400
 
     def test_system_path_rejected(self, page: Page):
-        result = page.evaluate(
-            "fetch('/api/status?project=/etc').then(r => ({status: r.status}))"
-        )
+        result = page.evaluate("fetch('/api/status?project=/etc').then(r => ({status: r.status}))")
         assert result["status"] == 400
 
 

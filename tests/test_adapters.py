@@ -13,9 +13,7 @@ class TestAdapters(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.config = ChainConfig()
-        cls.test_repo = (
-            Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
-        )
+        cls.test_repo = Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
 
     def test_graphify_adapter_status_and_entities(self):
         adapter = GraphifyAdapter(self.config.graphify_bin, self.test_repo)
@@ -30,8 +28,7 @@ class TestAdapters(unittest.TestCase):
         self.assertIn("AuthService", names)
         # Local docs overlay may reserve non-code slots ahead of code hubs.
         self.assertTrue(
-            any(e.entity_type == "doc" for e in entities)
-            or entities[0].name == "AuthService"
+            any(e.entity_type == "doc" for e in entities) or entities[0].name == "AuthService"
         )
 
     def test_gitnexus_adapter_status_and_impact(self):

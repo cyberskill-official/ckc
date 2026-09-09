@@ -55,9 +55,7 @@ class TestGraphifyEntityTyping(unittest.TestCase):
             "supabase/migrations/x.sql",
             "schema",
         )
-        ts = entity_match_score(
-            terms, "entitlements.ts", "n2", "src/lib/entitlements.ts", "code"
-        )
+        ts = entity_match_score(terms, "entitlements.ts", "n2", "src/lib/entitlements.ts", "code")
         self.assertGreater(table, ts)
 
     def test_select_reserves_schema_slots(self):

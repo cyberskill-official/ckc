@@ -27,9 +27,9 @@ COPY pyproject.toml README.md ./
 COPY src/ src/
 RUN pip install --no-cache-dir .
 
-# Install engine CLIs globally
-RUN pip install --no-cache-dir graphifyy && \
-    npm install -g gitnexus@latest @colbymchenry/codegraph@latest
+# Install engine CLIs globally (pinned — bump with pyproject [tool.code-knowledge-chain.engines])
+RUN pip install --no-cache-dir "graphifyy==0.9.56" && \
+    npm install -g gitnexus@1.6.11 @colbymchenry/codegraph@1.6.0
 
 # ---- Stage 2: Runtime ----
 FROM python:3.12-slim AS runtime

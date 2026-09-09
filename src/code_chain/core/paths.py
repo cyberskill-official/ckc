@@ -31,6 +31,7 @@ _SYSTEM_PREFIXES = (
     Path("/Program Files (x86)"),
 )
 
+# Strong project markers only — bare `src/` is not sufficient (FIND-006).
 _PROJECT_MARKERS = (
     ".git",
     "package.json",
@@ -45,7 +46,6 @@ _PROJECT_MARKERS = (
     "Gemfile",
     "mix.exs",
     ".code_chain",
-    "src",
 )
 
 ENGINE_GITIGNORE_ENTRIES = (
@@ -87,13 +87,11 @@ def assert_safe_project_path(path_str: str) -> Path:
     if not resolved.is_dir():
         raise UnsafeProjectPathError(f"Path is not a directory: {resolved}")
     if is_blocked_system_path(resolved):
-        raise UnsafeProjectPathError(
-            f"Refusing to use system directory as a project: {resolved}"
-        )
+        raise UnsafeProjectPathError(f"Refusing to use system directory as a project: {resolved}")
     if not has_project_marker(resolved):
         raise UnsafeProjectPathError(
             f"Path does not look like a software project (missing .git, "
-            f"package manifest, src/, or .code_chain): {resolved}"
+            f"package manifest, or .code_chain): {resolved}"
         )
     return resolved
 

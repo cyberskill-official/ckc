@@ -179,10 +179,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
             raw_items = payload
         elif isinstance(payload, dict):
             raw_items = (
-                payload.get("symbols")
-                or payload.get("results")
-                or payload.get("matches")
-                or []
+                payload.get("symbols") or payload.get("results") or payload.get("matches") or []
             )
         else:
             return []
@@ -193,9 +190,7 @@ class CodeGraphAdapter(BaseGraphAdapter):
             name = str(item.get("name") or item.get("symbol") or "").strip()
             if not name:
                 continue
-            file_path = str(
-                item.get("filePath") or item.get("file") or item.get("path") or ""
-            )
+            file_path = str(item.get("filePath") or item.get("file") or item.get("path") or "")
             line_raw = item.get("startLine") or item.get("line") or 0
             try:
                 line = int(line_raw)

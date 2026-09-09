@@ -42,14 +42,10 @@ class ImpactPipeline:
 
         raw_procs = impact_data.get("affected_processes") or []
         affected_procs = [
-            (p.get("name") or "") if isinstance(p, dict) else str(p)
-            for p in raw_procs
+            (p.get("name") or "") if isinstance(p, dict) else str(p) for p in raw_procs
         ]
         raw_mods = impact_data.get("affected_modules") or []
-        affected_mods = [
-            (m.get("name") or "") if isinstance(m, dict) else str(m)
-            for m in raw_mods
-        ]
+        affected_mods = [(m.get("name") or "") if isinstance(m, dict) else str(m) for m in raw_mods]
 
         # Extract depth-based call hierarchy
         call_hierarchy: list[dict[str, Any]] = []
@@ -85,9 +81,7 @@ class ImpactPipeline:
         affected_tests = self.codegraph.get_affected_tests(unique_files or None)
 
         # Tier 3: Graphify Documentation, Database Schemas & Community Coupling
-        docs_and_schemas = self.graphify.find_cross_domain_entities(
-            target_symbol, limit=5
-        )
+        docs_and_schemas = self.graphify.find_cross_domain_entities(target_symbol, limit=5)
         graphify_explanation = self.graphify.explain_node(target_symbol)
 
         # Tier 4: Synthesis & Recommended Refactoring Steps
@@ -97,28 +91,16 @@ class ImpactPipeline:
         if call_hierarchy:
             steps.append(
                 f"Update or verify {len(call_hierarchy)} upstream caller(s): "
-                + ", ".join(
-                    [f"`{c['symbol']}` ({c['file']})" for c in call_hierarchy[:3]]
-                )
+                + ", ".join([f"`{c['symbol']}` ({c['file']})" for c in call_hierarchy[:3]])
             )
         if affected_tests:
-            steps.append(
-                f"Execute affected test suite: {', '.join(affected_tests[:3])}"
-            )
+            steps.append(f"Execute affected test suite: {', '.join(affected_tests[:3])}")
         else:
-            steps.append(
-                "Create unit tests covering this symbol to prevent regression."
-            )
+            steps.append("Create unit tests covering this symbol to prevent regression.")
 
-        doc_names = [
-            d.source_path
-            for d in docs_and_schemas
-            if d.entity_type in ["doc", "schema"]
-        ]
+        doc_names = [d.source_path for d in docs_and_schemas if d.entity_type in ["doc", "schema"]]
         if doc_names:
-            steps.append(
-                f"Update associated documentation / schemas: {', '.join(doc_names[:2])}"
-            )
+            steps.append(f"Update associated documentation / schemas: {', '.join(doc_names[:2])}")
 
         report = self._build_report(
             target_symbol=target_symbol,
@@ -224,9 +206,7 @@ class ImpactPipeline:
         # 1. Structural Blast Radius (GitNexus)
         lines.append("## 1. Structural Blast Radius (GitNexus AST Engine)")
         if outcome == "ambiguous_unresolved":
-            lines.append(
-                "- *Ambiguous symbol matches could not be resolved to a unique UID.*"
-            )
+            lines.append("- *Ambiguous symbol matches could not be resolved to a unique UID.*")
         elif outcome == "error":
             lines.append("- *GitNexus impact analysis returned an error.*")
         elif outcome == "empty":
@@ -238,22 +218,14 @@ class ImpactPipeline:
                     f"- Depth {c['depth']}: `{c['symbol']}` in `{c['file']}` [{c['relation']}]"
                 )
         elif outcome == "ok" and impacted_count == 0:
-            lines.append(
-                "- *No external upstream callers detected. Localized blast radius.*"
-            )
+            lines.append("- *No external upstream callers detected. Localized blast radius.*")
         else:
-            lines.append(
-                "- *Upstream call hierarchy unavailable in summary payload.*"
-            )
+            lines.append("- *Upstream call hierarchy unavailable in summary payload.*")
 
         if affected_procs:
-            lines.append(
-                f"- **Impacted Business Processes:** {', '.join(affected_procs)}"
-            )
+            lines.append(f"- **Impacted Business Processes:** {', '.join(affected_procs)}")
         if affected_mods:
-            lines.append(
-                f"- **Impacted Architectural Clusters:** {', '.join(affected_mods)}"
-            )
+            lines.append(f"- **Impacted Architectural Clusters:** {', '.join(affected_mods)}")
         lines.append("")
 
         # 2. Symbol Signature & Immediate Neighbors (CodeGraph)
@@ -263,25 +235,17 @@ class ImpactPipeline:
         if cg_callers:
             lines.append(
                 "**Direct Callers:** "
-                + ", ".join(
-                    [f"`{c['name']}` ({c.get('location', '')})" for c in cg_callers]
-                )
+                + ", ".join([f"`{c['name']}` ({c.get('location', '')})" for c in cg_callers])
             )
         if cg_callees:
             lines.append(
                 "**Direct Callees:** "
-                + ", ".join(
-                    [f"`{c['name']}` ({c.get('location', '')})" for c in cg_callees]
-                )
+                + ", ".join([f"`{c['name']}` ({c.get('location', '')})" for c in cg_callees])
             )
         if affected_tests:
-            lines.append(
-                "**Affected Tests:** " + ", ".join([f"`{t}`" for t in affected_tests])
-            )
+            lines.append("**Affected Tests:** " + ", ".join([f"`{t}`" for t in affected_tests]))
         else:
-            lines.append(
-                "**Affected Tests:** *No direct test files registered in call radius.*"
-            )
+            lines.append("**Affected Tests:** *No direct test files registered in call radius.*")
         lines.append("")
 
         # 3. Cross-Domain Knowledge & Architecture (Graphify)

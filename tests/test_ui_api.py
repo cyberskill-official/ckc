@@ -2,8 +2,10 @@
 Automated unit and integration tests for Code Knowledge Chain Web UI API.
 """
 
+import os
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -50,8 +52,15 @@ class TestWebUIApi(unittest.TestCase):
 
         self.assertTrue(is_loopback_host("127.0.0.1"))
         self.assertFalse(is_loopback_host("0.0.0.0"))
-        self.assertEqual(resolve_cors_origins("127.0.0.1"), ["*"])
-        self.assertEqual(resolve_cors_origins("0.0.0.0"), [])
+        # FIND-001: default is same-origin only (empty allow-list), not wildcard.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CKC_CORS_ORIGINS", None)
+            self.assertEqual(resolve_cors_origins("127.0.0.1"), [])
+            self.assertEqual(resolve_cors_origins("0.0.0.0"), [])
+        with patch.dict(os.environ, {"CKC_CORS_ORIGINS": "*"}, clear=False):
+            self.assertEqual(resolve_cors_origins("127.0.0.1"), ["*"])
+            with self.assertRaises(RuntimeError):
+                resolve_cors_origins("0.0.0.0")
 
     def test_status_invalid_path(self):
         res = self.client.get("/api/status?project=/non/existent/path/999")

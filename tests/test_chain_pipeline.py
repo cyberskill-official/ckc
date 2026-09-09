@@ -11,9 +11,7 @@ from code_chain.core.orchestrator import CodeKnowledgeChain
 class TestChainPipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.test_repo = (
-            Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
-        )
+        cls.test_repo = Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
         cls.chain = CodeKnowledgeChain(project_path=str(cls.test_repo))
 
     def test_overall_status(self):

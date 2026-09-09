@@ -85,9 +85,53 @@ class TestUIAuth(unittest.TestCase):
         with patch.dict(os.environ, {"CKC_HOST": "0.0.0.0"}, clear=False):
             os.environ.pop("CKC_UI_TOKEN", None)
             self.assertTrue(ui_server.auth_required())
-        with patch.dict(os.environ, {"CKC_HOST": "127.0.0.1"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {"CKC_HOST": "127.0.0.1", "CKC_UI_ALLOW_UNAUTH_LOOPBACK": "1"},
+            clear=False,
+        ):
             os.environ.pop("CKC_UI_TOKEN", None)
             self.assertFalse(ui_server.auth_required())
+
+    def test_default_cors_rejects_foreign_origin(self):
+        # FIND-001: default allow-list is empty (no ACAO: *).
+        with patch.dict(os.environ, {"CKC_HOST": "127.0.0.1"}, clear=False):
+            os.environ.pop("CKC_CORS_ORIGINS", None)
+            origins = ui_server.resolve_cors_origins("127.0.0.1")
+            self.assertEqual(origins, [])
+        res = self.client.get(
+            "/api/health",
+            headers={"Origin": "https://evil.example"},
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertNotEqual(res.headers.get("access-control-allow-origin"), "*")
+
+    def test_query_token_disabled_by_default(self):
+        # FIND-004: GET ?token= must not authenticate unless opted in.
+        with patch.dict(os.environ, {"CKC_UI_TOKEN": "secret-token"}, clear=False):
+            os.environ.pop("CKC_ALLOW_QUERY_TOKEN", None)
+            denied = self.client.get(
+                f"/api/index/stream?project={self.test_repo}&token=secret-token"
+            )
+            self.assertEqual(denied.status_code, 401)
+
+    def test_xff_ignored_without_trusted_proxies(self):
+        # FIND-005: spoofed XFF must not become the rate-limit key.
+        from unittest.mock import MagicMock
+
+        req = MagicMock()
+        req.client.host = "203.0.113.10"
+        req.headers = {"x-forwarded-for": "198.51.100.1"}
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CKC_TRUSTED_PROXIES", None)
+            self.assertEqual(ui_server._client_rate_key(req), "203.0.113.10")
+
+    def test_health_ready_reports_engines(self):
+        res = self.client.get("/api/health?ready=1")
+        self.assertIn(res.status_code, (200, 503))
+        body = res.json()
+        self.assertIn("engines", body)
+        self.assertIn("graphify", body["engines"])
 
     def test_artifact_component_prefix_not_startswith(self):
         # Bare startswith("graphify-out") would incorrectly allow graphify-out-extra/...
@@ -96,8 +140,7 @@ class TestUIAuth(unittest.TestCase):
         self.assertTrue(ui_server._artifact_path_allowed(".code_chain/docs_index.json"))
 
         res = self.client.get(
-            f"/api/artifacts/content?project={self.test_repo}"
-            f"&file=graphify-out-extra/secret.txt"
+            f"/api/artifacts/content?project={self.test_repo}&file=graphify-out-extra/secret.txt"
         )
         self.assertEqual(res.status_code, 403)
 
@@ -122,11 +165,14 @@ class TestIndexTimeoutCatch(unittest.TestCase):
         from code_chain.adapters.graphify_adapter import GraphifyAdapter
 
         adapter = GraphifyAdapter("graphify", Path("/tmp"))
-        with patch.object(
-            subprocess,
-            "run",
-            side_effect=subprocess.TimeoutExpired(cmd=["graphify"], timeout=1),
-        ), patch.object(adapter, "_extract_cmd", return_value=["graphify", "extract"]):
+        with (
+            patch.object(
+                subprocess,
+                "run",
+                side_effect=subprocess.TimeoutExpired(cmd=["graphify"], timeout=1),
+            ),
+            patch.object(adapter, "_extract_cmd", return_value=["graphify", "extract"]),
+        ):
             result = adapter.index_project(timeout=1)
         self.assertFalse(result["success"])
         self.assertTrue(result.get("timeout"))

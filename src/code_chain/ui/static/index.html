@@ -29,6 +29,7 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <a class="skip-link" href="#graph-viewport">Skip to graph</a>
     <!-- Top Bar: Clean, Pro Developer Layout (Linear/Raycast inspired) -->
     <header class="app-header">
         <div class="header-left">
@@ -67,35 +68,35 @@
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                     
-                    <input type="text" id="command-bar" placeholder="Search symbols, ask questions, or 'A -> B' to trace..." spellcheck="false" autocomplete="off" />
+                    <input type="text" id="command-bar" placeholder="Search symbols, ask a question, or A → B to trace" spellcheck="false" autocomplete="off" />
                     
                     <button id="command-clear-btn" class="command-clear-btn hidden" aria-label="Clear Search">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </button>
 
                     <div class="command-hints">
-                        <span class="hotkey-pill">⌘K</span>
+                        <span class="hotkey-pill">⌘K / Ctrl+K</span>
                     </div>
                 </div>
 
                 <!-- Mode Selection Dropdown -->
-                <div id="search-mode-dropdown" class="mode-dropdown closed">
-                    <div class="mode-option active" data-mode="auto">
+                <div id="search-mode-dropdown" class="mode-dropdown closed" role="listbox" aria-label="Search mode">
+                    <button type="button" class="mode-option active" data-mode="auto" role="option" aria-selected="true">
                         <strong>Auto</strong>
                         <small>Intelligent routing by symbol / query pattern</small>
-                    </div>
-                    <div class="mode-option" data-mode="query">
+                    </button>
+                    <button type="button" class="mode-option" data-mode="query" role="option" aria-selected="false">
                         <strong>Query</strong>
                         <small>Multi-tier architecture question</small>
-                    </div>
-                    <div class="mode-option" data-mode="impact">
+                    </button>
+                    <button type="button" class="mode-option" data-mode="impact" role="option" aria-selected="false">
                         <strong>Impact</strong>
-                        <small>Blast radius & caller risk analysis</small>
-                    </div>
-                    <div class="mode-option" data-mode="trace">
+                        <small>Blast radius &amp; caller risk analysis</small>
+                    </button>
+                    <button type="button" class="mode-option" data-mode="trace" role="option" aria-selected="false">
                         <strong>Trace</strong>
                         <small>Cross-module call graph path tracing</small>
-                    </div>
+                    </button>
                 </div>
 
                 <!-- Live Search Autocomplete Palette Dropdown -->
@@ -114,7 +115,7 @@
             <!-- Engine Readiness Status -->
             <button id="ready-badge" class="badge-status" title="View Engine Status & Indexing">
                 <span class="status-dot"></span>
-                <span class="badge-text">Not Ready</span>
+                <span class="badge-text">Not indexed</span>
             </button>
 
             <!-- Layers / Filter Popover Toggle -->
@@ -172,8 +173,8 @@
                 </div>
             </div>
             <div class="form-group">
-                <label for="ui-token">Access Token (Optional)</label>
-                <input type="password" id="ui-token" placeholder="Optional UI auth token" autocomplete="off" class="text-input" />
+                <label for="ui-token">Access token</label>
+                <input type="password" id="ui-token" placeholder="Required when UI is not on localhost" autocomplete="off" class="text-input" />
             </div>
             <div class="popover-footer">
                 <div class="popover-badges">
@@ -246,7 +247,7 @@
     <!-- Floating Indexing & Configuration Popover -->
     <div id="index-popover" class="floating-popover closed">
         <div class="popover-header">
-            <h4>3-Tier Indexing Engine</h4>
+            <h4>Index codebase</h4>
             <button class="popover-close-btn" id="close-index-popover-btn" aria-label="Close">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
@@ -278,11 +279,15 @@
                         <small>Use local LM Studio or cloud LLM for semantic summaries</small>
                     </span>
                 </label>
+                <p id="ai-disclosure" class="popover-desc ai-disclosure" hidden>
+                    AI synthesis on: prompts leave this host for the configured LLM endpoint.
+                    Results are marked as AI-generated.
+                </p>
             </div>
             <div class="popover-actions">
                 <button id="run-index-btn" class="btn btn-primary btn-block">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    <span>Start 3-Tier Indexing</span>
+                    <span>Start indexing</span>
                 </button>
                 <button id="cancel-index-btn" class="btn btn-danger btn-block hidden">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
@@ -369,7 +374,7 @@
             <!-- Node Header -->
             <div class="inspector-card">
                 <div class="inspector-header-row">
-                    <h2 id="node-label">Select a node</h2>
+                    <h2 id="node-label">No selection</h2>
                     <button id="copy-symbol-name-btn" class="btn-icon" title="Copy Symbol Name">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -426,7 +431,7 @@
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
                     </svg>
-                    <span>Analyze Blast Radius</span>
+                    <span>Analyze impact</span>
                 </button>
                 <div class="action-duo">
                     <button id="action-trace" class="btn btn-secondary">
@@ -450,14 +455,14 @@
 
     <!-- Bottom Drawer (Terminal & Results) -->
     <div class="bottom-drawer" id="drawer">
-        <div class="drawer-header" id="drawer-toggle">
+        <div class="drawer-header" id="drawer-toggle" role="button" tabindex="0" aria-label="Toggle results drawer">
             <div class="drawer-tabs">
                 <button class="tab-btn active" data-tab="terminal">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="4 17 10 11 4 5"></polyline>
                         <line x1="12" y1="19" x2="20" y2="19"></line>
                     </svg>
-                    <span>Terminal Stream</span>
+                    <span>Log</span>
                 </button>
                 <button class="tab-btn" data-tab="results">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -467,7 +472,7 @@
                         <line x1="16" y1="17" x2="8" y2="17"></line>
                         <polyline points="10 9 9 9 8 9"></polyline>
                     </svg>
-                    <span>Analysis Dossier</span>
+                    <span>Results</span>
                 </button>
             </div>
             <div class="drawer-controls">
@@ -496,7 +501,7 @@
     </div>
 
     <!-- Toast Feedback Notifications Container -->
-    <div id="toast-container" class="toast-container"></div>
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-relevant="additions" role="status"></div>
 
     <script src="app.js"></script>
 </body>

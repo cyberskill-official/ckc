@@ -85,8 +85,10 @@ def llm_http_timeout(query_timeout: int | None = None) -> float:
 
     Leaves ~15s headroom for engine work when query_timeout is tight.
     """
-    budget = int(query_timeout) if query_timeout is not None else _env_int(
-        "CKC_QUERY_TIMEOUT", _DEFAULT_QUERY_TIMEOUT
+    budget = (
+        int(query_timeout)
+        if query_timeout is not None
+        else _env_int("CKC_QUERY_TIMEOUT", _DEFAULT_QUERY_TIMEOUT)
     )
     return float(min(_DEFAULT_LLM_HTTP_TIMEOUT, max(5.0, budget - 15.0)))
 
@@ -111,9 +113,7 @@ class ChainConfig(BaseModel):
     codegraph_bin: str = Field(default_factory=lambda: resolve_binary("codegraph"))
 
     # Timeouts in seconds (env-overridable)
-    index_timeout: int = Field(
-        default_factory=lambda: _env_int("CKC_INDEX_TIMEOUT", 300)
-    )
+    index_timeout: int = Field(default_factory=lambda: _env_int("CKC_INDEX_TIMEOUT", 300))
     multimodal_index_timeout: int = Field(
         default_factory=lambda: _env_int("CKC_MULTIMODAL_INDEX_TIMEOUT", 900)
     )
@@ -127,13 +127,9 @@ class ChainConfig(BaseModel):
         default_factory=lambda: _env_bool("CKC_GRAPHIFY_CODE_ONLY", True)
     )
     # Cap on Tier-2 GitNexus context lookups per query (and related search depth).
-    max_search_depth: int = Field(
-        default_factory=lambda: _env_int("CKC_MAX_SEARCH_DEPTH", 5)
-    )
+    max_search_depth: int = Field(default_factory=lambda: _env_int("CKC_MAX_SEARCH_DEPTH", 5))
     # Approximate token budget for stacked markdown + optional local LLM synthesis.
-    max_tokens_budget: int = Field(
-        default_factory=lambda: _env_int("CKC_MAX_TOKENS_BUDGET", 4000)
-    )
+    max_tokens_budget: int = Field(default_factory=lambda: _env_int("CKC_MAX_TOKENS_BUDGET", 4000))
 
     def resolve_project_path(self, path: str | None = None) -> Path:
         target = str(path) if path else str(Path.cwd())

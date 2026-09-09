@@ -58,20 +58,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # status
-    subparsers.add_parser(
-        "status", help="Check indexing status across all three engines"
-    )
+    subparsers.add_parser("status", help="Check indexing status across all three engines")
 
     # query
     p_query = subparsers.add_parser(
         "query", help="Run 3-tier chained concept or architecture query"
     )
-    p_query.add_argument(
-        "query_text", help="The question or architectural concept to investigate"
-    )
-    p_query.add_argument(
-        "--json", action="store_true", help="Output raw JSON instead of markdown"
-    )
+    p_query.add_argument("query_text", help="The question or architectural concept to investigate")
+    p_query.add_argument("--json", action="store_true", help="Output raw JSON instead of markdown")
     p_query.add_argument(
         "--no-llm",
         action="store_true",
@@ -83,9 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
         "impact", help="Analyze blast radius and refactoring impact of a symbol"
     )
     p_impact.add_argument("symbol", help="Target symbol or function to analyze")
-    p_impact.add_argument(
-        "--json", action="store_true", help="Output raw JSON instead of markdown"
-    )
+    p_impact.add_argument("--json", action="store_true", help="Output raw JSON instead of markdown")
     p_impact.add_argument(
         "--no-llm",
         action="store_true",
@@ -93,14 +85,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # trace
-    p_trace = subparsers.add_parser(
-        "trace", help="Trace execution flow between two symbols"
-    )
+    p_trace = subparsers.add_parser("trace", help="Trace execution flow between two symbols")
     p_trace.add_argument("from_symbol", help="Source symbol name")
     p_trace.add_argument("to_symbol", help="Destination symbol name")
-    p_trace.add_argument(
-        "--json", action="store_true", help="Output raw JSON instead of markdown"
-    )
+    p_trace.add_argument("--json", action="store_true", help="Output raw JSON instead of markdown")
     p_trace.add_argument(
         "--no-llm",
         action="store_true",
@@ -133,9 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=default_port,
         help=f"Port to listen on (default: {default_port})",
     )
-    p_ui.add_argument(
-        "--open", action="store_true", help="Automatically open web browser"
-    )
+    p_ui.add_argument("--open", action="store_true", help="Automatically open web browser")
 
     # setup
     p_setup = subparsers.add_parser(
@@ -159,9 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Full reset: removes generated graph indexes and stops background daemons",
     )
-    p_clean.add_argument(
-        "-y", "--yes", action="store_true", help="Skip interactive confirmation"
-    )
+    p_clean.add_argument("-y", "--yes", action="store_true", help="Skip interactive confirmation")
 
     return parser
 
@@ -181,50 +165,43 @@ def main() -> None:
         os.environ["CKC_PORT"] = str(args.port)
         url = f"http://{args.host}:{args.port}"
         print(f"Starting Code Knowledge Chain UI at: {url}")
-        if args.host not in ("127.0.0.1", "localhost", "::1") and not (
-            os.environ.get("CKC_UI_TOKEN") or ""
-        ).strip():
-            print(
-                "WARNING: Non-loopback bind without CKC_UI_TOKEN — "
-                "mutating API routes will return 503 until a token is set."
+        if (
+            args.host not in ("127.0.0.1", "localhost", "::1")
+            and not (os.environ.get("CKC_UI_TOKEN") or "").strip()
+        ):
+            raise SystemExit(
+                "CKC_UI_TOKEN must be set when binding beyond loopback "
+                f"(got host={args.host!r}). Refusing to start."
             )
         if args.open:
             webbrowser.open(url)
-        uvicorn.run(
-            "code_chain.ui.server:app", host=args.host, port=args.port, log_level="info"
-        )
+        uvicorn.run("code_chain.ui.server:app", host=args.host, port=args.port, log_level="info")
         return
 
     if args.command == "setup":
-        script = (
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "scripts"
-            / "setup.py"
-        )
+        script = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "setup.py"
         cmd = [sys.executable, str(script)]
         if args.no_ui:
             cmd.append("--no-ui")
         if args.force:
             cmd.append("--force")
-        subprocess.run(cmd,
-                check=False,
-            )
+        subprocess.run(
+            cmd,
+            check=False,
+        )
         return
 
     if args.command in ["clean", "cleanup"]:
-        script = (
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "scripts"
-            / "cleanup.py"
-        )
+        script = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "cleanup.py"
         cmd = [sys.executable, str(script)]
         if args.all:
             cmd.append("--all")
         if args.yes:
             cmd.append("--yes")
-        subprocess.run(cmd,
-                check=False,
-            )
+        subprocess.run(
+            cmd,
+            check=False,
+        )
         return
 
     try:
@@ -277,9 +254,7 @@ def main() -> None:
     elif args.command == "trace":
         try:
             result = run_with_timeout(
-                lambda: chain.trace(
-                    args.from_symbol, args.to_symbol, use_llm=not args.no_llm
-                ),
+                lambda: chain.trace(args.from_symbol, args.to_symbol, use_llm=not args.no_llm),
                 chain.config.query_timeout,
                 operation="trace",
             )

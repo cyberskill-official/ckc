@@ -45,9 +45,7 @@ class TestLlmHelpers(unittest.TestCase):
             "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
             "CKC_LLM_MODEL": "local-model",
         }
-        payload = {
-            "choices": [{"message": {"content": "Short grounded summary."}}]
-        }
+        payload = {"choices": [{"message": {"content": "Short grounded summary."}}]}
         mock_resp = MagicMock()
         mock_resp.read.return_value = json.dumps(payload).encode("utf-8")
         mock_resp.__enter__.return_value = mock_resp
@@ -57,9 +55,7 @@ class TestLlmHelpers(unittest.TestCase):
             patch.dict("os.environ", env, clear=True),
             patch("urllib.request.urlopen", return_value=mock_resp) as mocked,
         ):
-            text = llm.chat_completions(
-                [{"role": "user", "content": "hi"}], timeout=5
-            )
+            text = llm.chat_completions([{"role": "user", "content": "hi"}], timeout=5)
             self.assertEqual(text, "Short grounded summary.")
             mocked.assert_called_once()
 
@@ -68,13 +64,14 @@ class TestLlmHelpers(unittest.TestCase):
             "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
             "CKC_LLM_MODEL": "local-model",
         }
-        with patch.dict("os.environ", env, clear=True), patch(
-            "code_chain.core.llm.synthesize_stacked_context",
-            return_value="Auth flows through login.",
+        with (
+            patch.dict("os.environ", env, clear=True),
+            patch(
+                "code_chain.core.llm.synthesize_stacked_context",
+                return_value="Auth flows through login.",
+            ),
         ):
-            out = llm.maybe_append_llm_section(
-                "# Stacked\n\nbody", task="query", enabled=True
-            )
+            out = llm.maybe_append_llm_section("# Stacked\n\nbody", task="query", enabled=True)
         self.assertIn("## Local model synthesis", out)
         self.assertIn("Auth flows through login.", out)
 
@@ -83,8 +80,9 @@ class TestLlmHelpers(unittest.TestCase):
             "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
             "CKC_LLM_MODEL": "local-model",
         }
-        with patch.dict("os.environ", env, clear=True), patch(
-            "code_chain.core.llm.synthesize_stacked_context", return_value=None
+        with (
+            patch.dict("os.environ", env, clear=True),
+            patch("code_chain.core.llm.synthesize_stacked_context", return_value=None),
         ):
             out = llm.maybe_append_llm_section("# Keep me", enabled=True)
         self.assertIn("# Keep me", out)
@@ -96,9 +94,12 @@ class TestLlmHelpers(unittest.TestCase):
             "CKC_LLM_MODEL": "local-model",
         }
         long_body = "word " * 2000
-        with patch.dict("os.environ", env, clear=True), patch(
-            "code_chain.core.llm.synthesize_stacked_context",
-            return_value="SYNTH " + ("x" * 5000),
+        with (
+            patch.dict("os.environ", env, clear=True),
+            patch(
+                "code_chain.core.llm.synthesize_stacked_context",
+                return_value="SYNTH " + ("x" * 5000),
+            ),
         ):
             out = llm.finalize_stacked_markdown(
                 long_body, task="query", enabled=True, max_tokens_budget=80
@@ -111,15 +112,40 @@ class TestLlmHelpers(unittest.TestCase):
             "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
             "CKC_LLM_MODEL": "local-model",
         }
-        with patch.dict("os.environ", env, clear=True), patch(
-            "code_chain.core.llm.synthesize_stacked_context"
-        ) as synth:
+        with (
+            patch.dict("os.environ", env, clear=True),
+            patch("code_chain.core.llm.synthesize_stacked_context") as synth,
+        ):
             out = llm.finalize_stacked_markdown(
                 "# body", task="query", enabled=False, max_tokens_budget=4000
             )
         synth.assert_not_called()
         self.assertEqual(out.strip(), "# body")
         self.assertNotIn("Local model synthesis", out)
+
+    def test_denies_link_local_metadata_by_default(self):
+        with patch.dict(
+            "os.environ",
+            {"CKC_LLM_BASE_URL": "http://169.254.169.254/latest"},
+            clear=True,
+        ):
+            self.assertIsNone(llm.resolve_llm_config())
+            with self.assertRaises(llm.LlmUrlDeniedError):
+                llm.validate_llm_base_url("http://169.254.169.254/latest")
+
+    def test_allows_private_with_opt_in(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "CKC_LLM_BASE_URL": "http://10.0.0.5:1234/v1",
+                "CKC_LLM_ALLOW_PRIVATE": "1",
+                "CKC_LLM_MODEL": "m",
+            },
+            clear=True,
+        ):
+            cfg = llm.resolve_llm_config()
+            self.assertIsNotNone(cfg)
+            self.assertEqual(cfg[0], "http://10.0.0.5:1234/v1")
 
 
 if __name__ == "__main__":
