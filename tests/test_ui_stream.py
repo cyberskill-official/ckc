@@ -6,8 +6,10 @@ import json
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from sse_starlette.sse import EventSourceResponse
 
 from code_chain.ui import server as ui_server
 from code_chain.ui.server import app
@@ -108,33 +110,28 @@ class TestUIStreaming(unittest.TestCase):
             self.assertNotIn(self.proj_key, ui_server._active_index_jobs)
 
     def test_cancel_sticky_between_reserve_and_generator(self):
-        """Cancel set after reservation must remain True at generator-entry check."""
-        with ui_server._active_indexing_lock:
-            # Mimic reservation: claim job and clear cancel.
-            ui_server._active_index_jobs.add(self.proj_key)
-            ui_server._cancellation_flags[self.proj_key] = False
-            # Race: user cancels after reservation, before generator body runs.
-            ui_server._cancellation_flags[self.proj_key] = True
-            already_cancelled = ui_server._cancellation_flags.get(self.proj_key, False)
-            # Generator entry must honor this without clearing (R2-SEC-02).
-            self.assertTrue(already_cancelled)
-            ui_server._active_index_jobs.discard(self.proj_key)
+        """Cancel after reservation must yield cancelled before start (R2-SEC-02)."""
 
-        with self.client.stream(
-            "POST",
-            "/api/index/stream",
-            json={
-                "project_path": self.test_repo,
-                "force": False,
-                "multimodal": False,
-            },
-        ) as response:
-            self.assertEqual(response.status_code, 200)
-            # Headers mean reservation completed (cancel cleared once).
-            # Re-set cancel before reading body so the entry check can fire.
+        def wrap_after_reserve(generator, *args, **kwargs):
+            # Reservation already claimed the job and cleared the flag.
+            # Inject cancel before the async generator body runs.
             with ui_server._active_indexing_lock:
                 ui_server._cancellation_flags[self.proj_key] = True
+            return EventSourceResponse(generator, *args, **kwargs)
 
+        with (
+            patch.object(ui_server, "EventSourceResponse", side_effect=wrap_after_reserve),
+            self.client.stream(
+                "POST",
+                "/api/index/stream",
+                json={
+                    "project_path": self.test_repo,
+                    "force": False,
+                    "multimodal": False,
+                },
+            ) as response,
+        ):
+            self.assertEqual(response.status_code, 200)
             events = []
             for line in response.iter_lines():
                 if not line.startswith("data: "):
@@ -145,18 +142,13 @@ class TestUIStreaming(unittest.TestCase):
                     break
 
         self.assertTrue(events, "expected at least one SSE event")
-        # Prefer cancelled; if the generator already passed the entry check,
-        # mid-loop cancel still yields cancelled (covered by test_cancel_mid_stream).
-        self.assertIn(events[0].get("event"), {"cancelled", "start"})
-        if events[0].get("event") == "start":
-            # Flag was set too late for entry check; ensure it was not cleared to False.
-            with ui_server._active_indexing_lock:
-                self.assertTrue(
-                    ui_server._cancellation_flags.get(self.proj_key, False)
-                    or self.proj_key not in ui_server._active_index_jobs
-                )
-
-        self.client.post("/api/index/cancel", json={"project_path": self.test_repo})
+        self.assertEqual(
+            events[0].get("event"),
+            "cancelled",
+            f"sticky cancel must win before start; got {events[0]!r}",
+        )
+        with ui_server._active_indexing_lock:
+            self.assertNotIn(self.proj_key, ui_server._active_index_jobs)
 
 
 if __name__ == "__main__":

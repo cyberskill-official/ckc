@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sse_starlette.sse import EventSourceResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -169,12 +169,6 @@ def allow_unauth_loopback() -> bool:
     """
     raw = (os.environ.get("CKC_UI_ALLOW_UNAUTH_LOOPBACK") or "1").strip().lower()
     return raw not in {"0", "false", "no", "off"}
-
-
-def allow_query_token() -> bool:
-    """Legacy GET ?token= for SSE; off by default (FIND-004)."""
-    raw = (os.environ.get("CKC_ALLOW_QUERY_TOKEN") or "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
 
 
 def auth_required() -> bool:
@@ -359,14 +353,6 @@ class UIAuthMiddleware(BaseHTTPMiddleware):
         auth = (request.headers.get("authorization") or "").strip()
         if auth.lower().startswith("bearer "):
             provided = auth[7:].strip() or provided
-        # Legacy EventSource fallback: ?token= only when CKC_ALLOW_QUERY_TOKEN=1.
-        if (
-            not provided
-            and allow_query_token()
-            and request.method == "GET"
-            and path.startswith("/api/index/stream")
-        ):
-            provided = (request.query_params.get("token") or "").strip()
 
         if not tokens_match(provided, token):
             return JSONResponse(
@@ -669,7 +655,10 @@ async def stream_indexing(request: Request):
         body = await request.json()
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON body.") from exc
-    payload = IndexStreamPayload.model_validate(body)
+    try:
+        payload = IndexStreamPayload.model_validate(body)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
     project_path = payload.project_path
     multimodal = payload.multimodal
     force = payload.force

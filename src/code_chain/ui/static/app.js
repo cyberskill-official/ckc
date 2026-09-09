@@ -1884,6 +1884,9 @@ function handleIndexingEvent(data) {
 function finishIndexing(success, msg) {
     if (state._indexingDone) return;
     state._indexingDone = true;
+    if (state.indexingAbort && typeof state.indexingAbort.abort === 'function') {
+        state.indexingAbort.abort();
+    }
     state.indexingAbort = null;
     if (els.cancelIndexBtn) els.cancelIndexBtn.classList.add('hidden');
     if (els.runIndexBtn) els.runIndexBtn.classList.remove('hidden');
@@ -1901,19 +1904,29 @@ function finishIndexing(success, msg) {
 }
 
 async function cancelIndexing() {
-    if (!state.currentProject) return;
+    if (!state.currentProject || state._indexingDone) return;
+    const abort = () => {
+        if (state.indexingAbort && typeof state.indexingAbort.abort === 'function') {
+            state.indexingAbort.abort();
+        }
+    };
     try {
         await apiFetch('/api/index/cancel', {
             method: 'POST',
             body: JSON.stringify({ project_path: state.currentProject })
         });
-        if (state.indexingAbort && typeof state.indexingAbort.abort === 'function') {
-            state.indexingAbort.abort();
+        abort();
+        // finishIndexing no-ops if a complete/cancelled SSE already finalized the UI.
+        if (!state._indexingDone) {
+            finishIndexing(false, 'Indexing cancelled by user.');
         }
-        finishIndexing(false, 'Indexing cancelled by user.');
-        showToast('Indexing cancelled', 'info');
     } catch (e) {
         console.error('Failed to cancel indexing:', e);
+        // Still tear down the client stream so the UI cannot stick in "indexing".
+        abort();
+        if (!state._indexingDone) {
+            finishIndexing(false, e.message || 'Cancel request failed; stopped local stream.');
+        }
     }
 }
 
