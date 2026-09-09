@@ -98,7 +98,11 @@ class ImpactPipeline:
         else:
             steps.append("Create unit tests covering this symbol to prevent regression.")
 
-        doc_names = [d.source_path for d in docs_and_schemas if d.entity_type in ["doc", "schema"]]
+        doc_names = [
+            d.source_path
+            for d in docs_and_schemas
+            if d.entity_type in ["doc", "schema"] and d.source_path
+        ]
         if doc_names:
             steps.append(f"Update associated documentation / schemas: {', '.join(doc_names[:2])}")
 

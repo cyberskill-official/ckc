@@ -17,6 +17,8 @@ import shutil
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,11 @@ from code_chain.core.paths import (
     assert_safe_project_path,
     ensure_engine_gitignore,
 )
+
+try:
+    _APP_VERSION = package_version("code-knowledge-chain")
+except PackageNotFoundError:
+    _APP_VERSION = "1.0.0"  # keep in sync with pyproject.toml / __version__
 
 load_dotenv()
 
@@ -78,7 +85,20 @@ _configure_logging()
 _MAX_ARTIFACT_BYTES = 2 * 1024 * 1024  # 2 MiB
 _MAX_GRAPH_BYTES = 20 * 1024 * 1024  # 20 MiB raw graph.json
 _GRAPH_SUBSAMPLE_NODE_CAP = 2500
-_ARTIFACT_ALLOWED_ROOTS = ("graphify-out", ".code_chain", ".gitnexus", ".codegraph")
+# Exact relative paths served by /api/artifacts/content (must match list_artifacts).
+_ARTIFACT_ALLOWED_REL_PATHS = frozenset(
+    {
+        "graphify-out/graph.json",
+        "graphify-out/.graphify_analysis.json",
+        "graphify-out/GRAPH_REPORT.md",
+        "graphify-out/GRAPH_TREE.html",
+        ".code_chain/index_manifest.json",
+        ".code_chain/docs_index.json",
+        ".gitnexus/meta.json",
+        ".gitnexus/schema.json",
+        ".codegraph/codegraph.db",
+    }
+)
 _MUTATING_PREFIXES = (
     "/api/query",
     "/api/impact",
@@ -91,10 +111,18 @@ _RATE_LIMIT_MAX = 30
 _rate_limit_hits: dict[str, list[float]] = {}
 _rate_limit_lock = threading.Lock()
 _rate_limit_evict_counter = 0
+
+
 # Global concurrent index jobs (in addition to per-project serialization).
-_MAX_CONCURRENT_INDEX_JOBS = max(
-    1, int((os.environ.get("CKC_MAX_CONCURRENT_INDEX") or "2").strip() or "2")
-)
+def _parse_max_concurrent_index(raw: str | None = None) -> int:
+    value = raw if raw is not None else os.environ.get("CKC_MAX_CONCURRENT_INDEX")
+    try:
+        return max(1, int((value or "2").strip() or "2"))
+    except ValueError:
+        return 2
+
+
+_MAX_CONCURRENT_INDEX_JOBS = _parse_max_concurrent_index()
 
 
 def _bind_host() -> str:
@@ -184,9 +212,9 @@ def _is_public_api_path(path: str) -> bool:
 
 
 def _artifact_path_allowed(clean_file: str) -> bool:
-    """True when clean_file is under an allowlisted root as a path component."""
-    first = clean_file.split("/", 1)[0]
-    return first in _ARTIFACT_ALLOWED_ROOTS
+    """True when clean_file is an exact allowlisted artifact relative path."""
+    normalized = clean_file.replace("\\", "/").strip().lstrip("/")
+    return normalized in _ARTIFACT_ALLOWED_REL_PATHS
 
 
 def _parse_trusted_proxies() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
@@ -364,7 +392,7 @@ app = FastAPI(
     description=(
         "Interactive Web Dashboard for Graphify + GitNexus + CodeGraph 3-Tier Code Intelligence"
     ),
-    version="1.0.0",
+    version=_APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -453,7 +481,7 @@ async def _terminate_process(proc: asyncio.subprocess.Process) -> None:
 
 def _build_index_steps(
     resolved: Path, config: ChainConfig, *, multimodal: bool
-) -> tuple[list[tuple[str, str, list[str]]], bool]:
+) -> tuple[list[tuple[str, str, list[str]]], bool, dict[str, str]]:
     """
     Shared engine argv lists for UI SSE indexing.
 
@@ -462,7 +490,7 @@ def _build_index_steps(
     construction has a single source of truth in the adapter layer.
     Timeout semantics differ intentionally: UI uses one wall-clock deadline;
     CLI/MCP give each engine a full per-engine timeout (see ChainConfig docstring).
-    Returns (steps, code_only).
+    Returns (steps, code_only, graphify_env).
     """
     code_only = not multimodal
     graphify = GraphifyAdapter(config.graphify_bin, resolved)
@@ -470,9 +498,11 @@ def _build_index_steps(
     codegraph = CodeGraphAdapter(config.codegraph_bin, resolved)
 
     graphify_cmd = graphify._extract_cmd(code_only=code_only)
+    graphify_env = graphify._index_env(code_only=code_only)
     # When multimodal was requested but adapter fell back to --code-only, reflect that
     if multimodal and "--code-only" in graphify_cmd:
         code_only = True
+        graphify_env = graphify._index_env(code_only=True)
 
     steps = [
         (
@@ -491,7 +521,7 @@ def _build_index_steps(
             codegraph._init_cmd(),
         ),
     ]
-    return steps, code_only
+    return steps, code_only, graphify_env
 
 
 class QueryPayload(BaseModel):
@@ -575,7 +605,7 @@ def get_status(
 
     # Check git metadata if present
     git_dir = resolved / ".git"
-    git_info = {"is_git": git_dir.exists()}
+    git_info: dict[str, Any] = {"is_git": git_dir.exists()}
     if git_dir.exists():
         try:
             head_file = git_dir / "HEAD"
@@ -618,33 +648,31 @@ async def cancel_indexing(payload: CancelPayload):
     return {"success": True, "message": "No active process or already finished."}
 
 
-@app.api_route("/api/index/stream", methods=["GET", "POST"])
-async def stream_indexing(
-    request: Request,
-    project: str | None = Query(None),
-    multimodal: bool = Query(False),
-    force: bool = Query(False),
-):
+@app.get("/api/index/stream")
+async def stream_indexing_get_rejected():
+    """Indexing stream is POST-only (R2-SEC-06); never accept token-in-URL GET."""
+    raise HTTPException(
+        status_code=405,
+        detail="Method Not Allowed. Use POST /api/index/stream with a JSON body.",
+        headers={"Allow": "POST"},
+    )
+
+
+@app.post("/api/index/stream")
+async def stream_indexing(request: Request):
     """Stream indexing progress via SSE.
 
-    Prefer POST with JSON body + Authorization header so the UI token never
-    appears in the query string. GET ?token= is disabled unless CKC_ALLOW_QUERY_TOKEN=1.
+    POST with JSON body ``{project_path, multimodal, force}`` and Authorization /
+    X-CKC-Token headers so the UI token never appears in the query string.
     """
-    if request.method == "POST":
-        try:
-            body = await request.json()
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail="Invalid JSON body.") from exc
-        payload = IndexStreamPayload.model_validate(body)
-        project_path = payload.project_path
-        multimodal = payload.multimodal
-        force = payload.force
-    else:
-        if not project:
-            raise HTTPException(
-                status_code=422, detail="Query parameter 'project' is required for GET."
-            )
-        project_path = project
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.") from exc
+    payload = IndexStreamPayload.model_validate(body)
+    project_path = payload.project_path
+    multimodal = payload.multimodal
+    force = payload.force
 
     resolved = validate_project_path(project_path)
     proj_key = str(resolved)
@@ -660,6 +688,8 @@ async def stream_indexing(
             )
         else:
             _active_index_jobs.add(proj_key)
+            # Clear cancel at reservation time only (not at generator entry).
+            _cancellation_flags[proj_key] = False
             busy_reason = None
 
     if busy_reason:
@@ -676,10 +706,21 @@ async def stream_indexing(
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
+            # If cancel raced between reservation and generator start, honor it.
             with _active_indexing_lock:
-                _cancellation_flags[proj_key] = False
+                already_cancelled = _cancellation_flags.get(proj_key, False)
+            if already_cancelled:
+                yield json.dumps(
+                    {
+                        "event": "cancelled",
+                        "message": "Indexing was cancelled by user.",
+                    }
+                )
+                return
 
-            steps, code_only = _build_index_steps(resolved, config, multimodal=multimodal)
+            steps, code_only, graphify_env = _build_index_steps(
+                resolved, config, multimodal=multimodal
+            )
             index_timeout = config.index_timeout if code_only else config.multimodal_index_timeout
             deadline = time.monotonic() + index_timeout
 
@@ -753,11 +794,13 @@ async def stream_indexing(
                 )
 
                 try:
+                    step_env = graphify_env if engine == "graphify" else None
                     proc = await asyncio.create_subprocess_exec(
                         *cmd,
                         cwd=str(resolved),
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.STDOUT,
+                        env=step_env,
                     )
                     with _active_indexing_lock:
                         _active_indexing_processes[proj_key] = proc
@@ -970,6 +1013,8 @@ async def run_query(payload: QueryPayload):
 async def run_query_stream(payload: QueryPayload):
     """SSE streaming query endpoint — sends progress events during execution."""
     resolved = validate_project_path(payload.project_path)
+    config = ChainConfig()
+    timeout = max(1, int(config.query_timeout))
 
     async def event_generator() -> AsyncGenerator[str, None]:
         yield json.dumps(
@@ -983,13 +1028,6 @@ async def run_query_stream(payload: QueryPayload):
         try:
             chain = _get_chain(str(resolved))
 
-            # Phase 1: non-LLM context retrieval
-            context_result = await asyncio.to_thread(
-                lambda: chain.query(payload.query, use_llm=False).model_dump()
-            )
-            yield json.dumps({"event": "context", "data": context_result})
-
-            # Phase 2: LLM synthesis (if requested)
             if payload.use_llm:
                 yield json.dumps(
                     {
@@ -998,13 +1036,20 @@ async def run_query_stream(payload: QueryPayload):
                         "message": "Synthesizing with LLM...",
                     }
                 )
-                full_result = await asyncio.to_thread(
-                    lambda: chain.query(payload.query, use_llm=True).model_dump()
-                )
-                yield json.dumps({"event": "complete", "data": full_result})
-            else:
-                yield json.dumps({"event": "complete", "data": context_result})
 
+            def _work() -> dict[str, Any]:
+                return chain.query(payload.query, use_llm=payload.use_llm).model_dump()
+
+            result = await asyncio.wait_for(asyncio.to_thread(_work), timeout=timeout)
+            yield json.dumps({"event": "complete", "data": result})
+
+        except TimeoutError:
+            yield json.dumps(
+                {
+                    "event": "error",
+                    "message": f"Query exceeded query_timeout ({timeout}s).",
+                }
+            )
         except Exception as e:
             yield json.dumps(
                 {

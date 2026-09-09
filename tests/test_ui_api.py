@@ -156,18 +156,22 @@ class TestWebUIApi(unittest.TestCase):
         self.assertIn(res.status_code, (400, 403))
 
     def test_artifacts_content_size_cap(self):
-        oversized = Path(self.test_repo) / "graphify-out" / "oversized_test_artifact.md"
+        # Must use an allowlisted relative path (R2-SEC-11).
+        oversized = Path(self.test_repo) / "graphify-out" / "GRAPH_REPORT.md"
         oversized.parent.mkdir(parents=True, exist_ok=True)
+        backup = oversized.read_text(encoding="utf-8") if oversized.exists() else None
         try:
             oversized.write_text("x" * (ui_server._MAX_ARTIFACT_BYTES + 1), encoding="utf-8")
             res = self.client.get(
-                f"/api/artifacts/content?project={self.test_repo}"
-                f"&file=graphify-out/oversized_test_artifact.md"
+                f"/api/artifacts/content?project={self.test_repo}&file=graphify-out/GRAPH_REPORT.md"
             )
             self.assertEqual(res.status_code, 413)
             self.assertIn("size limit", res.json()["detail"])
         finally:
-            oversized.unlink(missing_ok=True)
+            if backup is None:
+                oversized.unlink(missing_ok=True)
+            else:
+                oversized.write_text(backup, encoding="utf-8")
 
     def test_cancel_indexing(self):
         payload = {"project_path": self.test_repo}

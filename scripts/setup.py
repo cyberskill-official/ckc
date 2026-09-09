@@ -17,10 +17,39 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - Python < 3.11
+    try:
+        import tomli as tomllib  # type: ignore[no-redef]
+    except ImportError:
+        tomllib = None  # type: ignore[assignment]
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys_src = str(ROOT_DIR / "src")
 if sys_src not in sys.path:
     sys.path.insert(0, sys_src)
+
+
+def load_engine_pins() -> dict[str, str]:
+    """Read pinned engine versions from pyproject.toml [tool.code-knowledge-chain.engines].
+
+    Keep Dockerfile ARG defaults and this table in sync (R2-ENG-05).
+    """
+    defaults = {
+        "graphifyy": "0.9.56",
+        "gitnexus": "1.6.11",
+        "codegraph": "1.6.0",
+    }
+    if tomllib is None:
+        return defaults
+    pyproject = ROOT_DIR / "pyproject.toml"
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        pins = data.get("tool", {}).get("code-knowledge-chain", {}).get("engines", {})
+        return {**defaults, **{k: str(v) for k, v in pins.items()}}
+    except Exception:
+        return defaults
 
 
 def resolve_code_chain_cmd() -> list[str]:
@@ -100,10 +129,11 @@ def check_prerequisites() -> dict[str, bool]:
         results["npm"] = False
 
     # Check 3 graph engine binaries (pinned versions — see pyproject engines table)
-    ENGINE_GRAPHIFYY = "graphifyy==0.9.56"
-    ENGINE_GRAPHIFYY_SQL = "graphifyy[sql]==0.9.56"
-    ENGINE_GITNEXUS = "gitnexus@1.6.11"
-    ENGINE_CODEGRAPH = "@colbymchenry/codegraph@1.6.0"
+    pins = load_engine_pins()
+    ENGINE_GRAPHIFYY = f"graphifyy=={pins['graphifyy']}"
+    ENGINE_GRAPHIFYY_SQL = f"graphifyy[sql]=={pins['graphifyy']}"
+    ENGINE_GITNEXUS = f"gitnexus@{pins['gitnexus']}"
+    ENGINE_CODEGRAPH = f"@colbymchenry/codegraph@{pins['codegraph']}"
 
     has_graphify = shutil.which("graphify") is not None
     has_gitnexus = shutil.which("gitnexus") is not None

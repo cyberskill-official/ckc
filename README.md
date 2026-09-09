@@ -169,7 +169,7 @@ docker run --rm -p 8000:8000 \
 ### UI Features
 1. **Header project bar**: absolute path input, sample project picker (`/api/samples`), readiness badge, local docs count, and LLM chip.
 2. **3D graph canvas**: community-colored nodes, category filters (code / docs / schema / tests), fit/clear overlays, command bar (`/` focus).
-3. **Streaming indexing**: POST fetch SSE (token via Authorization header; GET `?token=` disabled unless `CKC_ALLOW_QUERY_TOKEN=1`), force / multimodal / local-LLM toggles, cancel (terminate→kill + AbortController), and per-project job serialization with a global concurrency cap.
+3. **Streaming indexing**: POST `/api/index/stream` with JSON body and Authorization / X-CKC-Token headers (token never in the URL; GET returns 405), force / multimodal / local-LLM toggles, cancel (terminate→kill + AbortController), and per-project job serialization with a global concurrency cap.
 4. **Query / Impact / Trace**: results drawer with DOMPurify-sanitized markdown; Mermaid diagrams render with `securityLevel: 'strict'`; Explorer can toggle local LLM synthesis (AI disclosure when enabled).
 5. **Security defaults**: same-origin CORS by default (set `CKC_CORS_ORIGINS` for tooling; `*` only on loopback); optional loopback unauth (`CKC_UI_ALLOW_UNAUTH_LOOPBACK`, default on); required `CKC_UI_TOKEN` off-loopback; CDN SRI + CSP headers; path-safe artifact APIs with size caps; off-loopback mutating rate limit (XFF only via `CKC_TRUSTED_PROXIES`).
 

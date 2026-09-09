@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark light">
     <title>CKC | 3D Code Knowledge Explorer</title>
     <meta name="description" content="CKC — 3D Code Knowledge Explorer. Visualize and query your codebase architecture with a three-tier knowledge graph, impact analysis, and execution tracing.">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='28' fill='%230F172A'/><circle cx='24' cy='28' r='6' fill='%2306B6D4'/><circle cx='40' cy='24' r='4' fill='%23A78BFA'/><circle cx='36' cy='40' r='5' fill='%23EC4899'/><line x1='24' y1='28' x2='40' y2='24' stroke='%23334155' stroke-width='1.5'/><line x1='24' y1='28' x2='36' y2='40' stroke='%23334155' stroke-width='1.5'/><line x1='40' y1='24' x2='36' y2='40' stroke='%23334155' stroke-width='1.5'/></svg>" type="image/svg+xml">
@@ -13,7 +14,9 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- 3D Graph Engine (3D Force-Directed Graph WebGL) -->
-    <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.80.0/dist/3d-force-graph.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.80.0/dist/3d-force-graph.min.js"
+            integrity="sha384-Y7bC2PBKu8ujxtvo5+Z61OeGdSVRzFsYWBK4i5dnL/U6aFDTodk61qOUkTfInaxS"
+            crossorigin="anonymous"></script>
 
     <!-- Markdown & Diagram Rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"
@@ -34,7 +37,7 @@
     <header class="app-header">
         <div class="header-left">
             <div class="brand">
-                <span class="brand-name">CKC</span>
+                <h1 class="brand-name">CKC</h1>
                 <span class="brand-divider">/</span>
                 <span class="brand-sub">Graph</span>
             </div>
@@ -113,7 +116,7 @@
         <!-- Right: Engine Status & Action Cluster -->
         <div class="header-right">
             <!-- Engine Readiness Status -->
-            <button id="ready-badge" class="badge-status" title="View Engine Status & Indexing">
+            <button id="ready-badge" class="badge-status" title="View Engine Status & Indexing" aria-label="Engine status: Not indexed">
                 <span class="status-dot"></span>
                 <span class="badge-text">Not indexed</span>
             </button>
@@ -301,7 +304,7 @@
     <aside class="sidebar hidden" id="sidebar" aria-hidden="true"></aside>
 
     <!-- Main Full-Bleed 3D Viewport -->
-    <main class="graph-area" id="graph-viewport">
+    <main class="graph-area" id="graph-viewport" aria-label="3D knowledge graph; use search to select symbols by keyboard">
         <!-- 3D WebGL Canvas Container -->
         <div id="graph-3d" class="viewport-canvas"></div>
 
@@ -317,10 +320,10 @@
 
         <!-- Legend Indicator (Bottom-Left) -->
         <div id="graph-legend" class="graph-legend hidden">
-            <div class="legend-item"><span class="legend-dot" style="background:#06B6D4"></span> Code</div>
-            <div class="legend-item"><span class="legend-dot" style="background:#EC4899"></span> Doc</div>
-            <div class="legend-item"><span class="legend-dot" style="background:#A78BFA"></span> Schema</div>
-            <div class="legend-item"><span class="legend-dot" style="background:#34D399"></span> Test</div>
+            <div class="legend-item"><span class="legend-dot color-code"></span> Code</div>
+            <div class="legend-item"><span class="legend-dot color-doc"></span> Doc</div>
+            <div class="legend-item"><span class="legend-dot color-schema"></span> Schema</div>
+            <div class="legend-item"><span class="legend-dot color-test"></span> Test</div>
         </div>
 
         <!-- Floating Minimalist HUD Controls Dock (Bottom-Right) -->
@@ -332,7 +335,7 @@
                 </svg>
                 <span>Clear</span>
             </button>
-            <button id="auto-rotate-btn" class="hud-btn" title="Toggle Auto-Rotation (Space)" aria-label="Auto Rotate">
+            <button id="auto-rotate-btn" class="hud-btn" title="Toggle Auto-Rotation (Space)" aria-label="Auto Rotate" aria-pressed="false">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"></path>
                 </svg>
@@ -360,7 +363,7 @@
                     <line x1="12" y1="16" x2="12" y2="12"></line>
                     <line x1="12" y1="8" x2="12.01" y2="8"></line>
                 </svg>
-                <h3>Entity Inspector</h3>
+                <h2>Entity Inspector</h2>
             </div>
             <button id="close-panel-btn" class="btn-close" aria-label="Close Inspector">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -374,7 +377,7 @@
             <!-- Node Header -->
             <div class="inspector-card">
                 <div class="inspector-header-row">
-                    <h2 id="node-label">No selection</h2>
+                    <h3 id="node-label">No selection</h3>
                     <button id="copy-symbol-name-btn" class="btn-icon" title="Copy Symbol Name">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -455,16 +458,16 @@
 
     <!-- Bottom Drawer (Terminal & Results) -->
     <div class="bottom-drawer" id="drawer">
-        <div class="drawer-header" id="drawer-toggle" role="button" tabindex="0" aria-label="Toggle results drawer">
-            <div class="drawer-tabs">
-                <button class="tab-btn active" data-tab="terminal">
+        <div class="drawer-header" id="drawer-toggle" role="button" tabindex="0" aria-label="Toggle results drawer" aria-expanded="false">
+            <div class="drawer-tabs" role="tablist" aria-label="Drawer panels">
+                <button class="tab-btn active" data-tab="terminal" role="tab" aria-selected="true">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="4 17 10 11 4 5"></polyline>
                         <line x1="12" y1="19" x2="20" y2="19"></line>
                     </svg>
                     <span>Log</span>
                 </button>
-                <button class="tab-btn" data-tab="results">
+                <button class="tab-btn" data-tab="results" role="tab" aria-selected="false">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                         <polyline points="14 2 14 8 20 8"></polyline>

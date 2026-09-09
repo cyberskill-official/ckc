@@ -18,7 +18,7 @@ Please review and adhere to our [Code of Conduct](CODE_OF_CONDUCT.md) in all pro
 
 1. **Python 3.10+**
 2. **Git**
-3. **Node.js 18+** and **npm**
+3. **Node.js 22+** and **npm**
 4. The three underlying graph engines:
    - **Graphify**: `pip install graphifyy`
    - **GitNexus**: `npm install -g gitnexus`
@@ -109,11 +109,11 @@ code-knowledge-chain/
 │   │   └── codegraph_adapter.py  # Precise AST & symbol reference adapter
 │   ├── core/                     # Orchestrator, models, and configuration
 │   ├── pipelines/                # Multi-engine synthesized workflows
-│   │   ├── index_pipeline.py     # Parallel 3-engine indexing & manifest generation
+│   │   ├── index_pipeline.py     # Sequential 3-engine indexing & manifest generation
 │   │   ├── query_pipeline.py     # Tier-by-tier architecture & symbol search
 │   │   ├── impact_pipeline.py    # Blast radius scoring & affected test calculation
 │   │   └── trace_pipeline.py     # End-to-end execution path synthesis & Mermaid diagrams
-│   ├── cli/                      # Rich-powered command-line interface
+│   ├── cli/                      # argparse-based command-line interface
 │   ├── mcp/                      # Model Context Protocol (MCP) server
 │   └── ui/                       # Modern web dashboard (FastAPI + SSE streaming)
 └── tests/                        # Comprehensive test suite (adapters, pipelines, UI, MCP)

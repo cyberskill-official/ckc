@@ -137,6 +137,9 @@ html, body {
     font-size: 16px;
     color: var(--text-primary);
     font-family: var(--font-mono);
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.2;
 }
 
 .brand-divider {
@@ -882,13 +885,14 @@ html, body {
 .op-chip {
     font-size: 12px;
     font-family: var(--font-mono);
-    padding: 3px 8px;
+    padding: 8px 12px;
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid var(--border-subtle);
     border-radius: 4px;
     color: var(--text-secondary);
     cursor: pointer;
     transition: all 0.15s ease;
+    min-height: 44px;
 }
 
 .op-chip:hover {
@@ -1023,12 +1027,18 @@ html, body {
     display: flex;
     align-items: center;
     gap: 10px;
+    width: 100%;
     padding: 8px 12px;
+    border: none;
+    background: transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-size: 13px;
+    font-family: inherit;
+    text-align: left;
     color: var(--text-secondary);
     transition: all 0.15s ease;
+    min-height: 44px;
 }
 
 .community-item:hover {
@@ -1319,9 +1329,16 @@ html, body {
     color: var(--text-primary);
 }
 
-.panel-title h3 {
+.panel-title h2 {
     font-size: 16px;
     font-weight: 600;
+}
+
+.btn-close,
+.command-clear-btn,
+.search-mode-btn {
+    min-width: 44px;
+    min-height: 44px;
 }
 
 .btn-close {
@@ -1332,8 +1349,8 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
     border-radius: var(--radius-sm);
     transition: all 0.15s ease;
 }
@@ -1772,6 +1789,27 @@ html, body {
     border-color: rgba(239, 68, 68, 0.4);
 }
 
+.toast-dismiss {
+    margin-left: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+}
+
+.toast-dismiss:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+}
+
 @keyframes toastIn {
     from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
@@ -1825,10 +1863,12 @@ html, body {
         padding: 0 8px;
     }
     .badge-status .badge-text {
-        display: none;
+        font-size: 11px;
+        display: inline;
     }
     .badge-status {
-        padding: 6px;
+        padding: 6px 8px;
+        min-height: 44px;
     }
 }
 
@@ -1836,9 +1876,12 @@ html, body {
     .header-right {
         gap: 4px;
     }
-    .badge-status .badge-text,
     .header-right .btn span {
         display: none; /* Show icons only */
+    }
+    .badge-status .badge-text {
+        display: inline;
+        font-size: 10px;
     }
     .header-center {
         min-width: 120px;

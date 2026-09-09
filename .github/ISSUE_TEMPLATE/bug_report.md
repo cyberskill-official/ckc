@@ -22,7 +22,7 @@ A clear and concise description of what you expected to happen.
  - OS: [e.g. macOS 14.5, Ubuntu 22.04, Windows 11]
  - Python version: [e.g. 3.11.8]
  - Node.js version: [e.g. 20.11.0]
- - Graphify version: [e.g. 0.9.55]
+ - Graphify version: [e.g. 0.9.56]
  - GitNexus version: [e.g. 1.6.11]
  - CodeGraph version: [e.g. 1.6.0]
 
