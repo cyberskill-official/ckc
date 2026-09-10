@@ -13,6 +13,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -37,7 +38,14 @@ from code_chain.adapters.graphify_adapter import classify_entity_type
 from code_chain.core.config import ChainConfig
 from code_chain.core.docs_index import index_docs_overlay, local_docs_count
 from code_chain.core.env import load_dotenv
-from code_chain.core.llm import llm_public_status, resolve_llm_config
+from code_chain.core.llm import (
+    LlmUrlDeniedError,
+    disable_llm_config,
+    get_llm_status,
+    llm_public_status,
+    resolve_llm_config,
+    set_llm_config,
+)
 from code_chain.core.orchestrator import CodeKnowledgeChain
 from code_chain.core.paths import (
     UnsafeProjectPathError,
@@ -515,6 +523,13 @@ class BrowsePayload(BaseModel):
     path: str | None = Field(default=None, description="Directory to list; defaults to home")
 
 
+class LlmConfigPayload(BaseModel):
+    provider: str = Field(default="lm-studio", description="Provider identifier")
+    base_url: str = Field(default="http://127.0.0.1:1234/v1", description="OpenAI-compatible URL")
+    api_key: str | None = Field(default=None, description="Optional API key")
+    model: str | None = Field(default=None, description="Optional model identifier")
+
+
 class QueryPayload(BaseModel):
     project_path: str
     query: str = Field(..., min_length=1)
@@ -571,16 +586,26 @@ def health(ready: bool = Query(False, description="When true, check engine CLIs 
 @app.post("/api/browse")
 def browse_directory(payload: BrowsePayload) -> dict[str, Any]:
     """Lists subdirectories at *path* for the folder-browser UI."""
-    start = Path(payload.path).resolve() if payload.path else Path.home()
-    if not start.is_dir():
-        start = start.parent if start.parent.is_dir() else Path.home()
+    try:
+        start = Path(payload.path).resolve() if payload.path else Path.home()
+        if not start.is_dir():
+            start = start.parent if start.parent.is_dir() else Path.home()
+    except Exception:
+        start = Path.home()
 
     entries: list[dict[str, Any]] = []
     try:
         for item in sorted(start.iterdir()):
             if item.is_dir() and not item.name.startswith("."):
-                entries.append({"name": item.name, "type": "dir"})
-    except PermissionError:
+                is_indexed = (item / "graphify-out" / "graph.json").exists()
+                entries.append(
+                    {
+                        "name": item.name,
+                        "type": "dir",
+                        "is_indexed": is_indexed,
+                    }
+                )
+    except (PermissionError, OSError):
         pass
 
     parent = str(start.parent) if start != start.parent else None
@@ -589,6 +614,32 @@ def browse_directory(payload: BrowsePayload) -> dict[str, Any]:
         "parent": parent,
         "entries": entries,
     }
+
+
+@app.get("/api/llm/status")
+def get_llm_status_endpoint() -> dict[str, Any]:
+    """Returns provider status, connectivity, and detected models for BYOK UI."""
+    return get_llm_status()
+
+
+@app.post("/api/llm/config")
+def set_llm_config_endpoint(payload: LlmConfigPayload) -> dict[str, Any]:
+    """Updates runtime LLM provider settings with SSRF validation."""
+    try:
+        return set_llm_config(
+            provider=payload.provider,
+            base_url=payload.base_url,
+            api_key=payload.api_key,
+            model=payload.model,
+        )
+    except LlmUrlDeniedError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/llm/disable")
+def disable_llm_config_endpoint() -> dict[str, Any]:
+    """Disables LLM synthesis in runtime environment."""
+    return disable_llm_config()
 
 
 @app.get("/api/status")
@@ -794,6 +845,8 @@ async def stream_indexing(request: Request):
 
                 try:
                     step_env = graphify_env if engine == "graphify" else None
+                    step_start_time = time.monotonic()
+                    last_output_time = time.monotonic()
                     proc = await asyncio.create_subprocess_exec(
                         *cmd,
                         cwd=str(resolved),
@@ -844,11 +897,26 @@ async def stream_indexing(request: Request):
                         except TimeoutError:
                             if proc.returncode is not None:
                                 break
-                            # No output yet; re-check cancel / deadline
+                            # Emit periodic heartbeat if subprocess is silent
+                            if time.monotonic() - last_output_time >= 3.0:
+                                elapsed_sec = round(time.monotonic() - step_start_time, 1)
+                                yield json.dumps(
+                                    {
+                                        "event": "heartbeat",
+                                        "step": step_idx,
+                                        "engine": engine,
+                                        "elapsed_seconds": elapsed_sec,
+                                        "message": (
+                                            f"[{engine}] Analysis active ({elapsed_sec}s)..."
+                                        ),
+                                    }
+                                )
+                                last_output_time = time.monotonic()
                             continue
 
                         if not line_bytes:
                             break
+                        last_output_time = time.monotonic()
                         clean_line = line_bytes.decode("utf-8", errors="replace").rstrip()
                         yield json.dumps(
                             {
@@ -1116,6 +1184,26 @@ def _subsample_graph_nodes(
     return kept, kept_links, True
 
 
+_VENDOR_PATTERNS: tuple[str, ...] = (
+    "node_modules/",
+    "vendor/",
+    "storage/",
+    "dist/",
+    "build/",
+    "site-packages/",
+    "__pycache__/",
+    ".min.js",
+    ".min.css",
+    "package-lock.json",
+    "composer.lock",
+)
+
+
+def _is_vendor_path(path: str) -> bool:
+    norm = path.replace("\\", "/").lower()
+    return any(p in norm for p in _VENDOR_PATTERNS)
+
+
 def _build_cytoscape_graph(resolved: Path, graph_file: Path) -> tuple[dict[str, Any], float, int]:
     """Read/transform graph.json off the event loop. Returns (payload, mtime, size)."""
     st = graph_file.stat()
@@ -1142,13 +1230,17 @@ def _build_cytoscape_graph(resolved: Path, graph_file: Path) -> tuple[dict[str, 
         raw_nodes, raw_links, cap=_GRAPH_SUBSAMPLE_NODE_CAP
     )
 
-    # Compute degree per node (post-subsample)
+    # Compute degree, in-degree, and out-degree per node
     degree_map: dict[str, int] = {}
+    in_degree_map: dict[str, int] = {}
+    out_degree_map: dict[str, int] = {}
     for link in raw_links:
         src = link.get("source", "")
         tgt = link.get("target", "")
         degree_map[src] = degree_map.get(src, 0) + 1
         degree_map[tgt] = degree_map.get(tgt, 0) + 1
+        out_degree_map[src] = out_degree_map.get(src, 0) + 1
+        in_degree_map[tgt] = in_degree_map.get(tgt, 0) + 1
 
     # Build community metadata
     community_members: dict[int, list[str]] = {}
@@ -1180,19 +1272,38 @@ def _build_cytoscape_graph(resolved: Path, graph_file: Path) -> tuple[dict[str, 
         else:
             category = "code"
 
+        is_class = bool(node.get("_callable_class") or node.get("is_class"))
+        is_callable = bool(node.get("_callable") or node.get("is_callable"))
+        if is_class:
+            kind = "class"
+        elif is_callable:
+            kind = "callable"
+        elif category == "doc":
+            kind = "doc"
+        elif category == "schema":
+            kind = "schema"
+        elif category == "test":
+            kind = "test"
+        else:
+            kind = "module"
+
         cy_nodes.append(
             {
                 "data": {
                     "id": nid,
                     "label": label,
                     "category": category,
+                    "kind": kind,
                     "file_type": file_type,
                     "community": node.get("community"),
                     "source_file": source_file,
                     "source_location": node.get("source_location"),
                     "degree": degree_map.get(nid, 0),
-                    "is_callable": bool(node.get("_callable")),
-                    "is_class": bool(node.get("_callable_class")),
+                    "in_degree": in_degree_map.get(nid, 0),
+                    "out_degree": out_degree_map.get(nid, 0),
+                    "is_callable": is_callable,
+                    "is_class": is_class,
+                    "is_vendor": _is_vendor_path(source_file),
                 }
             }
         )
@@ -1365,6 +1476,93 @@ def get_artifact_content(
             status_code=500,
             detail=_public_error_detail(e, public="Error reading artifact."),
         ) from e
+
+
+_SOURCE_EXT_LANG_MAP: dict[str, str] = {
+    ".py": "python",
+    ".php": "php",
+    ".vue": "vue",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".js": "javascript",
+    ".jsx": "jsx",
+    ".json": "json",
+    ".sql": "sql",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".md": "markdown",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".html": "html",
+    ".css": "css",
+}
+
+
+@app.get("/api/source")
+def get_source_snippet(
+    project: str = Query(..., description="Absolute path to target project"),
+    file: str = Query(..., description="Relative or absolute path to source file"),
+    line: str | None = Query(
+        None, description="1-based line number or range to highlight (e.g. 11, L11, L11-L25)"
+    ),
+    window: int = Query(25, description="Number of lines before and after", ge=5, le=100),
+):
+    """Securely fetches a source code window around a given line for symbol inspection."""
+    resolved_proj = validate_project_path(project)
+
+    clean_file = file.strip().lstrip("/")
+    if ".." in clean_file:
+        raise HTTPException(status_code=400, detail="Path traversal not permitted.")
+
+    target_file = (resolved_proj / clean_file).resolve()
+    if not target_file.is_relative_to(resolved_proj):
+        raise HTTPException(status_code=403, detail="File path escapes project directory.")
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail="Source file not found.")
+
+    if target_file.stat().st_size > 2 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File exceeds 2MB limit for preview.")
+
+    try:
+        content = target_file.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading file: {e}") from e
+
+    raw_lines = content.splitlines()
+    total_lines = len(raw_lines)
+
+    parsed_line: int | None = None
+    if line is not None:
+        cleaned = re.sub(r"^[Ll:\s]+", "", str(line).strip())
+        match = re.match(r"(\d+)", cleaned)
+        if match:
+            parsed_line = max(1, int(match.group(1)))
+
+    if parsed_line is None:
+        start_line = 1
+        end_line = min(total_lines, window * 2)
+        highlight_line = None
+    else:
+        start_line = max(1, parsed_line - window)
+        end_line = min(total_lines, parsed_line + window)
+        highlight_line = min(parsed_line, total_lines) if total_lines > 0 else None
+
+    sliced_lines = [
+        {"line_num": idx, "code": raw_lines[idx - 1]} for idx in range(start_line, end_line + 1)
+    ]
+
+    ext = target_file.suffix.lower()
+    language = _SOURCE_EXT_LANG_MAP.get(ext, "text")
+
+    return {
+        "file": str(target_file.relative_to(resolved_proj)),
+        "language": language,
+        "total_lines": total_lines,
+        "start_line": start_line,
+        "end_line": end_line,
+        "highlight_line": highlight_line,
+        "lines": sliced_lines,
+    }
 
 
 # Mount static assets

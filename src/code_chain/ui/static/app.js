@@ -20,7 +20,22 @@ const state = {
     isTraceMode: false,
     graphData: null,
     communities: [],
-    filters: { code: true, doc: true, schema: true, test: true },
+    filters: {
+        code: true,
+        doc: true,
+        schema: true,
+        test: true,
+        hideVendor: true,
+        relCalls: true,
+        relImports: true,
+        relDefines: true,
+        relInherits: true
+    },
+    layoutMode: '3d',
+    incomingCallers: new Set(),
+    outgoingCallees: new Set(),
+    indexingTimer: null,
+    indexingStartTime: null,
     isAutoRotating: false,
     prefersReducedMotion: typeof window !== 'undefined'
         && window.matchMedia
@@ -38,6 +53,14 @@ const state = {
     searchMode: 'auto',
     searchSelectedIndex: -1,
     currentMatches: [],
+    byok: {
+        provider: 'lm-studio',
+        baseUrl: 'http://127.0.0.1:1234/v1',
+        model: null,
+        apiKey: '',
+        connected: false,
+        models: []
+    },
     palette: [
         '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb7185',
         '#f59e0b', '#10b981', '#34d399', '#2dd4bf', '#22d3ee',
@@ -70,12 +93,31 @@ const els = {
     browserSelectBtn: document.getElementById('browser-select-btn'),
     browserCancelBtn: document.getElementById('browser-cancel-btn'),
     browserCloseBtn: document.getElementById('browser-close-btn'),
+    browserQuickHome: document.getElementById('browser-quick-home'),
+    browserQuickRoot: document.getElementById('browser-quick-root'),
     helpTourBtn: document.getElementById('help-tour-btn'),
+    headerAiBtn: document.getElementById('header-ai-btn'),
+    headerAiDot: document.getElementById('header-ai-dot'),
+    headerAiLabel: document.getElementById('header-ai-label'),
+    byokDialog: document.getElementById('byok-dialog'),
+    byokCloseBtn: document.getElementById('byok-close-btn'),
+    byokCancelBtn: document.getElementById('byok-cancel-btn'),
+    byokSaveBtn: document.getElementById('byok-save-btn'),
+    byokSkipBtn: document.getElementById('byok-skip-btn'),
+    byokRetryBtn: document.getElementById('byok-retry-btn'),
+    byokBaseUrl: document.getElementById('byok-base-url'),
+    byokModelSelect: document.getElementById('byok-model-select'),
+    byokModelCustom: document.getElementById('byok-model-custom'),
+    byokApiKey: document.getElementById('byok-api-key'),
+    byokToggleKey: document.getElementById('byok-toggle-key'),
     loadBtn: document.getElementById('load-btn'),
     readyBadge: document.getElementById('ready-badge'),
     readyBadgeText: document.querySelector('#ready-badge .badge-text'),
     docsChip: document.getElementById('docs-chip'),
     llmChip: document.getElementById('llm-chip'),
+    recentProjectsList: document.getElementById('recent-projects-list'),
+    clearRecentProjectsBtn: document.getElementById('clear-recent-projects-btn'),
+    openByokFromIndexBtn: document.getElementById('open-byok-from-index-btn'),
     autoRotateBtn: document.getElementById('auto-rotate-btn'),
     fitBtn: document.getElementById('fit-btn'),
     resetCamBtn: document.getElementById('reset-cam-btn'),
@@ -107,10 +149,15 @@ const els = {
     traceCancelBtn: document.getElementById('trace-cancel-btn'),
 
     // Filters & Communities
+    filterHideVendor: document.getElementById('filter-hide-vendor'),
     filterCode: document.getElementById('filter-code'),
     filterDoc: document.getElementById('filter-doc'),
     filterSchema: document.getElementById('filter-schema'),
     filterTest: document.getElementById('filter-test'),
+    filterRelCalls: document.getElementById('filter-rel-calls'),
+    filterRelImports: document.getElementById('filter-rel-imports'),
+    filterRelDefines: document.getElementById('filter-rel-defines'),
+    filterRelInherits: document.getElementById('filter-rel-inherits'),
     countCode: document.getElementById('count-code'),
     countDoc: document.getElementById('count-doc'),
     countSchema: document.getElementById('count-schema'),
@@ -128,6 +175,10 @@ const els = {
     graphViewport: document.getElementById('graph-viewport'),
     container3d: document.getElementById('graph-3d'),
     clearOverlaysBtn: document.getElementById('clear-overlays-btn'),
+    graphLayoutModes: document.getElementById('graph-layout-modes'),
+    mode3dBtn: document.getElementById('mode-3d-btn'),
+    mode2dBtn: document.getElementById('mode-2d-btn'),
+    modeDagBtn: document.getElementById('mode-dag-btn'),
 
     // Right Panel Context Inspector
     contextPanel: document.getElementById('context-panel'),
@@ -139,9 +190,20 @@ const els = {
     nodeSource: document.getElementById('node-source'),
     nodeCommunity: document.getElementById('node-community'),
     nodeDegree: document.getElementById('node-degree'),
+    nodeInDegree: document.getElementById('node-in-degree'),
+    nodeOutDegree: document.getElementById('node-out-degree'),
     nodeConnections: document.getElementById('node-connections'),
     copySymbolNameBtn: document.getElementById('copy-symbol-name-btn'),
     copySourcePathBtn: document.getElementById('copy-source-path-btn'),
+    actionFocusNode: document.getElementById('action-focus-node'),
+    actionTraceFrom: document.getElementById('action-trace-from'),
+    actionImpactFrom: document.getElementById('action-impact-from'),
+    btnPreviewSource: document.getElementById('btn-preview-source'),
+    sourcePreviewContainer: document.getElementById('source-preview-container'),
+    sourcePreviewFile: document.getElementById('source-preview-file'),
+    sourcePreviewLang: document.getElementById('source-preview-lang'),
+    sourcePreviewCode: document.getElementById('source-preview-code'),
+    closeSourcePreviewBtn: document.getElementById('close-source-preview-btn'),
     actionImpact: document.getElementById('action-impact'),
     actionTrace: document.getElementById('action-trace'),
     actionQuery: document.getElementById('action-query'),
@@ -153,6 +215,19 @@ const els = {
     terminalOutput: document.getElementById('terminal-output'),
     resultsOutput: document.getElementById('results-output'),
     copyResultsBtn: document.getElementById('copy-results-btn'),
+
+    // Indexing Dashboard
+    indexingDashboard: document.getElementById('indexing-progress-dashboard'),
+    progressTierTitle: document.getElementById('progress-current-tier-title'),
+    progressElapsedTimer: document.getElementById('progress-elapsed-timer'),
+    progressHeartbeatBadge: document.getElementById('progress-heartbeat-badge'),
+    indexingProgressBar: document.getElementById('indexing-progress-bar'),
+    stepperTier1: document.getElementById('stepper-tier-1'),
+    stepperTier2: document.getElementById('stepper-tier-2'),
+    stepperTier3: document.getElementById('stepper-tier-3'),
+    stepperStatus1: document.getElementById('stepper-status-1'),
+    stepperStatus2: document.getElementById('stepper-status-2'),
+    stepperStatus3: document.getElementById('stepper-status-3'),
 
     // Toasts
     toastContainer: document.getElementById('toast-container')
@@ -232,6 +307,9 @@ function init() {
     if (els.uiTokenInput) els.uiTokenInput.value = state.uiToken;
     if (els.useLlm) els.useLlm.checked = state.useLlm;
     updateAiDisclosure();
+    updateIndexingDependencies();
+    renderRecentProjects();
+    checkLlmStatus();
 
     updateProjectLabel();
     init3DGraph();
@@ -461,6 +539,16 @@ function setBusy(busy) {
 // 3D Force-Directed Graph Engine
 // ==========================================================================
 
+function getLinkRelationColor(relation) {
+    if (!relation) return 'rgba(255, 255, 255, 0.15)';
+    const rel = relation.toLowerCase();
+    if (rel === 'calls' || rel === 'call' || rel === 'indirect_call') return '#38bdf8'; // Sky blue
+    if (rel === 'imports' || rel === 'imports_from' || rel === 'import') return '#a78bfa'; // Violet
+    if (rel === 'defines' || rel === 'contains' || rel === 'method' || rel === 'defined_in') return '#34d399'; // Emerald
+    if (rel === 'inherits' || rel === 'extends' || rel === 'mixes_in') return '#fbbf24'; // Amber
+    return 'rgba(255, 255, 255, 0.15)';
+}
+
 function init3DGraph() {
     if (!els.container3d || !window.ForceGraph3D) return;
 
@@ -478,6 +566,12 @@ function init3DGraph() {
             if (node.__impactTarget) return '#ef4444';
             if (node.__impacted) return '#f59e0b';
             if (node.__tracePath) return '#38bdf8';
+            if (state.selectedNode) {
+                if (node.id === state.selectedNode.id) return '#f43f5e';
+                if (state.incomingCallers && state.incomingCallers.has(node.id)) return '#38bdf8';
+                if (state.outgoingCallees && state.outgoingCallees.has(node.id)) return '#f59e0b';
+                return 'rgba(255, 255, 255, 0.08)';
+            }
             if (state.highlightNodes.size > 0 && !state.highlightNodes.has(node.id)) {
                 return 'rgba(255, 255, 255, 0.08)';
             }
@@ -488,9 +582,12 @@ function init3DGraph() {
         })
         .nodeLabel(node => {
             const cat = (node.category || 'code').toUpperCase();
+            const kind = node.kind ? ` &bull; ${escapeHtml(node.kind)}` : '';
+            const callers = node.in_degree != null ? ` &bull; ${node.in_degree} in` : '';
+            const callees = node.out_degree != null ? ` &bull; ${node.out_degree} out` : '';
             return `<div style="background:#131620;border:1px solid rgba(255,255,255,0.14);border-radius:6px;padding:6px 10px;font-family:'IBM Plex Sans',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.5);">
                 <div style="font-weight:700;font-size:13px;color:#f3f4f6;font-family:'JetBrains Mono',monospace;">${escapeHtml(node.label || node.id)}</div>
-                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">${cat} &bull; ${node.degree || 0} connections</div>
+                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">${cat}${kind} &bull; ${node.degree || 0} total${callers}${callees}</div>
             </div>`;
         })
         .nodeOpacity(0.95)
@@ -498,12 +595,40 @@ function init3DGraph() {
             if (link.__highlight) return '#38bdf8';
             if (link.__trace) return '#38bdf8';
             if (link.__impact) return '#ef4444';
+            if (state.selectedNode) {
+                const s = typeof link.source === 'object' ? link.source.id : link.source;
+                const t = typeof link.target === 'object' ? link.target.id : link.target;
+                if (t === state.selectedNode.id) return '#38bdf8';
+                if (s === state.selectedNode.id) return '#f59e0b';
+                return 'rgba(255, 255, 255, 0.03)';
+            }
             if (state.highlightNodes.size > 0) return 'rgba(255, 255, 255, 0.03)';
-            return 'rgba(255, 255, 255, 0.12)';
+            return getLinkRelationColor(link.relation);
         })
         .linkWidth(link => {
             if (link.__highlight || link.__trace || link.__impact) return 2.5;
+            if (state.selectedNode) {
+                const s = typeof link.source === 'object' ? link.source.id : link.source;
+                const t = typeof link.target === 'object' ? link.target.id : link.target;
+                if (s === state.selectedNode.id || t === state.selectedNode.id) return 2.2;
+            }
             return 0.8;
+        })
+        .linkDirectionalArrowLength(link => {
+            if (state.highlightNodes.size > 0 && !link.__highlight && !link.__trace && !link.__impact) return 0;
+            return 3.5;
+        })
+        .linkDirectionalArrowRelPos(1)
+        .linkDirectionalArrowColor(link => {
+            if (link.__trace) return '#38bdf8';
+            if (link.__impact) return '#ef4444';
+            if (state.selectedNode) {
+                const s = typeof link.source === 'object' ? link.source.id : link.source;
+                const t = typeof link.target === 'object' ? link.target.id : link.target;
+                if (t === state.selectedNode.id) return '#38bdf8';
+                if (s === state.selectedNode.id) return '#f59e0b';
+            }
+            return getLinkRelationColor(link.relation);
         })
         .linkDirectionalParticles(link => {
             if (state.prefersReducedMotion) return 0;
@@ -567,6 +692,38 @@ function init3DGraph() {
     state.graph3d.d3Force('charge').strength(-180);
     state.graph3d.d3Force('link').distance(45);
 }
+
+function setLayoutMode(mode) {
+    if (!state.graph3d) return;
+    state.layoutMode = mode;
+
+    [els.mode3dBtn, els.mode2dBtn, els.modeDagBtn].forEach(btn => {
+        if (btn) btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+
+    if (mode === '2d') {
+        state.graph3d.numDimensions(2);
+        state.graph3d.dagMode(null);
+        state.graph3d.cameraPosition({ x: 0, y: 0, z: 280 }, { x: 0, y: 0, z: 0 }, motionMs(700));
+        showToast('Switched to 2D Planar Map', 'info');
+    } else if (mode === 'dag') {
+        state.graph3d.numDimensions(3);
+        state.graph3d.dagMode('td');
+        state.graph3d.dagLevelDistance(65);
+        state.graph3d.cameraPosition({ x: 0, y: -40, z: 320 }, { x: 0, y: 0, z: 0 }, motionMs(700));
+        showToast('Switched to Hierarchical Top-Down DAG', 'info');
+    } else {
+        state.graph3d.numDimensions(3);
+        state.graph3d.dagMode(null);
+        state.graph3d.cameraPosition({ x: 0, y: 0, z: 280 }, { x: 0, y: 0, z: 0 }, motionMs(700));
+        showToast('Switched to 3D Force Graph', 'info');
+    }
+
+    if (typeof state.graph3d.d3ReheatSimulation === 'function') {
+        state.graph3d.d3ReheatSimulation();
+    }
+}
+window.setLayoutMode = setLayoutMode;
 
 function getNodeCommunityColor(commId) {
     if (commId == null) return '#38bdf8';
@@ -754,12 +911,34 @@ function setupEventListeners() {
         els.resetCamBtn.addEventListener('click', resetCameraView);
     }
 
-    // Entity Filters
+    // Layout Mode Switcher Buttons
+    if (els.mode3dBtn) els.mode3dBtn.addEventListener('click', () => setLayoutMode('3d'));
+    if (els.mode2dBtn) els.mode2dBtn.addEventListener('click', () => setLayoutMode('2d'));
+    if (els.modeDagBtn) els.modeDagBtn.addEventListener('click', () => setLayoutMode('dag'));
+
+    // Entity Filters & Noise Reduction
+    if (els.filterHideVendor) {
+        els.filterHideVendor.addEventListener('change', (e) => {
+            state.filters.hideVendor = e.target.checked;
+            applyFilters();
+        });
+    }
+
     ['code', 'doc', 'schema', 'test'].forEach(cat => {
         const checkbox = els[`filter${cat.charAt(0).toUpperCase() + cat.slice(1)}`];
         if (checkbox) {
             checkbox.addEventListener('change', (e) => {
                 state.filters[cat] = e.target.checked;
+                applyFilters();
+            });
+        }
+    });
+
+    ['Calls', 'Imports', 'Defines', 'Inherits'].forEach(rel => {
+        const checkbox = els[`filterRel${rel}`];
+        if (checkbox) {
+            checkbox.addEventListener('change', (e) => {
+                state.filters[`rel${rel}`] = e.target.checked;
                 applyFilters();
             });
         }
@@ -813,6 +992,36 @@ function setupEventListeners() {
         els.contextPanel.classList.add('closed');
         clearSelection();
     });
+
+    if (els.actionFocusNode) {
+        els.actionFocusNode.addEventListener('click', () => {
+            if (state.selectedNode && state.graph3d) {
+                const gNodes = state.graph3d.graphData().nodes;
+                const targetNode = gNodes.find(n => n.id === state.selectedNode.id);
+                if (targetNode) flyToNode(targetNode);
+            }
+        });
+    }
+
+    if (els.actionTraceFrom) {
+        els.actionTraceFrom.addEventListener('click', () => {
+            if (state.selectedNode) enterTraceMode(state.selectedNode);
+        });
+    }
+
+    if (els.actionImpactFrom) {
+        els.actionImpactFrom.addEventListener('click', () => {
+            if (state.selectedNode) runImpact(state.selectedNode.label || state.selectedNode.id);
+        });
+    }
+
+    if (els.btnPreviewSource) {
+        els.btnPreviewSource.addEventListener('click', toggleSourcePreview);
+    }
+
+    if (els.closeSourcePreviewBtn) {
+        els.closeSourcePreviewBtn.addEventListener('click', closeSourcePreview);
+    }
 
     els.actionImpact.addEventListener('click', () => {
         if (state.selectedNode) runImpact(state.selectedNode.label || state.selectedNode.id);
@@ -888,6 +1097,14 @@ function setupEventListeners() {
         const isInput = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT');
 
         if (e.key === 'Escape') {
+            if (els.folderBrowserDialog && els.folderBrowserDialog.open) {
+                closeFolderBrowser();
+                return;
+            }
+            if (els.byokDialog && els.byokDialog.open) {
+                closeByokDialog();
+                return;
+            }
             if (state.isTraceMode) {
                 exitTraceMode();
             } else {
@@ -949,6 +1166,108 @@ function setupEventListeners() {
     }
     if (els.browserCloseBtn) {
         els.browserCloseBtn.addEventListener('click', closeFolderBrowser);
+    }
+    if (els.browserQuickHome) {
+        els.browserQuickHome.addEventListener('click', () => navigateBrowserTo(null));
+    }
+    if (els.browserQuickRoot) {
+        els.browserQuickRoot.addEventListener('click', () => navigateBrowserTo('/'));
+    }
+    if (els.folderBrowserDialog) {
+        els.folderBrowserDialog.addEventListener('click', (e) => {
+            const rect = els.folderBrowserDialog.getBoundingClientRect();
+            const isInDialog = (
+                rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                rect.left <= e.clientX && e.clientX <= rect.left + rect.width
+            );
+            if (!isInDialog) {
+                closeFolderBrowser();
+            }
+        });
+        els.folderBrowserDialog.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            closeFolderBrowser();
+        });
+    }
+
+    // BYOK Provider Dialog
+    if (els.headerAiBtn) {
+        els.headerAiBtn.addEventListener('click', openByokDialog);
+    }
+    if (els.llmChip) {
+        els.llmChip.addEventListener('click', openByokDialog);
+    }
+    if (els.openByokFromIndexBtn) {
+        els.openByokFromIndexBtn.addEventListener('click', () => {
+            closeAllPopovers();
+            openByokDialog();
+        });
+    }
+    if (els.byokCloseBtn) {
+        els.byokCloseBtn.addEventListener('click', closeByokDialog);
+    }
+    if (els.byokCancelBtn) {
+        els.byokCancelBtn.addEventListener('click', closeByokDialog);
+    }
+    if (els.byokSaveBtn) {
+        els.byokSaveBtn.addEventListener('click', saveByokConfig);
+    }
+    if (els.byokSkipBtn) {
+        els.byokSkipBtn.addEventListener('click', skipByok);
+    }
+    if (els.byokRetryBtn) {
+        els.byokRetryBtn.addEventListener('click', () => probeByokProvider());
+    }
+    if (els.byokToggleKey && els.byokApiKey) {
+        els.byokToggleKey.addEventListener('click', () => {
+            const isPw = els.byokApiKey.type === 'password';
+            els.byokApiKey.type = isPw ? 'text' : 'password';
+            els.byokToggleKey.textContent = isPw ? '🔒' : '👁';
+        });
+    }
+    if (els.byokModelSelect) {
+        els.byokModelSelect.addEventListener('change', () => {
+            if (els.byokModelSelect.value === '__custom__') {
+                if (els.byokModelCustom) els.byokModelCustom.classList.remove('hidden');
+            } else {
+                if (els.byokModelCustom) els.byokModelCustom.classList.add('hidden');
+            }
+        });
+    }
+    document.querySelectorAll('.provider-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+            const provider = pill.dataset.provider;
+            selectProviderPreset(provider);
+        });
+    });
+    if (els.byokDialog) {
+        els.byokDialog.addEventListener('click', (e) => {
+            const rect = els.byokDialog.getBoundingClientRect();
+            const isInDialog = (
+                rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                rect.left <= e.clientX && e.clientX <= rect.left + rect.width
+            );
+            if (!isInDialog) {
+                closeByokDialog();
+            }
+        });
+        els.byokDialog.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            closeByokDialog();
+        });
+    }
+
+    // Recent Projects
+    if (els.clearRecentProjectsBtn) {
+        els.clearRecentProjectsBtn.addEventListener('click', clearRecentProjects);
+    }
+
+    // Indexing Option Dependencies
+    if (els.useLlm) {
+        els.useLlm.addEventListener('change', () => {
+            persistUseLlmFromInput();
+            updateIndexingDependencies();
+        });
     }
 
     // Help Tour
@@ -1173,6 +1492,7 @@ async function loadProject() {
 
         const isGraphIndexed = !!statusRes.status?.graphify?.indexed;
         if (!isGraphIndexed) {
+            addRecentProject(state.currentProject, { indexed: false });
             document.getElementById('graph-legend')?.classList.add('hidden');
             showUnindexedPrompt(state.currentProject, statusRes);
             showToast(`Repository selected: ${getProjectShortName(state.currentProject)}. Run indexing to build the knowledge graph.`, 'info');
@@ -1181,9 +1501,15 @@ async function loadProject() {
 
         const graphRes = await apiFetch(`/api/graph?project=${encodeURIComponent(state.currentProject)}`);
         renderGraph(graphRes);
+        addRecentProject(state.currentProject, {
+            indexed: true,
+            nodeCount: graphRes.meta?.node_count || 0,
+            edgeCount: graphRes.meta?.edge_count || 0,
+        });
         showToast(`Loaded ${state.currentProjectLabel ? state.currentProjectLabel.textContent : 'project'} (${graphRes.meta?.node_count || 0} symbols)`, 'success');
     } catch (e) {
         if (e.message && e.message.includes('not yet indexed')) {
+            addRecentProject(state.currentProject, { indexed: false });
             document.getElementById('graph-legend')?.classList.add('hidden');
             showUnindexedPrompt(state.currentProject);
             showToast('Codebase not yet indexed. Run indexing to build the knowledge graph.', 'info');
@@ -1213,31 +1539,55 @@ function showUnindexedPrompt(projectPath, statusRes) {
     const overlay = document.createElement('div');
     overlay.id = 'unindexed-overlay';
     overlay.className = 'unindexed-overlay';
+    
+    // Updated to a 3-step wizard for Phase 3
     overlay.innerHTML = DOMPurify.sanitize(`
-        <div class="unindexed-card">
-            <div class="unindexed-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <div class="unindexed-wizard-card" style="max-width: 600px; margin: 40px auto; padding: 24px; background: var(--bg-card); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); border: 1px solid var(--border-subtle);">
+            <div style="text-align: center; margin-bottom: 24px;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="margin-bottom: 12px;">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                 </svg>
+                <h2 style="margin:0 0 8px 0; font-size: 20px; color: var(--text-main);" data-i18n="wizard.title">Repository Setup</h2>
+                <p style="margin:0; color: var(--text-secondary); font-size: 14px;" data-i18n="wizard.subtitle">Complete 3 steps to build the knowledge graph</p>
             </div>
-            <h2 class="unindexed-title">Codebase Not Yet Indexed</h2>
-            <div class="unindexed-repo-tag">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                </svg>
-                <span>${escapeHtml(shortName)}</span>
-            </div>
-            <p class="unindexed-desc">
-                This repository has been selected, but its 3-tier knowledge graph has not been built yet. Start indexing to explore architecture, AST execution flows, and symbol dependencies.
-            </p>
-            <div class="unindexed-actions">
-                <button type="button" class="btn btn-primary btn-lg" id="unindexed-start-btn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                    </svg>
-                    <span>Start Indexing</span>
-                </button>
-                <button type="button" class="btn btn-secondary" id="unindexed-change-btn">Select Other Folder</button>
+            
+            <div class="wizard-steps" style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px;">
+                <!-- Step 1 -->
+                <div class="wizard-step" style="display: flex; gap: 16px; align-items: flex-start; padding: 12px; background: var(--bg-hover); border-radius: 8px;">
+                    <div style="width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">1</div>
+                    <div style="flex-grow: 1;">
+                        <h4 style="margin: 0 0 4px 0; color: var(--text-main);">Select Target Repository</h4>
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-family: monospace; color: var(--primary-light); font-size: 13px;">${escapeHtml(shortName)}</span>
+                            <button class="btn btn-secondary btn-sm" id="wizard-change-folder">Change</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Step 2 -->
+                <div class="wizard-step" style="display: flex; gap: 16px; align-items: flex-start; padding: 12px; background: var(--bg-hover); border-radius: 8px;">
+                    <div style="width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">2</div>
+                    <div style="flex-grow: 1;">
+                        <h4 style="margin: 0 0 4px 0; color: var(--text-main);">Configure AI Provider (BYOK)</h4>
+                        <p style="margin: 0 0 8px 0; font-size: 13px; color: var(--text-secondary);">Required for Tier 3 AST intelligence. Local LM Studio is recommended.</p>
+                        <button class="btn btn-secondary btn-sm" id="wizard-config-ai">Open AI Settings</button>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="wizard-step" style="display: flex; gap: 16px; align-items: flex-start; padding: 12px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--primary-light);">
+                    <div style="width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">3</div>
+                    <div style="flex-grow: 1;">
+                        <h4 style="margin: 0 0 4px 0; color: var(--text-main);">Run Indexing Pipeline</h4>
+                        <p style="margin: 0 0 8px 0; font-size: 13px; color: var(--text-secondary);">Build the 3-tier graph. This may take a few minutes for large repositories.</p>
+                        <button type="button" class="btn btn-primary btn-lg" id="unindexed-start-btn" style="width: 100%;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                            </svg>
+                            <span>Start Indexing</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     `);
@@ -1248,8 +1598,12 @@ function showUnindexedPrompt(projectPath, statusRes) {
         runIndexing();
     });
 
-    document.getElementById('unindexed-change-btn')?.addEventListener('click', () => {
+    document.getElementById('wizard-change-folder')?.addEventListener('click', () => {
         openFolderBrowser();
+    });
+
+    document.getElementById('wizard-config-ai')?.addEventListener('click', () => {
+        openByokDialog();
     });
 }
 
@@ -1301,7 +1655,6 @@ function renderGraph(res) {
     state.communities = res.meta?.communities || [];
 
     const rawNodes = (res.elements.nodes || []).map(n => n.data);
-    const rawLinks = (res.elements.edges || []).map(e => e.data);
 
     // Update entity filter counts
     const counts = { code: 0, doc: 0, schema: 0, test: 0 };
@@ -1317,23 +1670,9 @@ function renderGraph(res) {
     // Populate Community List in Layers Popover
     renderCommunityList(state.communities);
 
-    // Sanitize link sources/targets to prevent d3-force object mutation breakage
-    const visibleNodes = rawNodes.filter(n => state.filters[n.category || 'code']);
-    const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
-
-    const cleanLinks = rawLinks.map(l => {
-        const sId = typeof l.source === 'object' ? l.source.id : l.source;
-        const tId = typeof l.target === 'object' ? l.target.id : l.target;
-        return Object.assign({}, l, { source: sId, target: tId });
-    }).filter(l => visibleNodeIds.has(l.source) && visibleNodeIds.has(l.target));
-
-    if (state.graph3d) {
-        state.graph3d.graphData({
-            nodes: visibleNodes,
-            links: cleanLinks
-        });
-        setTimeout(() => { fitGraphView(); }, 600);
-    }
+    // Apply filtering and render into 3D / 2D / DAG
+    applyFilters();
+    setTimeout(() => { fitGraphView(); }, 600);
 }
 
 function renderCommunityList(communities) {
@@ -1394,14 +1733,33 @@ function applyFilters() {
     const rawNodes = (state.graphData.elements.nodes || []).map(n => n.data);
     const rawLinks = (state.graphData.elements.edges || []).map(e => e.data);
 
-    const visibleNodes = rawNodes.filter(n => state.filters[n.category || 'code']);
+    const visibleNodes = rawNodes.filter(n => {
+        // Noise reduction filter for vendor/generated/node_modules/dist files
+        if (state.filters.hideVendor && n.is_vendor) return false;
+        // Entity category filter
+        return state.filters[n.category || 'code'] !== false;
+    });
     const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
 
     const cleanLinks = rawLinks.map(l => {
         const sId = typeof l.source === 'object' ? l.source.id : l.source;
         const tId = typeof l.target === 'object' ? l.target.id : l.target;
         return Object.assign({}, l, { source: sId, target: tId });
-    }).filter(l => visibleNodeIds.has(l.source) && visibleNodeIds.has(l.target));
+    }).filter(l => {
+        if (!visibleNodeIds.has(l.source) || !visibleNodeIds.has(l.target)) return false;
+
+        const rel = (l.relation || '').toLowerCase();
+        if (rel === 'calls' || rel === 'call' || rel === 'indirect_call') {
+            if (state.filters.relCalls === false) return false;
+        } else if (rel === 'imports' || rel === 'imports_from' || rel === 'import') {
+            if (state.filters.relImports === false) return false;
+        } else if (rel === 'defines' || rel === 'contains' || rel === 'method' || rel === 'defined_in') {
+            if (state.filters.relDefines === false) return false;
+        } else if (rel === 'inherits' || rel === 'extends' || rel === 'mixes_in') {
+            if (state.filters.relInherits === false) return false;
+        }
+        return true;
+    });
 
     if (state.graph3d) {
         state.graph3d.graphData({
@@ -1425,14 +1783,19 @@ function selectNode(data) {
         const gLinks = state.graph3d.graphData().links;
 
         const neighbors = new Set([data.id]);
+        state.incomingCallers = new Set();
+        state.outgoingCallees = new Set();
+
         gLinks.forEach(link => {
             const s = typeof link.source === 'object' ? link.source.id : link.source;
             const t = typeof link.target === 'object' ? link.target.id : link.target;
-            if (s === data.id) {
-                neighbors.add(t);
-                link.__highlight = true;
-            } else if (t === data.id) {
+            if (t === data.id) {
                 neighbors.add(s);
+                state.incomingCallers.add(s);
+                link.__highlight = true;
+            } else if (s === data.id) {
+                neighbors.add(t);
+                state.outgoingCallees.add(t);
                 link.__highlight = true;
             } else {
                 link.__highlight = false;
@@ -1443,6 +1806,7 @@ function selectNode(data) {
         state.graph3d.nodeColor(state.graph3d.nodeColor());
         state.graph3d.linkColor(state.graph3d.linkColor());
         state.graph3d.linkWidth(state.graph3d.linkWidth());
+        state.graph3d.linkDirectionalArrowLength(state.graph3d.linkDirectionalArrowLength());
 
         if (targetNode) flyToNode(targetNode);
     }
@@ -1453,16 +1817,20 @@ function selectNode(data) {
 function clearSelection() {
     state.selectedNode = null;
     state.highlightNodes.clear();
+    state.incomingCallers = new Set();
+    state.outgoingCallees = new Set();
 
     if (state.graph3d) {
         state.graph3d.graphData().links.forEach(l => { l.__highlight = false; });
         state.graph3d.nodeColor(state.graph3d.nodeColor());
         state.graph3d.linkColor(state.graph3d.linkColor());
         state.graph3d.linkWidth(state.graph3d.linkWidth());
+        state.graph3d.linkDirectionalArrowLength(state.graph3d.linkDirectionalArrowLength());
     }
 
     els.contextPanel.classList.add('closed');
     els.contextPanel.setAttribute('inert', '');
+    closeSourcePreview();
 }
 
 function handleShiftClick(data) {
@@ -1484,7 +1852,7 @@ function showContextPanel(data) {
     const cat = (data.category || 'code').toLowerCase();
     els.nodeCategory.textContent = cat.charAt(0).toUpperCase() + cat.slice(1);
 
-    let typeLabel = 'Symbol';
+    let typeLabel = data.kind ? (data.kind.charAt(0).toUpperCase() + data.kind.slice(1)) : 'Symbol';
     if (data.is_class) {
         typeLabel = 'Class';
     } else if (data.is_callable) {
@@ -1498,58 +1866,185 @@ function showContextPanel(data) {
 
     els.nodeSource.textContent = (data.source_file || '') + (data.source_location ? `:${data.source_location}` : '');
     els.nodeCommunity.textContent = data.community != null ? `Cluster ${data.community}` : 'None';
-    els.nodeDegree.textContent = data.degree || 0;
 
-    // Build connections list grouped by relation
-    els.nodeConnections.innerHTML = '';
-    const grouped = {};
+    closeSourcePreview();
+
+    // Group incoming callers vs outgoing dependencies
+    const incoming = [];
+    const outgoing = [];
     if (state.graphData && state.graphData.elements.edges) {
         state.graphData.elements.edges.forEach(edge => {
             const e = edge.data;
             const sId = typeof e.source === 'object' ? e.source.id : e.source;
             const tId = typeof e.target === 'object' ? e.target.id : e.target;
-            if (sId === data.id) {
-                const rel = e.relation || 'out';
-                if (!grouped[rel]) grouped[rel] = [];
-                grouped[rel].push(tId);
-            } else if (tId === data.id) {
-                const rel = `in (${e.relation || 'ref'})`;
-                if (!grouped[rel]) grouped[rel] = [];
-                grouped[rel].push(sId);
+            if (tId === data.id) {
+                incoming.push({ id: sId, rel: e.relation || 'references' });
+            } else if (sId === data.id) {
+                outgoing.push({ id: tId, rel: e.relation || 'uses' });
             }
         });
     }
 
-    if (Object.keys(grouped).length === 0) {
-        els.nodeConnections.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No direct connections recorded.</div>';
-    } else {
-        for (const [rel, nodeIds] of Object.entries(grouped)) {
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'conn-group';
-            const header = document.createElement('div');
-            header.className = 'conn-group-header';
-            header.textContent = `${rel} (${nodeIds.length})`;
-            groupDiv.appendChild(header);
+    const inCount = data.in_degree != null ? data.in_degree : incoming.length;
+    const outCount = data.out_degree != null ? data.out_degree : outgoing.length;
 
-            const chipsDiv = document.createElement('div');
-            chipsDiv.className = 'conn-chips';
+    if (els.nodeInDegree) els.nodeInDegree.textContent = inCount;
+    if (els.nodeOutDegree) els.nodeOutDegree.textContent = outCount;
+    els.nodeDegree.textContent = (inCount + outCount) || data.degree || 0;
 
-            nodeIds.slice(0, 16).forEach(tid => {
-                const a = document.createElement('a');
-                a.className = 'symbol-link';
-                let friendly = tid;
-                if (state.graphData) {
-                    const found = state.graphData.elements.nodes.find(n => n.data.id === tid);
-                    if (found && found.data.label) friendly = found.data.label;
-                }
-                a.textContent = friendly;
-                a.onclick = () => selectNodeByLabel(friendly);
-                chipsDiv.appendChild(a);
-            });
-
-            groupDiv.appendChild(chipsDiv);
-            els.nodeConnections.appendChild(groupDiv);
+    // Insights Logic
+    const insightsSection = document.getElementById('insights-section');
+    const insightsContent = document.getElementById('insights-content');
+    if (insightsSection && insightsContent) {
+        let insights = [];
+        if (inCount > 15) {
+            insights.push(`<div style="margin-bottom:4px;"><strong>High Blast Radius:</strong> Changes here affect ${inCount} callers. Proceed with caution.</div>`);
         }
+        if (outCount > 15) {
+            insights.push(`<div style="margin-bottom:4px;"><strong>High Coupling:</strong> This module depends on ${outCount} other modules.</div>`);
+        }
+        if (data.is_vendor) {
+            insights.push(`<div style="margin-bottom:4px;"><strong>Third-Party Code:</strong> This is a vendor module.</div>`);
+        }
+        if (insights.length > 0) {
+            insightsContent.innerHTML = insights.join('');
+            insightsSection.style.display = 'block';
+        } else {
+            insightsSection.style.display = 'none';
+        }
+    }
+
+
+    // Render grouped connections
+    els.nodeConnections.innerHTML = '';
+    if (incoming.length === 0 && outgoing.length === 0) {
+        els.nodeConnections.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0;">No direct connections recorded.</div>';
+    } else {
+        if (incoming.length > 0) {
+            const inSec = renderConnectionSection(`Incoming Callers & References (${incoming.length})`, incoming, 'in');
+            els.nodeConnections.appendChild(inSec);
+        }
+        if (outgoing.length > 0) {
+            const outSec = renderConnectionSection(`Outgoing Calls & Dependencies (${outgoing.length})`, outgoing, 'out');
+            els.nodeConnections.appendChild(outSec);
+        }
+    }
+}
+
+function renderConnectionSection(title, items, dir) {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'conn-group';
+
+    const header = document.createElement('div');
+    header.className = 'conn-group-header';
+    header.textContent = title;
+    groupDiv.appendChild(header);
+
+    const chipsDiv = document.createElement('div');
+    chipsDiv.className = 'conn-chips';
+
+    items.slice(0, 16).forEach(item => {
+        const a = document.createElement('a');
+        a.className = 'symbol-link';
+        let friendly = item.id;
+        if (state.graphData) {
+            const found = state.graphData.elements.nodes.find(n => n.data.id === item.id);
+            if (found && found.data.label) friendly = found.data.label;
+        }
+        const dirArrow = dir === 'in' ? '←' : '→';
+        a.innerHTML = `<span class="rel-tag">${dirArrow} ${escapeHtml(item.rel)}</span> <span>${escapeHtml(friendly)}</span>`;
+        a.onclick = () => selectNodeByLabel(friendly);
+        chipsDiv.appendChild(a);
+    });
+
+    if (items.length > 16) {
+        const more = document.createElement('span');
+        more.className = 'conn-more-count';
+        more.textContent = `+${items.length - 16} more`;
+        chipsDiv.appendChild(more);
+    }
+
+    groupDiv.appendChild(chipsDiv);
+    return groupDiv;
+}
+
+async function toggleSourcePreview() {
+    if (!state.selectedNode || !els.sourcePreviewContainer) return;
+    const isVisible = !els.sourcePreviewContainer.classList.contains('hidden');
+    if (isVisible) {
+        closeSourcePreview();
+        return;
+    }
+
+    const node = state.selectedNode;
+    const file = node.source_file;
+    if (!file) {
+        showToast('No source file location available for this node', 'info');
+        return;
+    }
+
+    let line = 1;
+    if (node.source_location) {
+        const parsed = parseInt(String(node.source_location).split(/[-:,]/)[0], 10);
+        if (!isNaN(parsed) && parsed > 0) line = parsed;
+    }
+
+    els.sourcePreviewContainer.classList.remove('hidden');
+    if (els.sourcePreviewFile) els.sourcePreviewFile.textContent = file;
+    if (els.sourcePreviewLang) els.sourcePreviewLang.textContent = node.file_type || 'code';
+    if (els.sourcePreviewCode) {
+        els.sourcePreviewCode.innerHTML = '<div style="color:var(--text-muted);padding:8px;">Loading source snippet...</div>';
+    }
+
+    try {
+        const queryParams = new URLSearchParams({
+            project: state.currentProject,
+            file: file,
+            line: String(line),
+            window: '30'
+        });
+        const data = await apiFetch(`/api/source?${queryParams.toString()}`);
+        renderSourceSnippet(data);
+    } catch (err) {
+        console.error('Failed to load source snippet:', err);
+        if (els.sourcePreviewCode) {
+            els.sourcePreviewCode.innerHTML = `<div style="color:var(--accent-rose);padding:8px;">Failed to load source: ${escapeHtml(err.message)}</div>`;
+        }
+    }
+}
+
+function renderSourceSnippet(data) {
+    if (!els.sourcePreviewCode) return;
+    if (els.sourcePreviewLang) els.sourcePreviewLang.textContent = data.language || 'code';
+    if (els.sourcePreviewFile) els.sourcePreviewFile.textContent = `${data.file}:${data.highlight_line || data.start_line}`;
+
+    const lines = data.lines || [];
+    const highlightLine = data.highlight_line;
+
+    let html = '';
+    lines.forEach(item => {
+        const lineNum = typeof item === 'object' && item !== null ? item.line_num : '';
+        const codeText = typeof item === 'object' && item !== null ? item.code : item;
+        const isTarget = lineNum === highlightLine;
+        const cls = isTarget ? 'source-line highlight' : 'source-line';
+        html += `<div class="${cls}">` +
+            `<span class="source-line-num">${lineNum}</span>` +
+            `<span class="source-line-code">${escapeHtml(codeText)}</span>` +
+            `</div>`;
+    });
+    els.sourcePreviewCode.innerHTML = html;
+
+    setTimeout(() => {
+        const targetEl = els.sourcePreviewCode.querySelector('.source-line.highlight');
+        if (targetEl) {
+            targetEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+    }, 50);
+}
+
+function closeSourcePreview() {
+    if (els.sourcePreviewContainer) {
+        els.sourcePreviewContainer.classList.add('hidden');
     }
 }
 
@@ -1887,6 +2382,115 @@ function renderOperationResults(markdown) {
 // 3-Tier Indexing Engine (SSE Stream)
 // ==========================================================================
 
+function startIndexingDashboard() {
+    if (els.indexingDashboard) els.indexingDashboard.classList.remove('hidden');
+    if (els.indexingProgressBar) els.indexingProgressBar.style.width = '5%';
+    if (els.progressTierTitle) els.progressTierTitle.textContent = 'Initializing 3-Tier Pipeline...';
+    if (els.progressHeartbeatBadge) els.progressHeartbeatBadge.textContent = 'Active (just now)';
+    if (els.progressElapsedTimer) els.progressElapsedTimer.textContent = '00:00';
+
+    [1, 2, 3].forEach(step => {
+        const card = els[`stepperTier${step}`];
+        const status = els[`stepperStatus${step}`];
+        if (card) {
+            card.dataset.status = 'pending';
+            card.classList.remove('active', 'success', 'error');
+        }
+        if (status) status.textContent = 'Queued';
+    });
+
+    state.indexingStartTime = Date.now();
+    if (state.indexingTimer) clearInterval(state.indexingTimer);
+    state.indexingTimer = setInterval(() => {
+        if (!state.indexingStartTime || !els.progressElapsedTimer) return;
+        const elapsedSec = Math.floor((Date.now() - state.indexingStartTime) / 1000);
+        const mins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+        const secs = String(elapsedSec % 60).padStart(2, '0');
+        els.progressElapsedTimer.textContent = `${mins}:${secs}`;
+    }, 1000);
+}
+
+function updateIndexingStepStart(data) {
+    const step = data.step || 1;
+    const titles = {
+        1: 'Tier 1: Graphify (Architecture & AST)',
+        2: 'Tier 2: GitNexus (Tree-sitter Execution Flow)',
+        3: 'Tier 3: CodeGraph (Symbol Dependencies & Impact)'
+    };
+    if (els.progressTierTitle) {
+        els.progressTierTitle.textContent = titles[step] || `Tier ${step}: ${data.engine || 'Engine'}`;
+    }
+    if (els.progressHeartbeatBadge) {
+        els.progressHeartbeatBadge.textContent = 'Running...';
+    }
+
+    // Mark previous steps as success
+    for (let i = 1; i < step; i++) {
+        const prevCard = els[`stepperTier${i}`];
+        const prevStatus = els[`stepperStatus${i}`];
+        if (prevCard) {
+            prevCard.dataset.status = 'success';
+            prevCard.classList.remove('active');
+            prevCard.classList.add('success');
+        }
+        if (prevStatus) prevStatus.textContent = 'Complete';
+    }
+
+    // Mark current step as active
+    const curCard = els[`stepperTier${step}`];
+    const curStatus = els[`stepperStatus${step}`];
+    if (curCard) {
+        curCard.dataset.status = 'active';
+        curCard.classList.add('active');
+        curCard.classList.remove('success', 'error');
+    }
+    if (curStatus) curStatus.textContent = 'Active';
+
+    // Progress bar fill: 15% -> 45% -> 75%
+    const pct = step === 1 ? 15 : (step === 2 ? 45 : 75);
+    if (els.indexingProgressBar) els.indexingProgressBar.style.width = `${pct}%`;
+}
+
+function updateIndexingHeartbeat(data) {
+    if (!els.progressHeartbeatBadge) return;
+    const elapsed = data.elapsed_seconds ? ` (${data.elapsed_seconds}s)` : '';
+    els.progressHeartbeatBadge.textContent = `Active${elapsed}`;
+}
+
+function updateIndexingLog(data) {
+    if (els.progressHeartbeatBadge && els.progressHeartbeatBadge.textContent !== 'Active (just now)') {
+        els.progressHeartbeatBadge.textContent = 'Active (just now)';
+    }
+}
+
+function updateIndexingStepFinish(data) {
+    const step = data.step || 1;
+    const ok = data.success !== false;
+    const card = els[`stepperTier${step}`];
+    const status = els[`stepperStatus${step}`];
+    if (card) {
+        card.dataset.status = ok ? 'success' : 'error';
+        card.classList.remove('active');
+        card.classList.add(ok ? 'success' : 'error');
+    }
+    if (status) status.textContent = ok ? 'Complete' : 'Failed';
+
+    const pct = step === 1 ? 33 : (step === 2 ? 66 : 95);
+    if (els.indexingProgressBar) els.indexingProgressBar.style.width = `${pct}%`;
+}
+
+function updateIndexingStepError(data) {
+    const step = data.step || 1;
+    const card = els[`stepperTier${step}`];
+    const status = els[`stepperStatus${step}`];
+    if (card) {
+        card.dataset.status = 'error';
+        card.classList.remove('active');
+        card.classList.add('error');
+    }
+    if (status) status.textContent = 'Failed';
+}
+
 async function runIndexing() {
     if (state.inFlight) return;
     document.getElementById('unindexed-overlay')?.remove();
@@ -1897,6 +2501,7 @@ async function runIndexing() {
     setBusy(true);
     openDrawer();
     switchDrawerTab('terminal');
+    startIndexingDashboard();
     els.terminalOutput.textContent = `[CKC Engine] Initiating 3-Tier Indexing for ${state.currentProject}...\n`;
     showToast('Started 3-Tier Indexing pipeline', 'info');
 
@@ -1980,12 +2585,26 @@ function handleIndexingEvent(data) {
     els.terminalOutput.textContent += `${text}\n`;
     els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
 
-    if (data.event === 'complete' || data.type === 'complete') {
+    const eventType = data.event || data.type;
+
+    if (eventType === 'start') {
+        startIndexingDashboard();
+    } else if (eventType === 'step_start') {
+        updateIndexingStepStart(data);
+    } else if (eventType === 'heartbeat') {
+        updateIndexingHeartbeat(data);
+    } else if (eventType === 'log') {
+        updateIndexingLog(data);
+    } else if (eventType === 'step_finish') {
+        updateIndexingStepFinish(data);
+    } else if (eventType === 'step_error') {
+        updateIndexingStepError(data);
+    } else if (eventType === 'complete') {
         const ok = data.overall_success !== false;
         finishIndexing(ok, ok ? 'Indexing completed successfully.' : 'Indexing finished with errors.');
-    } else if (data.event === 'cancelled' || data.type === 'cancelled') {
+    } else if (eventType === 'cancelled') {
         finishIndexing(false, data.message || 'Indexing cancelled by user.');
-    } else if (data.event === 'error' || data.type === 'error') {
+    } else if (eventType === 'error') {
         finishIndexing(false, data.message || 'Indexing error occurred.');
     }
 }
@@ -1997,9 +2616,33 @@ function finishIndexing(success, msg) {
         state.indexingAbort.abort();
     }
     state.indexingAbort = null;
+    if (state.indexingTimer) {
+        clearInterval(state.indexingTimer);
+        state.indexingTimer = null;
+    }
+
     if (els.cancelIndexBtn) els.cancelIndexBtn.classList.add('hidden');
     if (els.runIndexBtn) els.runIndexBtn.classList.remove('hidden');
     setBusy(false);
+
+    if (success) {
+        if (els.indexingProgressBar) els.indexingProgressBar.style.width = '100%';
+        if (els.progressTierTitle) els.progressTierTitle.textContent = 'All 3 Tiers Indexed Successfully';
+        if (els.progressHeartbeatBadge) els.progressHeartbeatBadge.textContent = 'Complete';
+        [1, 2, 3].forEach(step => {
+            const card = els[`stepperTier${step}`];
+            const status = els[`stepperStatus${step}`];
+            if (card && card.dataset.status !== 'error') {
+                card.dataset.status = 'success';
+                card.classList.remove('active');
+                card.classList.add('success');
+            }
+            if (status && status.textContent !== 'Failed') status.textContent = 'Complete';
+        });
+    } else {
+        if (els.progressTierTitle) els.progressTierTitle.textContent = 'Indexing Stopped';
+        if (els.progressHeartbeatBadge) els.progressHeartbeatBadge.textContent = 'Stopped';
+    }
 
     els.terminalOutput.textContent += `\n[CKC Engine] ${msg}\n`;
     els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
@@ -2085,6 +2728,7 @@ function switchDrawerTab(tab) {
 
 async function openFolderBrowser() {
     if (!els.folderBrowserDialog) return;
+    closeAllPopovers({ restoreFocus: false });
     const startPath = state.currentProject || localStorage.getItem('ckc_last_browse_dir') || localStorage.getItem('ckc_project_path') || '';
     if (!els.folderBrowserDialog.open) {
         els.folderBrowserDialog.showModal();
@@ -2093,6 +2737,15 @@ async function openFolderBrowser() {
 }
 
 async function navigateBrowserTo(path) {
+    if (!els.browserList) return;
+    els.browserList.innerHTML = `
+        <div class="browser-loading">
+            <svg class="btn-spinner" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle>
+            </svg>
+            <span>Loading directories...</span>
+        </div>
+    `;
     try {
         const res = await apiFetch('/api/browse', {
             method: 'POST',
@@ -2100,6 +2753,19 @@ async function navigateBrowserTo(path) {
         });
         renderBrowserContents(res);
     } catch (e) {
+        console.error('Browse failed:', e);
+        els.browserList.innerHTML = `
+            <div class="browser-error">
+                <div class="browser-error-title">Could not load directory</div>
+                <div class="browser-error-msg">${escapeHtml(e.message)}</div>
+                <div class="browser-error-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" id="browser-error-home-btn">Go to Home Directory</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="browser-error-root-btn">Go to Root (/)</button>
+                </div>
+            </div>
+        `;
+        document.getElementById('browser-error-home-btn')?.addEventListener('click', () => navigateBrowserTo(null));
+        document.getElementById('browser-error-root-btn')?.addEventListener('click', () => navigateBrowserTo('/'));
         showToast(`Browse failed: ${e.message}`, 'error');
     }
 }
@@ -2159,7 +2825,7 @@ function renderBrowserContents(data) {
             els.browserList.appendChild(parentItem);
         }
         
-        if (data.entries.length === 0) {
+        if (!data.entries || data.entries.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'browser-empty';
             empty.textContent = 'No subdirectories';
@@ -2169,11 +2835,13 @@ function renderBrowserContents(data) {
                 const item = document.createElement('button');
                 item.type = 'button';
                 item.className = 'browser-item';
+                const badgeHtml = entry.is_indexed ? '<span class="browser-item-badge">Indexed</span>' : '';
                 item.innerHTML = `
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                     </svg>
                     <span>${escapeHtml(entry.name)}</span>
+                    ${badgeHtml}
                 `;
                 const targetPath = data.current + (data.current.endsWith('/') ? '' : '/') + entry.name;
                 item.addEventListener('click', () => navigateBrowserTo(targetPath));
@@ -2190,7 +2858,7 @@ function renderBrowserContents(data) {
 }
 
 function closeFolderBrowser() {
-    if (els.folderBrowserDialog) {
+    if (els.folderBrowserDialog && els.folderBrowserDialog.open) {
         els.folderBrowserDialog.close();
     }
 }
@@ -2204,14 +2872,371 @@ function confirmFolderSelection() {
     localStorage.setItem('ckc_project_path', state.currentProject);
     localStorage.setItem('ckc_last_browse_dir', state.currentProject);
     if (els.projectInput) els.projectInput.value = selected;
-    if (els.projectPathText) els.projectPathText.textContent = getProjectShortName(selected);
-    if (els.projectPathText) els.projectPathText.title = selected;
+    if (els.projectPathText) {
+        els.projectPathText.textContent = getProjectShortName(selected);
+        els.projectPathText.title = selected;
+    }
     updateProjectLabel();
     closeFolderBrowser();
-    closeAllPopovers();
+    closeAllPopovers({ restoreFocus: false });
     loadProject();
     if (!localStorage.getItem('ckc_has_seen_tour')) {
         setTimeout(() => startOnboardingTour(false), 1200);
+    }
+}
+
+// ==========================================================================
+// Recent Projects Management
+// ==========================================================================
+
+function getRecentProjects() {
+    try {
+        const raw = localStorage.getItem('ckc_recent_projects');
+        return raw ? JSON.parse(raw) : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function addRecentProject(projectPath, meta = {}) {
+    if (!projectPath) return;
+    let list = getRecentProjects().filter(p => p.path !== projectPath);
+    const shortName = getProjectShortName(projectPath);
+    list.unshift({
+        path: projectPath,
+        name: shortName,
+        lastOpened: Date.now(),
+        indexed: meta.indexed !== undefined ? !!meta.indexed : false,
+        nodeCount: meta.nodeCount || 0,
+        edgeCount: meta.edgeCount || 0
+    });
+    list = list.slice(0, 8);
+    try {
+        localStorage.setItem('ckc_recent_projects', JSON.stringify(list));
+    } catch (_) {}
+    renderRecentProjects();
+}
+
+function clearRecentProjects() {
+    localStorage.removeItem('ckc_recent_projects');
+    renderRecentProjects();
+}
+
+function renderRecentProjects() {
+    if (!els.recentProjectsList) return;
+    const list = getRecentProjects();
+    els.recentProjectsList.innerHTML = '';
+    if (list.length === 0) {
+        els.recentProjectsList.innerHTML = '<span class="empty-recent-text">No recent repositories</span>';
+        return;
+    }
+
+    list.forEach(item => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'recent-project-item';
+        if (item.path === state.currentProject) {
+            row.classList.add('active');
+        }
+
+        const pillClass = item.indexed ? 'recent-project-pill indexed' : 'recent-project-pill unindexed';
+        const pillText = item.indexed
+            ? (item.nodeCount ? `${item.nodeCount.toLocaleString()} symbols` : 'Indexed')
+            : 'Unindexed';
+
+        row.innerHTML = `
+            <div class="recent-project-info">
+                <span class="recent-project-name">${escapeHtml(item.name)}</span>
+                <span class="recent-project-path">${escapeHtml(item.path)}</span>
+            </div>
+            <span class="${pillClass}">${escapeHtml(pillText)}</span>
+        `;
+        row.addEventListener('click', () => {
+            switchToProject(item.path);
+        });
+        els.recentProjectsList.appendChild(row);
+    });
+}
+
+async function switchToProject(projectPath) {
+    if (!projectPath || state.inFlight) return;
+    closeAllPopovers({ restoreFocus: false });
+    state.currentProject = projectPath;
+    sessionStorage.setItem('ckc_project_path', state.currentProject);
+    localStorage.setItem('ckc_project_path', state.currentProject);
+    localStorage.setItem('ckc_last_browse_dir', state.currentProject);
+    if (els.projectInput) els.projectInput.value = state.currentProject;
+    if (els.projectPathText) {
+        els.projectPathText.textContent = getProjectShortName(state.currentProject);
+        els.projectPathText.title = state.currentProject;
+    }
+    updateProjectLabel();
+    renderRecentProjects();
+    await loadProject();
+}
+
+// ==========================================================================
+// Indexing Option Dependencies
+// ==========================================================================
+
+function updateIndexingDependencies() {
+    const llmEnabled = els.useLlm ? els.useLlm.checked : false;
+    const multiInput = els.multimodalIndex;
+    const depWarning = document.getElementById('llm-dep-warning');
+    const multiLabel = document.getElementById('multimodal-label');
+
+    if (multiInput) {
+        if (!llmEnabled) {
+            multiInput.checked = false;
+            multiInput.disabled = true;
+            if (multiLabel) multiLabel.classList.add('disabled');
+            if (depWarning) depWarning.classList.remove('hidden');
+        } else {
+            multiInput.disabled = false;
+            if (multiLabel) multiLabel.classList.remove('disabled');
+            if (depWarning) depWarning.classList.add('hidden');
+        }
+    }
+}
+
+// ==========================================================================
+// BYOK (Bring Your Own Key) Provider Management
+// ==========================================================================
+
+async function checkLlmStatus() {
+    try {
+        const res = await apiFetch('/api/llm/status');
+        state.byok = {
+            provider: res.provider || 'lm-studio',
+            baseUrl: res.base_url || 'http://127.0.0.1:1234/v1',
+            model: res.model || null,
+            apiKey: '',
+            connected: !!res.connected,
+            configured: !!res.configured,
+            models: res.available_models || [],
+            error: res.error || null
+        };
+        updateLlmBadges();
+        return res;
+    } catch (e) {
+        console.warn('Failed to fetch LLM status:', e);
+        state.byok.connected = false;
+        updateLlmBadges();
+        return null;
+    }
+}
+
+function updateLlmBadges() {
+    if (els.headerAiDot && els.headerAiLabel) {
+        if (state.byok.connected) {
+            els.headerAiDot.className = 'ai-status-dot active';
+            const provName = state.byok.provider === 'lm-studio' ? 'LM Studio' : (state.byok.provider === 'ollama' ? 'Ollama' : (state.byok.provider === 'openai' ? 'OpenAI' : 'Custom LLM'));
+            els.headerAiLabel.textContent = provName;
+            els.headerAiBtn.title = `AI Connected: ${state.byok.model || provName} (${state.byok.baseUrl})`;
+        } else {
+            els.headerAiDot.className = state.byok.configured ? 'ai-status-dot offline' : 'ai-status-dot';
+            els.headerAiLabel.textContent = state.byok.provider === 'lm-studio' ? 'LM Studio' : (state.byok.configured ? 'AI Offline' : 'AI Setup');
+            els.headerAiBtn.title = state.byok.error || 'AI Provider Disconnected (Click to configure BYOK)';
+        }
+    }
+
+    if (els.llmChip) {
+        if (state.byok.connected) {
+            els.llmChip.textContent = `LLM: ${state.byok.model || state.byok.provider}`;
+            els.llmChip.className = 'badge-chip badge-chip-interactive badge-ready';
+        } else {
+            els.llmChip.textContent = state.byok.configured ? 'LLM: Error' : 'LLM: Off';
+            els.llmChip.className = 'badge-chip badge-chip-interactive';
+        }
+    }
+}
+
+function openByokDialog() {
+    if (!els.byokDialog) return;
+    closeAllPopovers({ restoreFocus: false });
+    if (els.byokBaseUrl) els.byokBaseUrl.value = state.byok.baseUrl;
+    if (els.byokApiKey) els.byokApiKey.value = state.byok.apiKey || '';
+    selectProviderPreset(state.byok.provider || 'lm-studio', false);
+    if (!els.byokDialog.open) {
+        els.byokDialog.showModal();
+    }
+    probeByokProvider();
+}
+
+function closeByokDialog() {
+    if (els.byokDialog && els.byokDialog.open) {
+        els.byokDialog.close();
+    }
+}
+
+function selectProviderPreset(provider, updateUrl = true) {
+    document.querySelectorAll('.provider-pill').forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.provider === provider);
+    });
+    const guideCard = document.getElementById('lmstudio-guide-card');
+
+    if (updateUrl && els.byokBaseUrl) {
+        if (provider === 'lm-studio') {
+            els.byokBaseUrl.value = 'http://127.0.0.1:1234/v1';
+        } else if (provider === 'ollama') {
+            els.byokBaseUrl.value = 'http://127.0.0.1:11434/v1';
+        } else if (provider === 'openai') {
+            els.byokBaseUrl.value = 'https://api.openai.com/v1';
+        }
+    }
+
+    if (provider === 'lm-studio') {
+        if (guideCard && !state.byok.connected) guideCard.classList.remove('hidden');
+    } else {
+        if (guideCard) guideCard.classList.add('hidden');
+    }
+}
+
+async function probeByokProvider() {
+    const statusCard = document.getElementById('byok-status-card');
+    const statusIcon = document.getElementById('byok-status-icon');
+    const headline = document.getElementById('byok-status-headline');
+    const sub = document.getElementById('byok-status-sub');
+    const retryBtn = els.byokRetryBtn;
+    const guideCard = document.getElementById('lmstudio-guide-card');
+
+    if (statusIcon) statusIcon.innerHTML = '<span class="status-indicator status-probing"></span>';
+    if (headline) headline.textContent = 'Detecting Provider...';
+    if (sub) sub.textContent = 'Checking connectivity and listing available models...';
+    if (retryBtn) {
+        const spinner = retryBtn.querySelector('.btn-spinner');
+        if (spinner) spinner.classList.remove('hidden');
+    }
+
+    const res = await checkLlmStatus();
+
+    if (retryBtn) {
+        const spinner = retryBtn.querySelector('.btn-spinner');
+        if (spinner) spinner.classList.add('hidden');
+    }
+
+    if (res && res.connected) {
+        if (statusCard) {
+            statusCard.className = 'byok-status-card connected';
+        }
+        if (statusIcon) {
+            statusIcon.innerHTML = '<span class="status-indicator status-connected"></span>';
+        }
+        if (headline) {
+            headline.textContent = `Connected (${res.provider.toUpperCase()})`;
+        }
+        if (sub) {
+            sub.textContent = res.model ? `Active Model: ${res.model}` : `${res.available_models.length} model(s) available`;
+        }
+        if (guideCard) guideCard.classList.add('hidden');
+
+        // Populate models dropdown
+        if (els.byokModelSelect) {
+            els.byokModelSelect.innerHTML = '';
+            if (res.available_models && res.available_models.length > 0) {
+                res.available_models.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = m;
+                    if (m === res.model) opt.selected = true;
+                    els.byokModelSelect.appendChild(opt);
+                });
+            } else {
+                const opt = document.createElement('option');
+                opt.value = res.model || 'local-model';
+                opt.textContent = res.model || 'local-model';
+                opt.selected = true;
+                els.byokModelSelect.appendChild(opt);
+            }
+            const customOpt = document.createElement('option');
+            customOpt.value = '__custom__';
+            customOpt.textContent = 'Custom model name...';
+            els.byokModelSelect.appendChild(customOpt);
+        }
+    } else {
+        if (statusCard) {
+            statusCard.className = 'byok-status-card disconnected';
+        }
+        if (statusIcon) {
+            statusIcon.innerHTML = '<span class="status-indicator status-disconnected"></span>';
+        }
+        if (headline) {
+            headline.textContent = 'Server Not Reachable';
+        }
+        if (sub) {
+            sub.textContent = (res && res.error) || 'Could not connect to provider endpoint.';
+        }
+        const activeProvider = document.querySelector('.provider-pill.active')?.dataset.provider;
+        if (guideCard && activeProvider === 'lm-studio') {
+            guideCard.classList.remove('hidden');
+        }
+        if (els.byokModelSelect) {
+            els.byokModelSelect.innerHTML = '<option value="">(No models detected - server offline)</option><option value="__custom__">Specify custom model...</option>';
+        }
+    }
+}
+
+async function saveByokConfig() {
+    const activePill = document.querySelector('.provider-pill.active');
+    const provider = activePill ? activePill.dataset.provider : 'lm-studio';
+    const baseUrl = (els.byokBaseUrl ? els.byokBaseUrl.value : '').trim();
+    const apiKey = (els.byokApiKey ? els.byokApiKey.value : '').trim();
+
+    let model = '';
+    if (els.byokModelSelect && els.byokModelSelect.value === '__custom__') {
+        model = (els.byokModelCustom ? els.byokModelCustom.value : '').trim();
+    } else if (els.byokModelSelect) {
+        model = els.byokModelSelect.value;
+    }
+
+    if (!baseUrl) {
+        showToast('Please specify a base URL', 'error');
+        return;
+    }
+
+    try {
+        const res = await apiFetch('/api/llm/config', {
+            method: 'POST',
+            body: JSON.stringify({
+                provider: provider,
+                base_url: baseUrl,
+                api_key: apiKey || null,
+                model: model || null
+            })
+        });
+
+        await checkLlmStatus();
+        if (els.useLlm && !els.useLlm.checked) {
+            els.useLlm.checked = true;
+            persistUseLlmFromInput();
+            updateIndexingDependencies();
+        }
+
+        if (res.connected) {
+            showToast(`AI Provider connected: ${res.model || provider}`, 'success');
+        } else {
+            showToast(`Provider saved, but connection failed: ${res.error || 'Offline'}`, 'info');
+        }
+        closeByokDialog();
+    } catch (e) {
+        showToast(`Configuration error: ${e.message}`, 'error');
+    }
+}
+
+async function skipByok() {
+    try {
+        await apiFetch('/api/llm/disable', { method: 'POST' });
+        if (els.useLlm) {
+            els.useLlm.checked = false;
+            persistUseLlmFromInput();
+            updateIndexingDependencies();
+        }
+        await checkLlmStatus();
+        closeByokDialog();
+        showToast('Offline Mode: Pure 3-tier local AST code intelligence active.', 'info');
+    } catch (e) {
+        console.error('Failed to disable LLM:', e);
+        closeByokDialog();
     }
 }
 

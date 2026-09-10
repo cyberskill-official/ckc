@@ -47,29 +47,36 @@ class TestPageLoad:
     """Verify the application loads and core DOM elements are present."""
 
     def test_title(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         expect(page).to_have_title("CKC | 3D Code Knowledge Explorer")
 
     def test_meta_description(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         meta = page.locator('meta[name="description"]')
         expect(meta).to_have_attribute("content", re.compile(r"CKC"))
 
     def test_favicon_present(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         link = page.locator('link[rel="icon"]')
         expect(link).to_have_count(1)
 
     def test_header_visible(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         header = page.locator("header.app-header")
         expect(header).to_be_visible()
 
     def test_brand_text(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         brand = page.locator(".brand-name")
         expect(brand).to_have_text("CKC")
 
     def test_3d_canvas_present(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         canvas = page.locator("#graph-3d canvas")
         expect(canvas).to_have_count(1)
 
     def test_no_console_errors(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         errors = []
         page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
         page.reload(wait_until="networkidle")
@@ -109,6 +116,157 @@ class TestWelcomeOverlay:
         context.close()
 
 
+class TestFolderBrowserFlow:
+    """Verify folder browser dialog interactions, recovery, and dismissal."""
+
+    def test_dialog_closes_on_escape(self, browser):
+        context = browser.new_context()
+        page = context.new_page()
+        page.goto(BASE_URL, wait_until="networkidle")
+        page.evaluate(
+            "sessionStorage.removeItem('ckc_project_path'); "
+            "localStorage.removeItem('ckc_project_path')"
+        )
+        page.reload(wait_until="networkidle")
+        dialog = page.locator("#folder-browser-dialog")
+        expect(dialog).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(dialog).not_to_be_visible()
+        page.close()
+        context.close()
+
+    def test_dialog_closes_on_close_button(self, browser):
+        context = browser.new_context()
+        page = context.new_page()
+        page.goto(BASE_URL, wait_until="networkidle")
+        page.evaluate(
+            "sessionStorage.removeItem('ckc_project_path'); "
+            "localStorage.removeItem('ckc_project_path')"
+        )
+        page.reload(wait_until="networkidle")
+        dialog = page.locator("#folder-browser-dialog")
+        expect(dialog).to_be_visible()
+        page.locator("#browser-close-btn").click()
+        expect(dialog).not_to_be_visible()
+        page.close()
+        context.close()
+
+    def test_quick_nav_buttons_present(self, browser):
+        context = browser.new_context()
+        page = context.new_page()
+        page.goto(BASE_URL, wait_until="networkidle")
+        page.evaluate("openFolderBrowser()")
+        home_btn = page.locator("#browser-quick-home")
+        root_btn = page.locator("#browser-quick-root")
+        expect(home_btn).to_be_visible()
+        expect(root_btn).to_be_visible()
+        page.close()
+        context.close()
+
+
+class TestBYOKConfiguration:
+    """Verify BYOK provider configuration dialog and fallback flows."""
+
+    def test_byok_dialog_opens_from_header_pill(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        btn = page.locator("#header-ai-btn")
+        expect(btn).to_be_visible()
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        btn.click()
+        dialog = page.locator("#byok-dialog")
+        expect(dialog).to_be_visible()
+
+    def test_byok_provider_preset_switching(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.locator("#header-ai-btn").click()
+        dialog = page.locator("#byok-dialog")
+        expect(dialog).to_be_visible()
+
+        # Click Ollama preset
+        ollama_pill = page.locator('.provider-pill[data-provider="ollama"]')
+        ollama_pill.click()
+        base_url_input = page.locator("#byok-base-url")
+        expect(base_url_input).to_have_value("http://127.0.0.1:11434/v1")
+
+        # Click LM Studio preset
+        lms_pill = page.locator('.provider-pill[data-provider="lm-studio"]')
+        lms_pill.click()
+        expect(base_url_input).to_have_value("http://127.0.0.1:1234/v1")
+
+    def test_byok_dialog_closes_on_escape(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.locator("#header-ai-btn").click()
+        dialog = page.locator("#byok-dialog")
+        expect(dialog).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(dialog).not_to_be_visible()
+
+    def test_byok_skip_button(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.locator("#header-ai-btn").click()
+        dialog = page.locator("#byok-dialog")
+        expect(dialog).to_be_visible()
+        page.locator("#byok-skip-btn").click()
+        expect(dialog).not_to_be_visible()
+
+
+class TestIndexOptionsAndDependencies:
+    """Verify index options, AST intelligence guarantees, and dependency constraints."""
+
+    def test_core_engine_banner_visible(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.locator("#header-index-btn").click()
+        banner = page.locator(".engine-core-banner")
+        expect(banner).to_be_visible()
+
+    def test_defaults_force_off_llm_on_multi_off(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.locator("#header-index-btn").click()
+        force_box = page.locator("#force-index")
+        llm_box = page.locator("#use-llm")
+        multi_box = page.locator("#multimodal-index")
+
+        expect(force_box).not_to_be_checked()
+        expect(llm_box).to_be_checked()
+        expect(multi_box).not_to_be_checked()
+
+    def test_unchecking_llm_disables_multimodal(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.locator("#header-index-btn").click()
+        llm_box = page.locator("#use-llm")
+        multi_box = page.locator("#multimodal-index")
+        dep_warning = page.locator("#llm-dep-warning")
+
+        expect(llm_box).to_be_checked()
+        llm_box.uncheck()
+        expect(multi_box).to_be_disabled()
+        expect(dep_warning).to_be_visible()
+
+        # Re-check LLM restores capability
+        llm_box.check()
+        expect(multi_box).not_to_be_disabled()
+        expect(dep_warning).not_to_be_visible()
+
+
+class TestRecentProjects:
+    """Verify Recent Projects list and project switching support."""
+
+    def test_recent_projects_section_rendered(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.locator("#project-pill-btn").click()
+        section = page.locator("#recent-projects-section")
+        expect(section).to_be_visible()
+        list_container = page.locator("#recent-projects-list")
+        expect(list_container).to_be_visible()
+
+
 class TestUnindexedProject:
     """Verify selecting an unindexed folder prompts for indexing rather than showing error."""
 
@@ -143,11 +301,13 @@ class TestSearchWorkflow:
             pytest.skip("No project loaded; set CKC_E2E_PROJECT to test search")
 
     def test_search_focus_on_slash(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         page.keyboard.press("/")
         search = page.locator("#command-bar")
         expect(search).to_be_focused()
 
     def test_search_autocomplete(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         search = page.locator("#command-bar")
         search.click()
         search.fill("config")
@@ -156,6 +316,7 @@ class TestSearchWorkflow:
         expect(dropdown).not_to_have_class("closed")
 
     def test_search_result_click_opens_inspector(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         search = page.locator("#command-bar")
         search.click()
         search.fill("config")
@@ -170,20 +331,23 @@ class TestKeyboardShortcuts:
     """Verify global keyboard shortcuts."""
 
     def test_escape_closes_search_dropdown(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         search = page.locator("#command-bar")
         search.click()
         search.fill("test")
         page.wait_for_timeout(300)
         page.keyboard.press("Escape")
         dropdown = page.locator("#search-results-dropdown")
-        expect(dropdown).to_have_class(lambda c: "closed" in c)
+        expect(dropdown).to_have_class(re.compile(r"closed"))
 
     def test_l_opens_layers(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         page.keyboard.press("l")
         popover = page.locator("#layers-popover")
         expect(popover).not_to_have_class("closed")
 
     def test_p_opens_project(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         page.keyboard.press("p")
         popover = page.locator("#project-popover")
         expect(popover).not_to_have_class("closed")
@@ -193,41 +357,52 @@ class TestPopovers:
     """Verify popovers open/close and have correct ARIA attributes."""
 
     def test_project_popover_aria_expanded(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         btn = page.locator("#project-pill-btn")
         expect(btn).to_have_attribute("aria-expanded", "false")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         btn.click()
         expect(btn).to_have_attribute("aria-expanded", "true")
 
     def test_layers_popover_aria_expanded(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         btn = page.locator("#layers-toggle-btn")
         expect(btn).to_have_attribute("aria-expanded", "false")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         btn.click()
         expect(btn).to_have_attribute("aria-expanded", "true")
 
     def test_index_popover_aria_expanded(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         btn = page.locator("#header-index-btn")
         expect(btn).to_have_attribute("aria-expanded", "false")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         btn.click()
         expect(btn).to_have_attribute("aria-expanded", "true")
 
     def test_escape_closes_all_popovers(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         page.locator("#project-pill-btn").click()
         page.keyboard.press("Escape")
-        expect(page.locator("#project-popover")).to_have_class(lambda c: "closed" in c)
+        expect(page.locator("#project-popover")).to_have_class(re.compile(r"closed"))
 
 
 class TestAPI:
     """Verify API endpoints respond correctly via browser fetch."""
 
     def test_health_endpoint(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         result = page.evaluate("fetch('/api/health').then(r => r.json())")
         assert result["status"] == "ok"
 
     def test_invalid_project_returns_400(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         result = page.evaluate("fetch('/api/status?project=').then(r => ({status: r.status}))")
         assert result["status"] == 400
 
     def test_system_path_rejected(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
         result = page.evaluate("fetch('/api/status?project=/etc').then(r => ({status: r.status}))")
         assert result["status"] == 400
 
@@ -243,7 +418,7 @@ class TestGraphLegend:
         page.reload(wait_until="networkidle")
         page.wait_for_timeout(500)
         legend = page.locator("#graph-legend")
-        expect(legend).to_have_class(lambda c: "hidden" in c)
+        expect(legend).to_have_class(re.compile(r"hidden"))
         page.close()
         context.close()
 
@@ -262,3 +437,67 @@ class TestResponsive:
                 expect(btn_text.nth(i)).not_to_be_visible()
         page.close()
         context.close()
+
+
+class TestGraphWorkflowsAndLayouts:
+    """Verify layout switcher, noise filters, and indexing dashboard DOM presence."""
+
+    def test_layout_mode_switcher(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+
+        btn_2d = page.locator("#mode-2d-btn")
+        btn_3d = page.locator("#mode-3d-btn")
+        btn_dag = page.locator("#mode-dag-btn")
+
+        expect(btn_3d).to_be_visible()
+        expect(btn_2d).to_be_visible()
+        expect(btn_dag).to_be_visible()
+
+        # Switch to 2D
+        btn_2d.click()
+        expect(btn_2d).to_have_class(re.compile(r"active"))
+        expect(btn_3d).not_to_have_class(re.compile(r"active"))
+        mode = page.evaluate("window.state ? window.state.layoutMode : null")
+        assert mode == "2d"
+
+        # Switch to DAG
+        btn_dag.click()
+        expect(btn_dag).to_have_class(re.compile(r"active"))
+        expect(btn_2d).not_to_have_class(re.compile(r"active"))
+        mode = page.evaluate("window.state ? window.state.layoutMode : null")
+        assert mode == "dag"
+
+        # Switch back to 3D
+        btn_3d.click()
+        expect(btn_3d).to_have_class(re.compile(r"active"))
+        mode = page.evaluate("window.state ? window.state.layoutMode : null")
+        assert mode == "3d"
+
+    def test_noise_reduction_and_rel_filters(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        page.locator("#layers-toggle-btn").click()
+        vendor_filter = page.locator("#filter-hide-vendor")
+        expect(vendor_filter).to_be_visible()
+        expect(vendor_filter).to_be_checked()
+
+        for rel in ["calls", "imports", "defines", "inherits"]:
+            cb = page.locator(f"#filter-rel-{rel}")
+            expect(cb).to_be_visible()
+            expect(cb).to_be_checked()
+
+    def test_indexing_dashboard_elements_exist(self, page: Page):
+        page.evaluate("if(document.getElementById('folder-browser-dialog')?.open) document.getElementById('folder-browser-dialog').close()")
+        dashboard = page.locator("#indexing-progress-dashboard")
+        expect(dashboard).to_have_count(1)
+        expect(page.locator("#progress-current-tier-title")).to_have_count(1)
+        expect(page.locator("#progress-elapsed-timer")).to_have_count(1)
+        expect(page.locator("#progress-heartbeat-badge")).to_have_count(1)
+        expect(page.locator("#indexing-progress-bar")).to_have_count(1)
+        for i in range(1, 4):
+            expect(page.locator(f"#stepper-tier-{i}")).to_have_count(1)

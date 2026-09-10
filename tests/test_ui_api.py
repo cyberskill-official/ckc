@@ -72,6 +72,65 @@ class TestWebUIApi(unittest.TestCase):
         data = res.json()
         self.assertTrue(len(data["current"]) > 0)
 
+    def test_browse_marks_indexed_dirs(self):
+        """POST /api/browse should mark is_indexed=True when graphify-out/graph.json exists."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            indexed_dir = os.path.join(tmp, "indexed_repo")
+            plain_dir = os.path.join(tmp, "plain_repo")
+            os.makedirs(os.path.join(indexed_dir, "graphify-out"))
+            with open(os.path.join(indexed_dir, "graphify-out", "graph.json"), "w") as f:
+                f.write("{}")
+            os.makedirs(plain_dir)
+
+            res = self.client.post("/api/browse", json={"path": tmp})
+            self.assertEqual(res.status_code, 200)
+            entries = {e["name"]: e for e in res.json()["entries"]}
+            self.assertTrue(entries["indexed_repo"]["is_indexed"])
+            self.assertFalse(entries["plain_repo"]["is_indexed"])
+
+    def test_llm_status_endpoint(self):
+        """GET /api/llm/status should return status structure."""
+        res = self.client.get("/api/llm/status")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("provider", data)
+        self.assertIn("base_url", data)
+        self.assertIn("connected", data)
+        self.assertIn("available_models", data)
+
+    def test_llm_config_endpoint_ssrf_protection(self):
+        """POST /api/llm/config should reject denied SSRF addresses with 400."""
+        res = self.client.post(
+            "/api/llm/config",
+            json={
+                "provider": "custom",
+                "base_url": "http://169.254.169.254/v1",
+            },
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("detail", res.json())
+
+    def test_llm_config_endpoint_valid_and_disable(self):
+        """POST /api/llm/config should accept valid loopback URL, and disable resets."""
+        res = self.client.post(
+            "/api/llm/config",
+            json={
+                "provider": "lm-studio",
+                "base_url": "http://127.0.0.1:1234/v1",
+                "model": "test-model",
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["provider"], "lm-studio")
+        self.assertEqual(data["base_url"], "http://127.0.0.1:1234/v1")
+
+        disable_res = self.client.post("/api/llm/disable")
+        self.assertEqual(disable_res.status_code, 200)
+        self.assertFalse(disable_res.json()["configured"])
+
     def test_cors_loopback_default(self):
         from code_chain.ui.server import is_loopback_host, resolve_cors_origins
 
@@ -209,6 +268,52 @@ class TestWebUIApi(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("CKC", res.text)
         self.assertIn("cy", res.text)  # Cytoscape graph container
+
+    def test_graph_enriched_attributes(self):
+        res = self.client.get(f"/api/graph?project={self.test_repo}")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        nodes = data["elements"]["nodes"]
+        self.assertGreater(len(nodes), 0)
+        sample = nodes[0]["data"]
+        self.assertIn("kind", sample)
+        self.assertIn("is_vendor", sample)
+        self.assertIn("in_degree", sample)
+        self.assertIn("out_degree", sample)
+        self.assertIsInstance(sample["is_vendor"], bool)
+        self.assertIsInstance(sample["in_degree"], int)
+        self.assertIsInstance(sample["out_degree"], int)
+
+    def test_source_snippet_success(self):
+        res = self.client.get(
+            f"/api/source?project={self.test_repo}&file=src/auth.py&line=10&window=5"
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["file"], "src/auth.py")
+        self.assertEqual(data["language"], "python")
+        self.assertIn("lines", data)
+        self.assertEqual(data["highlight_line"], 10)
+        self.assertGreater(len(data["lines"]), 0)
+        self.assertEqual(data["lines"][0]["line_num"], data["start_line"])
+
+    def test_source_snippet_string_line_syntax(self):
+        res = self.client.get(
+            f"/api/source?project={self.test_repo}&file=src/auth.py&line=L10&window=5"
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["highlight_line"], 10)
+
+    def test_source_snippet_path_traversal_blocked(self):
+        res = self.client.get(f"/api/source?project={self.test_repo}&file=../../etc/passwd")
+        self.assertIn(res.status_code, (400, 403))
+
+    def test_source_snippet_not_found(self):
+        res = self.client.get(
+            f"/api/source?project={self.test_repo}&file=app/nonexistent_file_xyz.py"
+        )
+        self.assertEqual(res.status_code, 404)
 
 
 if __name__ == "__main__":
