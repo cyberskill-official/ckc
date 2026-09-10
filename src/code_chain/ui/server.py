@@ -302,7 +302,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             (
                 "default-src 'self'; "
                 "script-src 'self' https://cdn.jsdelivr.net; "
-                "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
+                "style-src 'self' https://fonts.googleapis.com "
+                "https://cdn.jsdelivr.net 'unsafe-inline'; "
                 "img-src 'self' data: blob:; "
                 "connect-src 'self'; "
                 "font-src 'self' https://fonts.gstatic.com data:; "
@@ -510,6 +511,10 @@ def _build_index_steps(
     return steps, code_only, graphify_env
 
 
+class BrowsePayload(BaseModel):
+    path: str | None = Field(default=None, description="Directory to list; defaults to home")
+
+
 class QueryPayload(BaseModel):
     project_path: str
     query: str = Field(..., min_length=1)
@@ -563,22 +568,27 @@ def health(ready: bool = Query(False, description="When true, check engine CLIs 
     return payload
 
 
-@app.get("/api/samples")
-def get_samples() -> dict[str, Any]:
-    """Returns bundled sample repositories with resolved absolute paths."""
-    base_dir = Path(__file__).resolve().parent.parent.parent.parent / "examples"
-    samples = []
-    if base_dir.exists():
-        for item in sorted(base_dir.iterdir()):
+@app.post("/api/browse")
+def browse_directory(payload: BrowsePayload) -> dict[str, Any]:
+    """Lists subdirectories at *path* for the folder-browser UI."""
+    start = Path(payload.path).resolve() if payload.path else Path.home()
+    if not start.is_dir():
+        start = start.parent if start.parent.is_dir() else Path.home()
+
+    entries: list[dict[str, Any]] = []
+    try:
+        for item in sorted(start.iterdir()):
             if item.is_dir() and not item.name.startswith("."):
-                samples.append(
-                    {
-                        "id": item.name,
-                        "name": item.name.replace("-", " ").title(),
-                        "path": str(item.resolve()),
-                    }
-                )
-    return {"samples": samples}
+                entries.append({"name": item.name, "type": "dir"})
+    except PermissionError:
+        pass
+
+    parent = str(start.parent) if start != start.parent else None
+    return {
+        "current": str(start),
+        "parent": parent,
+        "entries": entries,
+    }
 
 
 @app.get("/api/status")

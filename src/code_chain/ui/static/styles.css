@@ -2100,3 +2100,273 @@ a.skip-link:focus-visible {
     border-radius: 4px;
     font-family: var(--font-mono);
 }
+
+/* ==========================================================================
+   Folder Browser Dialog
+   ========================================================================== */
+
+.folder-browser-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(560px, 90vw);
+    max-height: 70vh;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 0;
+    color: var(--text-primary);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+}
+
+.folder-browser-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+}
+
+.browser-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.browser-header h4 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.browser-breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    overflow-x: auto;
+    flex-shrink: 0;
+}
+
+.breadcrumb-item {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.breadcrumb-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.breadcrumb-item.active {
+    color: var(--accent-cyan);
+    font-weight: 600;
+}
+
+.breadcrumb-sep {
+    color: var(--text-muted);
+    font-size: 12px;
+    user-select: none;
+}
+
+.browser-list {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 200px;
+    max-height: 340px;
+    padding: 8px;
+}
+
+.browser-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    cursor: pointer;
+    text-align: left;
+}
+
+.browser-item:hover {
+    background: var(--bg-hover);
+}
+
+.browser-item svg {
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.browser-item-parent {
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.browser-empty {
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.browser-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-subtle);
+    gap: 12px;
+}
+
+.browser-selected-path {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+}
+
+.browser-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* Browse Row in Project Popover */
+.browse-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.browse-path-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.browse-path-display span {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+/* ==========================================================================
+   Driver.js CKC Theme Overrides
+   ========================================================================== */
+
+.driver-popover.ckc-tour {
+    background: var(--bg-card, #131620);
+    color: var(--text-primary, #e2e8f0);
+    border: 1px solid var(--border-subtle, #1e293b);
+    border-radius: 12px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+.driver-popover.ckc-tour .driver-popover-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent-cyan, #38bdf8);
+}
+
+.driver-popover.ckc-tour .driver-popover-description {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-secondary, #94a3b8);
+}
+
+.driver-popover.ckc-tour .driver-popover-footer {
+    border-top: 1px solid var(--border-subtle, #1e293b);
+    padding-top: 10px;
+}
+
+.driver-popover.ckc-tour .driver-popover-footer-btn {
+    background: var(--bg-hover, #1e293b);
+    color: var(--text-primary, #e2e8f0);
+    border: 1px solid var(--border-subtle, #334155);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.driver-popover.ckc-tour .driver-popover-footer-btn:hover {
+    background: var(--border-subtle, #334155);
+}
+
+.driver-popover.ckc-tour .driver-popover-next-btn,
+.driver-popover.ckc-tour .driver-popover-done-btn {
+    background: var(--accent-cyan, #38bdf8);
+    color: #0f172a;
+    border-color: var(--accent-cyan, #38bdf8);
+}
+
+.driver-popover.ckc-tour .driver-popover-next-btn:hover,
+.driver-popover.ckc-tour .driver-popover-done-btn:hover {
+    background: #0ea5e9;
+}
+
+.driver-popover.ckc-tour .driver-popover-progress-text {
+    color: var(--text-muted, #64748b);
+    font-size: 12px;
+}
+
+.driver-popover.ckc-tour .driver-popover-close-btn {
+    color: var(--text-muted, #64748b);
+}
+
+.driver-popover.ckc-tour .driver-popover-close-btn:hover {
+    color: var(--text-primary, #e2e8f0);
+}
+
+.driver-popover.ckc-tour .driver-popover-arrow-side-bottom {
+    border-top-color: var(--bg-card, #131620);
+}
+
+.driver-popover.ckc-tour .driver-popover-arrow-side-top {
+    border-bottom-color: var(--bg-card, #131620);
+}
+
+.driver-popover.ckc-tour .driver-popover-arrow-side-left {
+    border-right-color: var(--bg-card, #131620);
+}
+
+.driver-popover.ckc-tour .driver-popover-arrow-side-right {
+    border-left-color: var(--bg-card, #131620);
+}

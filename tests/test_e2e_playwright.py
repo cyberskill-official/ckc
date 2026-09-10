@@ -182,10 +182,6 @@ class TestAPI:
         result = page.evaluate("fetch('/api/health').then(r => r.json())")
         assert result["status"] == "ok"
 
-    def test_samples_endpoint(self, page: Page):
-        result = page.evaluate("fetch('/api/samples').then(r => r.json())")
-        assert isinstance(result.get("samples"), list)
-
     def test_invalid_project_returns_400(self, page: Page):
         result = page.evaluate("fetch('/api/status?project=').then(r => ({status: r.status}))")
         assert result["status"] == 400

@@ -131,6 +131,10 @@ class ChainConfig(BaseModel):
     # Approximate token budget for stacked markdown + optional local LLM synthesis.
     max_tokens_budget: int = Field(default_factory=lambda: _env_int("CKC_MAX_TOKENS_BUDGET", 4000))
 
+    # Result caching — writes query/impact/trace markdown to .code_chain/results/
+    result_cache_enabled: bool = Field(default_factory=lambda: _env_bool("CKC_RESULT_CACHE", True))
+    result_cache_max: int = Field(default_factory=lambda: _env_int("CKC_RESULT_CACHE_MAX", 50))
+
     def resolve_project_path(self, path: str | None = None) -> Path:
         target = str(path) if path else str(Path.cwd())
         return assert_safe_project_path(target)

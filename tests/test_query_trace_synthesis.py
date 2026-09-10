@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from code_chain.core.config import ChainConfig
 from code_chain.core.llm import trim_to_token_budget
 from code_chain.core.models import SymbolDetail
+from code_chain.pipelines.impact_pipeline import ImpactPipeline
 from code_chain.pipelines.query_pipeline import QueryPipeline
 from code_chain.pipelines.trace_pipeline import TracePipeline
 
@@ -125,6 +126,61 @@ class TestTraceCodeGraphEnrichment(unittest.TestCase):
         self.assertEqual(result.steps, [])
         self.assertIn("Graphify fallback", result.synthesized_flow)
         self.assertIn("graphify text path", result.synthesized_flow)
+
+
+class TestReadingGuide(unittest.TestCase):
+    """Tests for ICM-inspired reading guide headers in pipeline output."""
+
+    def test_query_reading_guide_all_tiers(self):
+        pipe = QueryPipeline(Path("."), ChainConfig())
+        guide = pipe._reading_guide(has_tier1=True, has_tier2=True, has_tier3=True)
+        self.assertIn("Reading Guide", guide)
+        self.assertIn("§1 (Graphify)", guide)
+        self.assertIn("§2 (GitNexus)", guide)
+        self.assertIn("§3 (CodeGraph)", guide)
+
+    def test_query_reading_guide_partial_tiers(self):
+        pipe = QueryPipeline(Path("."), ChainConfig())
+        guide = pipe._reading_guide(has_tier1=True, has_tier2=False, has_tier3=True)
+        self.assertIn("§1 (Graphify)", guide)
+        self.assertNotIn("§2 (GitNexus)", guide)
+        self.assertIn("§3 (CodeGraph)", guide)
+
+    def test_query_reading_guide_empty(self):
+        pipe = QueryPipeline(Path("."), ChainConfig())
+        guide = pipe._reading_guide(has_tier1=False, has_tier2=False, has_tier3=False)
+        self.assertIn("Reading Guide", guide)
+        self.assertIn("No direct data", guide)
+
+    def test_impact_reading_guide_all_data(self):
+        pipe = ImpactPipeline(Path("."), ChainConfig())
+        guide = pipe._reading_guide(has_impact=True, has_tests=True, has_docs=True)
+        self.assertIn("Reading Guide", guide)
+        self.assertIn("§1 (Blast Radius)", guide)
+        self.assertIn("§2 (CodeGraph)", guide)
+        self.assertIn("§3 (Graphify)", guide)
+
+    def test_impact_reading_guide_no_tests(self):
+        pipe = ImpactPipeline(Path("."), ChainConfig())
+        guide = pipe._reading_guide(has_impact=True, has_tests=False, has_docs=True)
+        self.assertIn("§1 (Blast Radius)", guide)
+        self.assertNotIn("§2 (CodeGraph)", guide)
+        self.assertIn("§3 (Graphify)", guide)
+
+    def test_trace_reading_guide_with_snippets_and_tags(self):
+        pipe = TracePipeline(Path("."), ChainConfig())
+        guide = pipe._reading_guide(has_snippets=True, has_tags=True)
+        self.assertIn("Reading Guide", guide)
+        self.assertIn("Mermaid diagram", guide)
+        self.assertIn("source snippets", guide)
+        self.assertIn("domain tags", guide)
+
+    def test_trace_reading_guide_without_snippets(self):
+        pipe = TracePipeline(Path("."), ChainConfig())
+        guide = pipe._reading_guide(has_snippets=False, has_tags=False)
+        self.assertIn("Mermaid diagram", guide)
+        self.assertNotIn("source snippets", guide)
+        self.assertNotIn("domain tags", guide)
 
 
 if __name__ == "__main__":

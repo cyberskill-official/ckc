@@ -53,7 +53,17 @@ const els = {
     // Header & Popovers
     projectInput: document.getElementById('project-path'),
     uiTokenInput: document.getElementById('ui-token'),
-    samplePicker: document.getElementById('sample-picker'),
+    browseBtn: document.getElementById('browse-btn'),
+    browsePathDisplay: document.getElementById('browse-path-display'),
+    projectPathText: document.getElementById('project-path-text'),
+    folderBrowserDialog: document.getElementById('folder-browser-dialog'),
+    browserBreadcrumbs: document.getElementById('browser-breadcrumbs'),
+    browserList: document.getElementById('browser-list'),
+    browserSelectedPath: document.getElementById('browser-selected-path'),
+    browserSelectBtn: document.getElementById('browser-select-btn'),
+    browserCancelBtn: document.getElementById('browser-cancel-btn'),
+    browserCloseBtn: document.getElementById('browser-close-btn'),
+    helpTourBtn: document.getElementById('help-tour-btn'),
     loadBtn: document.getElementById('load-btn'),
     readyBadge: document.getElementById('ready-badge'),
     readyBadgeText: document.querySelector('#ready-badge .badge-text'),
@@ -207,6 +217,11 @@ function initReducedMotionWatcher() {
 function init() {
     initReducedMotionWatcher();
     if (els.projectInput) els.projectInput.value = state.currentProject;
+    if (els.projectPathText && state.currentProject) {
+        const parts = state.currentProject.replace(/[\/\\]+$/, '').split(/[\/\\]/);
+        els.projectPathText.textContent = parts[parts.length - 1] || state.currentProject;
+        els.projectPathText.title = state.currentProject;
+    }
     if (els.uiTokenInput) els.uiTokenInput.value = state.uiToken;
     if (els.useLlm) els.useLlm.checked = state.useLlm;
     updateAiDisclosure();
@@ -214,7 +229,6 @@ function init() {
     updateProjectLabel();
     init3DGraph();
     setupEventListeners();
-    loadSamples();
     closeAllPopovers();
     if (els.contextPanel) els.contextPanel.setAttribute('inert', '');
     if (els.drawerToggle) els.drawerToggle.setAttribute('aria-expanded', 'false');
@@ -237,6 +251,8 @@ function init() {
     } else {
         showWelcomeOverlay();
     }
+    
+    initOnboardingTour();
 }
 
 function showWelcomeOverlay() {
@@ -249,12 +265,12 @@ function showWelcomeOverlay() {
             <h1 class="welcome-title">CKC</h1>
             <p class="welcome-subtitle">3D Code Knowledge Explorer</p>
             <div class="welcome-steps">
-                <div class="welcome-step"><span class="step-num">1</span> Enter a project path or pick a sample</div>
+                <div class="welcome-step"><span class="step-num">1</span> Browse to select your local repository</div>
                 <div class="welcome-step"><span class="step-num">2</span> Click any node to inspect it</div>
                 <div class="welcome-step"><span class="step-num">3</span> Search, query, trace, or analyze impact</div>
             </div>
             <div class="welcome-actions">
-                <button class="btn-welcome-sample" id="welcome-open-btn">Open a Project</button>
+                <button class="btn-welcome-sample" id="welcome-open-btn">Browse for Repository</button>
             </div>
             <p class="welcome-shortcut">Press <kbd>/</kbd> to search · <kbd>P</kbd> to switch projects</p>
         </div>
@@ -263,8 +279,8 @@ function showWelcomeOverlay() {
     const openBtn = document.getElementById('welcome-open-btn');
     if (openBtn) {
         openBtn.addEventListener('click', () => {
-            if (els.projectPillBtn) els.projectPillBtn.click();
             overlay.remove();
+            openFolderBrowser();
         });
     }
 }
@@ -672,21 +688,13 @@ function setupEventListeners() {
 
     // Project Loading
     els.loadBtn.addEventListener('click', () => {
-        const val = els.projectInput.value.trim();
-        if (!val) return;
+        const val = (els.projectInput ? els.projectInput.value : '').trim();
+        if (!val) {
+            openFolderBrowser();
+            return;
+        }
         persistUiTokenFromInput();
         state.currentProject = val;
-        localStorage.setItem('ckc_project_path', state.currentProject);
-        updateProjectLabel();
-        closeAllPopovers();
-        loadProject();
-    });
-
-    els.samplePicker.addEventListener('change', () => {
-        if (!els.samplePicker.value) return;
-        persistUiTokenFromInput();
-        els.projectInput.value = els.samplePicker.value;
-        state.currentProject = els.samplePicker.value;
         localStorage.setItem('ckc_project_path', state.currentProject);
         updateProjectLabel();
         closeAllPopovers();
@@ -895,6 +903,9 @@ function setupEventListeners() {
         } else if ((e.key === 'p' || e.key === 'P') && !isInput) {
             e.preventDefault();
             if (els.projectPillBtn) els.projectPillBtn.click();
+        } else if (e.key === '?' && !isInput) {
+            e.preventDefault();
+            startOnboardingTour(true);
         }
     });
 
@@ -912,6 +923,27 @@ function setupEventListeners() {
             state.graph3d.height(els.graphViewport.clientHeight);
         }
     });
+
+    // Folder Browser
+    if (els.browseBtn) {
+        els.browseBtn.addEventListener('click', openFolderBrowser);
+    }
+    if (els.browserSelectBtn) {
+        els.browserSelectBtn.addEventListener('click', confirmFolderSelection);
+    }
+    if (els.browserCancelBtn) {
+        els.browserCancelBtn.addEventListener('click', closeFolderBrowser);
+    }
+    if (els.browserCloseBtn) {
+        els.browserCloseBtn.addEventListener('click', closeFolderBrowser);
+    }
+
+    // Help Tour
+    if (els.helpTourBtn) {
+        els.helpTourBtn.addEventListener('click', () => {
+            startOnboardingTour(true);
+        });
+    }
 }
 
 // ==========================================================================
@@ -1971,24 +2003,206 @@ function switchDrawerTab(tab) {
 }
 
 // ==========================================================================
-// Samples & History
+// Folder Browser
 // ==========================================================================
 
-async function loadSamples() {
+async function openFolderBrowser() {
+    if (!els.folderBrowserDialog) return;
+    const startPath = state.currentProject || '';
+    els.folderBrowserDialog.showModal();
+    await navigateBrowserTo(startPath || null);
+}
+
+async function navigateBrowserTo(path) {
     try {
-        const res = await apiFetch('/api/samples');
-        if (res.samples && Array.isArray(res.samples)) {
-            els.samplePicker.innerHTML = '<option value="">Choose a bundled sample…</option>';
-            res.samples.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s.path;
-                opt.textContent = `${s.name} (${s.id})`;
-                els.samplePicker.appendChild(opt);
+        const res = await apiFetch('/api/browse', {
+            method: 'POST',
+            body: JSON.stringify({ path: path })
+        });
+        renderBrowserContents(res);
+    } catch (e) {
+        showToast(`Browse failed: ${e.message}`, 'error');
+    }
+}
+
+function renderBrowserContents(data) {
+    // Breadcrumbs
+    if (els.browserBreadcrumbs) {
+        els.browserBreadcrumbs.innerHTML = '';
+        const parts = data.current.split('/').filter(Boolean);
+        let accumulated = '';
+        
+        // Root
+        const rootBtn = document.createElement('button');
+        rootBtn.type = 'button';
+        rootBtn.className = 'breadcrumb-item';
+        rootBtn.textContent = '/';
+        rootBtn.addEventListener('click', () => navigateBrowserTo('/'));
+        els.browserBreadcrumbs.appendChild(rootBtn);
+        
+        parts.forEach((part, idx) => {
+            accumulated += '/' + part;
+            const sep = document.createElement('span');
+            sep.className = 'breadcrumb-sep';
+            sep.textContent = '›';
+            els.browserBreadcrumbs.appendChild(sep);
+            
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'breadcrumb-item';
+            if (idx === parts.length - 1) btn.classList.add('active');
+            btn.textContent = part;
+            const targetPath = accumulated;
+            btn.addEventListener('click', () => navigateBrowserTo(targetPath));
+            els.browserBreadcrumbs.appendChild(btn);
+        });
+    }
+    
+    // Directory listing
+    if (els.browserList) {
+        els.browserList.innerHTML = '';
+        
+        // Parent directory entry
+        if (data.parent) {
+            const parentItem = document.createElement('button');
+            parentItem.type = 'button';
+            parentItem.className = 'browser-item browser-item-parent';
+            parentItem.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+                <span>..</span>
+            `;
+            parentItem.addEventListener('click', () => navigateBrowserTo(data.parent));
+            els.browserList.appendChild(parentItem);
+        }
+        
+        if (data.entries.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'browser-empty';
+            empty.textContent = 'No subdirectories';
+            els.browserList.appendChild(empty);
+        } else {
+            data.entries.forEach(entry => {
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.className = 'browser-item';
+                item.innerHTML = `
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span>${escapeHtml(entry.name)}</span>
+                `;
+                const targetPath = data.current + (data.current.endsWith('/') ? '' : '/') + entry.name;
+                item.addEventListener('click', () => navigateBrowserTo(targetPath));
+                els.browserList.appendChild(item);
             });
         }
-    } catch (e) {
-        console.error('Failed to load samples:', e);
     }
+    
+    // Update selected path display
+    if (els.browserSelectedPath) {
+        els.browserSelectedPath.textContent = data.current;
+        els.browserSelectedPath.title = data.current;
+    }
+}
+
+function closeFolderBrowser() {
+    if (els.folderBrowserDialog) {
+        els.folderBrowserDialog.close();
+    }
+}
+
+function confirmFolderSelection() {
+    const selected = els.browserSelectedPath ? els.browserSelectedPath.textContent : '';
+    if (!selected || selected === '—') return;
+    
+    state.currentProject = selected;
+    localStorage.setItem('ckc_project_path', state.currentProject);
+    if (els.projectInput) els.projectInput.value = selected;
+    if (els.projectPathText) els.projectPathText.textContent = selected.split('/').pop() || selected;
+    if (els.projectPathText) els.projectPathText.title = selected;
+    updateProjectLabel();
+    closeFolderBrowser();
+    closeAllPopovers();
+    loadProject();
+}
+
+// ==========================================================================
+// Driver.js Onboarding Tour
+// ==========================================================================
+
+function initOnboardingTour() {
+    if (localStorage.getItem('ckc_has_seen_tour')) return;
+    // Delay to let the UI settle
+    setTimeout(() => startOnboardingTour(false), 800);
+}
+
+function startOnboardingTour(isRestart) {
+    if (!window.driver || !window.driver.js) return;
+    const createDriver = window.driver.js.driver;
+    
+    const tourDriver = createDriver({
+        showProgress: true,
+        animate: true,
+        allowClose: true,
+        stagePadding: 8,
+        stageRadius: 8,
+        popoverClass: 'ckc-tour',
+        nextBtnText: 'Next →',
+        prevBtnText: '← Back',
+        doneBtnText: 'Get Started!',
+        showButtons: ['next', 'previous', 'close'],
+        steps: [
+            {
+                popover: {
+                    title: 'Welcome to CKC! 🚀',
+                    description: 'Code Knowledge Chain visualizes your codebase as an interactive 3D knowledge graph. Let\'s take a quick tour of the key features.'
+                }
+            },
+            {
+                element: '#project-pill-btn',
+                popover: {
+                    title: 'Select a Repository',
+                    description: 'Click here to open your local repository. Use the folder browser to navigate to your project directory.',
+                    side: 'bottom',
+                    align: 'start'
+                }
+            },
+            {
+                element: '#header-index-btn',
+                popover: {
+                    title: 'Index Your Codebase',
+                    description: 'Build the 3-tier knowledge graph by indexing your code with Graphify, GitNexus, and CodeGraph engines.',
+                    side: 'bottom',
+                    align: 'end'
+                }
+            },
+            {
+                element: '#command-bar',
+                popover: {
+                    title: 'Search & Analyze',
+                    description: 'Search symbols, ask architecture questions, analyze blast radius, or trace execution paths. Try "A → B" to trace a call path.',
+                    side: 'bottom',
+                    align: 'center'
+                }
+            },
+            {
+                element: '#layers-toggle-btn',
+                popover: {
+                    title: 'Filter & Explore',
+                    description: 'Filter graph nodes by type (code, docs, schemas, tests) and explore module clusters to understand your architecture.',
+                    side: 'bottom',
+                    align: 'end'
+                }
+            }
+        ],
+        onDestroyed: () => {
+            localStorage.setItem('ckc_has_seen_tour', '1');
+        }
+    });
+    
+    tourDriver.drive();
 }
 
 function addOperationHistory(type, param) {

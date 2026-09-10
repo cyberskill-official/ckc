@@ -36,6 +36,14 @@ class CodeKnowledgeChain:
         self.trace_pipe = TracePipeline(self.project_path, self.config)
         self.gitnexus = GitNexusAdapter(self.config.gitnexus_bin, self.project_path)
 
+        from code_chain.core.result_cache import ResultCache
+
+        self.result_cache = ResultCache(
+            self.project_path,
+            enabled=self.config.result_cache_enabled,
+            max_entries=self.config.result_cache_max,
+        )
+
     def status(self) -> ProjectGraphStatus:
         """Returns the status and indexing health of all 3 graph engines."""
         return self.index_pipe.get_status()
@@ -46,15 +54,21 @@ class CodeKnowledgeChain:
 
     def query(self, concept_or_question: str, use_llm: bool = True) -> ChainedQueryResult:
         """Runs the 3-tier chained intelligence query."""
-        return self.query_pipe.run(concept_or_question, use_llm=use_llm)
+        result = self.query_pipe.run(concept_or_question, use_llm=use_llm)
+        self.result_cache.save("query", concept_or_question, result.synthesized_context)
+        return result
 
     def impact(self, target_symbol: str, use_llm: bool = True) -> ChainedImpactResult:
         """Runs the 3-tier refactoring blast radius analysis."""
-        return self.impact_pipe.run(target_symbol, use_llm=use_llm)
+        result = self.impact_pipe.run(target_symbol, use_llm=use_llm)
+        self.result_cache.save("impact", target_symbol, result.synthesized_report)
+        return result
 
     def trace(self, from_symbol: str, to_symbol: str, use_llm: bool = True) -> ChainedTraceResult:
         """Traces the execution path between two symbols across all 3 engines."""
-        return self.trace_pipe.run(from_symbol, to_symbol, use_llm=use_llm)
+        result = self.trace_pipe.run(from_symbol, to_symbol, use_llm=use_llm)
+        self.result_cache.save("trace", f"{from_symbol}_to_{to_symbol}", result.synthesized_flow)
+        return result
 
     def detect_changes(self) -> dict[str, Any]:
         """Maps current git diff hunks to indexed knowledge graph symbols."""

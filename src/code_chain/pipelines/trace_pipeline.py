@@ -173,6 +173,15 @@ class TracePipeline:
             query_timeout=self.config.query_timeout,
         )
 
+        has_snippets = any(s.source_snippet for s in steps)
+        has_tags = any(s.domain_tags for s in steps)
+        rg = self._reading_guide(has_snippets, has_tags)
+        if "\n## Execution Flow Diagram" in synthesis:
+            before, after = synthesis.split("\n## Execution Flow Diagram", 1)
+            synthesis = f"{before}\n\n{rg}\n## Execution Flow Diagram{after}"
+        else:
+            synthesis = f"{rg}\n{synthesis}"
+
         engine_errors = self._collect_engine_errors()
         outcome = "partial_error" if engine_errors else "ok"
 
@@ -188,6 +197,20 @@ class TracePipeline:
             outcome=outcome,
             engine_errors=engine_errors,
         )
+
+    def _reading_guide(self, has_snippets: bool, has_tags: bool) -> str:
+        lines = ["## Reading Guide"]
+        lines.append("- **For the execution path**: See the Mermaid diagram for a visual overview")
+        if has_snippets:
+            lines.append(
+                "- **For code at each hop**: Review the Hop-by-Hop Breakdown with source snippets"
+            )
+        if has_tags:
+            lines.append(
+                "- **For domain context**: Check domain tags on each hop for cross-cutting concerns"
+            )
+        lines.append("")
+        return "\n".join(lines)
 
     def _collect_engine_errors(self) -> dict[str, str]:
         errors: dict[str, str] = {}
