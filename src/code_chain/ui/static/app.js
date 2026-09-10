@@ -4,7 +4,14 @@
 // ==========================================================================
 
 const state = {
-    currentProject: localStorage.getItem('ckc_project_path') || '',
+    currentProject: (() => {
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('project') || sessionStorage.getItem('ckc_project_path') || '';
+        } catch (_) {
+            return '';
+        }
+    })(),
     uiToken: localStorage.getItem('ckc_ui_token') || '',
     useLlm: localStorage.getItem('ckc_use_llm') !== '0',
     graph3d: null,
@@ -250,6 +257,7 @@ function init() {
         loadProject();
     } else {
         showWelcomeOverlay();
+        openFolderBrowser();
     }
     
     initOnboardingTour();
@@ -285,12 +293,17 @@ function showWelcomeOverlay() {
     }
 }
 
+function getProjectShortName(path) {
+    if (!path) return 'Repository';
+    const clean = path.replace(/[/\\]+$/, '');
+    const parts = clean.split(/[/\\]/);
+    return parts[parts.length - 1] || clean;
+}
+
 function updateProjectLabel() {
     if (!els.currentProjectLabel) return;
     if (state.currentProject) {
-        const clean = state.currentProject.replace(/[/\\]+$/, '');
-        const parts = clean.split(/[/\\]/);
-        const name = parts[parts.length - 1] || clean;
+        const name = getProjectShortName(state.currentProject);
         els.currentProjectLabel.textContent = name;
         els.currentProjectLabel.title = state.currentProject;
     } else {
@@ -1149,20 +1162,33 @@ async function loadProject() {
     if (els.resultsOutput) els.resultsOutput.innerHTML = '';
     state.lastResults = null;
     document.getElementById('welcome-overlay')?.remove();
+    document.getElementById('unindexed-overlay')?.remove();
     document.getElementById('graph-legend')?.classList.remove('hidden');
 
     persistUiTokenFromInput();
     setBusy(true);
     try {
-        const [statusRes, graphRes] = await Promise.all([
-            apiFetch(`/api/status?project=${encodeURIComponent(state.currentProject)}`),
-            apiFetch(`/api/graph?project=${encodeURIComponent(state.currentProject)}`),
-        ]);
-
+        const statusRes = await apiFetch(`/api/status?project=${encodeURIComponent(state.currentProject)}`);
         updateStatus(statusRes);
+
+        const isGraphIndexed = !!statusRes.status?.graphify?.indexed;
+        if (!isGraphIndexed) {
+            document.getElementById('graph-legend')?.classList.add('hidden');
+            showUnindexedPrompt(state.currentProject, statusRes);
+            showToast(`Repository selected: ${getProjectShortName(state.currentProject)}. Run indexing to build the knowledge graph.`, 'info');
+            return;
+        }
+
+        const graphRes = await apiFetch(`/api/graph?project=${encodeURIComponent(state.currentProject)}`);
         renderGraph(graphRes);
         showToast(`Loaded ${state.currentProjectLabel ? state.currentProjectLabel.textContent : 'project'} (${graphRes.meta?.node_count || 0} symbols)`, 'success');
     } catch (e) {
+        if (e.message && e.message.includes('not yet indexed')) {
+            document.getElementById('graph-legend')?.classList.add('hidden');
+            showUnindexedPrompt(state.currentProject);
+            showToast('Codebase not yet indexed. Run indexing to build the knowledge graph.', 'info');
+            return;
+        }
         console.error('Failed to load project:', e);
         els.readyBadge.className = 'badge-status badge-error';
         if (els.readyBadgeText) els.readyBadgeText.textContent = 'Error';
@@ -1175,6 +1201,56 @@ async function loadProject() {
     } finally {
         setBusy(false);
     }
+}
+
+function showUnindexedPrompt(projectPath, statusRes) {
+    const container = els.container3d || document.getElementById('graph-3d');
+    if (!container) return;
+    document.getElementById('unindexed-overlay')?.remove();
+    document.getElementById('welcome-overlay')?.remove();
+
+    const shortName = getProjectShortName(projectPath);
+    const overlay = document.createElement('div');
+    overlay.id = 'unindexed-overlay';
+    overlay.className = 'unindexed-overlay';
+    overlay.innerHTML = DOMPurify.sanitize(`
+        <div class="unindexed-card">
+            <div class="unindexed-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+            </div>
+            <h2 class="unindexed-title">Codebase Not Yet Indexed</h2>
+            <div class="unindexed-repo-tag">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span>${escapeHtml(shortName)}</span>
+            </div>
+            <p class="unindexed-desc">
+                This repository has been selected, but its 3-tier knowledge graph has not been built yet. Start indexing to explore architecture, AST execution flows, and symbol dependencies.
+            </p>
+            <div class="unindexed-actions">
+                <button type="button" class="btn btn-primary btn-lg" id="unindexed-start-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    <span>Start Indexing</span>
+                </button>
+                <button type="button" class="btn btn-secondary" id="unindexed-change-btn">Select Other Folder</button>
+            </div>
+        </div>
+    `);
+    container.appendChild(overlay);
+
+    document.getElementById('unindexed-start-btn')?.addEventListener('click', () => {
+        overlay.remove();
+        runIndexing();
+    });
+
+    document.getElementById('unindexed-change-btn')?.addEventListener('click', () => {
+        openFolderBrowser();
+    });
 }
 
 function updateStatus(res) {
@@ -1813,6 +1889,7 @@ function renderOperationResults(markdown) {
 
 async function runIndexing() {
     if (state.inFlight) return;
+    document.getElementById('unindexed-overlay')?.remove();
     persistUiTokenFromInput();
     const force = els.forceIndex ? els.forceIndex.checked : false;
     const multi = els.multimodalIndex ? els.multimodalIndex.checked : false;
@@ -2008,8 +2085,10 @@ function switchDrawerTab(tab) {
 
 async function openFolderBrowser() {
     if (!els.folderBrowserDialog) return;
-    const startPath = state.currentProject || '';
-    els.folderBrowserDialog.showModal();
+    const startPath = state.currentProject || localStorage.getItem('ckc_last_browse_dir') || localStorage.getItem('ckc_project_path') || '';
+    if (!els.folderBrowserDialog.open) {
+        els.folderBrowserDialog.showModal();
+    }
     await navigateBrowserTo(startPath || null);
 }
 
@@ -2026,6 +2105,9 @@ async function navigateBrowserTo(path) {
 }
 
 function renderBrowserContents(data) {
+    if (data && data.current) {
+        localStorage.setItem('ckc_last_browse_dir', data.current);
+    }
     // Breadcrumbs
     if (els.browserBreadcrumbs) {
         els.browserBreadcrumbs.innerHTML = '';
@@ -2118,14 +2200,19 @@ function confirmFolderSelection() {
     if (!selected || selected === '—') return;
     
     state.currentProject = selected;
+    sessionStorage.setItem('ckc_project_path', state.currentProject);
     localStorage.setItem('ckc_project_path', state.currentProject);
+    localStorage.setItem('ckc_last_browse_dir', state.currentProject);
     if (els.projectInput) els.projectInput.value = selected;
-    if (els.projectPathText) els.projectPathText.textContent = selected.split('/').pop() || selected;
+    if (els.projectPathText) els.projectPathText.textContent = getProjectShortName(selected);
     if (els.projectPathText) els.projectPathText.title = selected;
     updateProjectLabel();
     closeFolderBrowser();
     closeAllPopovers();
     loadProject();
+    if (!localStorage.getItem('ckc_has_seen_tour')) {
+        setTimeout(() => startOnboardingTour(false), 1200);
+    }
 }
 
 // ==========================================================================
@@ -2134,8 +2221,12 @@ function confirmFolderSelection() {
 
 function initOnboardingTour() {
     if (localStorage.getItem('ckc_has_seen_tour')) return;
+    if (els.folderBrowserDialog && els.folderBrowserDialog.open) return;
     // Delay to let the UI settle
-    setTimeout(() => startOnboardingTour(false), 800);
+    setTimeout(() => {
+        if (els.folderBrowserDialog && els.folderBrowserDialog.open) return;
+        startOnboardingTour(false);
+    }, 800);
 }
 
 function startOnboardingTour(isRestart) {
