@@ -79,7 +79,7 @@
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                     
-                    <input type="text" id="command-bar" placeholder="Search symbols, ask a question, or A → B to trace" spellcheck="false" autocomplete="off" />
+                    <input type="text" id="command-bar" placeholder="Search symbols, ask a question, or A → B to trace" data-i18n="search.placeholder" spellcheck="false" autocomplete="off" />
                     
                     <button id="command-clear-btn" class="command-clear-btn hidden" aria-label="Clear Search">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -93,20 +93,20 @@
                 <!-- Mode Selection Dropdown -->
                 <div id="search-mode-dropdown" class="mode-dropdown closed" role="listbox" aria-label="Search mode">
                     <button type="button" class="mode-option active" data-mode="auto" role="option" aria-selected="true">
-                        <strong>Auto</strong>
-                        <small>Intelligent routing by symbol / query pattern</small>
+                        <strong data-i18n="search.modeAuto">Auto</strong>
+                        <small data-i18n="search.modeAutoDesc">Intelligent routing by symbol / query pattern</small>
                     </button>
                     <button type="button" class="mode-option" data-mode="query" role="option" aria-selected="false">
-                        <strong>Query</strong>
-                        <small>Multi-tier architecture question</small>
+                        <strong data-i18n="search.modeQuery">Query</strong>
+                        <small data-i18n="search.modeQueryDesc">Multi-tier architecture question</small>
                     </button>
                     <button type="button" class="mode-option" data-mode="impact" role="option" aria-selected="false">
-                        <strong>Impact</strong>
-                        <small>Blast radius &amp; caller risk analysis</small>
+                        <strong data-i18n="search.modeImpact">Impact</strong>
+                        <small data-i18n="search.modeImpactDesc">Blast radius & caller risk analysis</small>
                     </button>
                     <button type="button" class="mode-option" data-mode="trace" role="option" aria-selected="false">
-                        <strong>Trace</strong>
-                        <small>Cross-module call graph path tracing</small>
+                        <strong data-i18n="search.modeTrace">Trace</strong>
+                        <small data-i18n="search.modeTraceDesc">Cross-module call graph path tracing</small>
                     </button>
                 </div>
 
@@ -126,7 +126,7 @@
             <!-- Engine Readiness Status -->
             <button id="ready-badge" class="badge-status" title="View Engine Status & Indexing" aria-label="Engine status: Not indexed">
                 <span class="status-dot"></span>
-                <span class="badge-text">Not indexed</span>
+                <span class="badge-text" data-i18n="status.notIndexed">Not indexed</span>
             </button>
 
             <!-- Layers / Filter Popover Toggle -->
@@ -136,7 +136,7 @@
                     <polyline points="2 17 12 22 22 17"></polyline>
                     <polyline points="2 12 12 17 22 12"></polyline>
                 </svg>
-                <span>Layers</span>
+                <span data-i18n="actions.layers">Layers</span>
             </button>
 
             <!-- Index Action Button -->
@@ -144,13 +144,24 @@
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                 </svg>
-                <span>Index</span>
+                <span data-i18n="actions.index">Index</span>
             </button>
 
             <!-- BYOK AI Provider Status Button -->
             <button id="header-ai-btn" class="btn btn-secondary ai-status-btn" title="AI Model Provider Settings (BYOK)" aria-label="AI Model Provider Settings">
                 <span class="ai-status-dot" id="header-ai-dot"></span>
                 <span id="header-ai-label">LM Studio</span>
+            </button>
+
+            
+            <!-- Language Switcher -->
+            <button id="lang-switcher-btn" class="btn btn-secondary" title="Switch Language" onclick="window.i18n.setLocale(window.i18n.locale === 'en' ? 'vi' : 'en')">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                </svg>
+                <span id="lang-label">EN</span>
             </button>
 
             <!-- Help / Guided Tour -->
@@ -160,7 +171,7 @@
                     <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
                     <line x1="12" y1="17" x2="12.01" y2="17"></line>
                 </svg>
-                <span>Tour</span>
+                <span data-i18n="actions.tour">Tour</span>
             </button>
 
             <!-- Shims for test and compatibility -->
@@ -405,9 +416,9 @@
         <!-- Floating Minimalist HUD Controls Dock (Bottom-Right) -->
         <div class="canvas-hud-dock">
             <div class="layout-mode-group" id="graph-layout-modes" role="group" aria-label="Graph Layout Mode">
-                <button type="button" id="mode-3d-btn" class="layout-mode-btn active" data-mode="3d" title="3D Spatial Force Graph">3D</button>
-                <button type="button" id="mode-2d-btn" class="layout-mode-btn" data-mode="2d" title="2D Planar Map">2D</button>
-                <button type="button" id="mode-dag-btn" class="layout-mode-btn" data-mode="dag" title="Hierarchical Top-Down DAG">DAG</button>
+                <button type="button" id="mode-3d-btn" class="layout-mode-btn active" data-mode="3d" title="3D Macro (Discover Clusters & God Objects)">3D</button>
+                <button type="button" id="mode-2d-btn" class="layout-mode-btn" data-mode="2d" title="2D Planar (Daily Exploration)">2D</button>
+                <button type="button" id="mode-dag-btn" class="layout-mode-btn" data-mode="dag" title="DAG (Architecture & Tracing)">DAG</button>
             </div>
             <button id="clear-overlays-btn" class="hud-btn hidden" title="Clear Path & Impact Overlays">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -496,15 +507,15 @@
             <div class="node-quick-actions">
                 <button type="button" id="action-focus-node" class="btn btn-secondary btn-sm" title="Center camera on symbol">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
-                    <span>Focus</span>
+                    <span data-i18n="actions.focus">Focus</span>
                 </button>
                 <button type="button" id="action-trace-from" class="btn btn-secondary btn-sm" title="Trace execution flow from this symbol">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line></svg>
-                    <span>Trace From Here</span>
+                    <span data-i18n="actions.tracePath">Trace From Here</span>
                 </button>
                 <button type="button" id="action-impact-from" class="btn btn-action-danger btn-sm" title="Analyze impact / blast radius">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                    <span>Blast Radius</span>
+                    <span data-i18n="actions.blastRadius">Blast Radius</span>
                 </button>
             </div>
 
@@ -545,6 +556,22 @@
                 <span class="section-label">Relationships & Callers</span>
                 <div id="node-connections" class="connections-list custom-scroll">
                     <p class="empty-state">No direct connections.</p>
+                </div>
+            </div>
+
+            
+            <!-- Actionable Insights -->
+            <div class="inspector-card" id="insights-section" style="display: none; border-left: 4px solid #eab308; background-color: rgba(234, 179, 8, 0.1);">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <h4 style="margin: 0; color: #eab308;" data-i18n="insights.title">Insights</h4>
+                </div>
+                <div id="insights-content" style="font-size: 13px; color: var(--text-secondary);">
+                    <!-- Dynamic insights injected here -->
                 </div>
             </div>
 
@@ -796,6 +823,7 @@
         </div>
     </dialog>
 
+    <script src="i18n.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

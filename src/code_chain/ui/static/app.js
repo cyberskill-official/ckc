@@ -1864,6 +1864,29 @@ function showContextPanel(data) {
     if (els.nodeOutDegree) els.nodeOutDegree.textContent = outCount;
     els.nodeDegree.textContent = (inCount + outCount) || data.degree || 0;
 
+    // Insights Logic
+    const insightsSection = document.getElementById('insights-section');
+    const insightsContent = document.getElementById('insights-content');
+    if (insightsSection && insightsContent) {
+        let insights = [];
+        if (inCount > 15) {
+            insights.push(`<div style="margin-bottom:4px;"><strong>High Blast Radius:</strong> Changes here affect ${inCount} callers. Proceed with caution.</div>`);
+        }
+        if (outCount > 15) {
+            insights.push(`<div style="margin-bottom:4px;"><strong>High Coupling:</strong> This module depends on ${outCount} other modules.</div>`);
+        }
+        if (data.is_vendor) {
+            insights.push(`<div style="margin-bottom:4px;"><strong>Third-Party Code:</strong> This is a vendor module.</div>`);
+        }
+        if (insights.length > 0) {
+            insightsContent.innerHTML = insights.join('');
+            insightsSection.style.display = 'block';
+        } else {
+            insightsSection.style.display = 'none';
+        }
+    }
+
+
     // Render grouped connections
     els.nodeConnections.innerHTML = '';
     if (incoming.length === 0 && outgoing.length === 0) {

@@ -1,0 +1,54 @@
+{
+  "app": {
+    "title": "CKC Knowledge Explorer",
+    "loading": "Loading...",
+    "error": "Error",
+    "cancel": "Cancel",
+    "save": "Save",
+    "retry": "Retry",
+    "close": "Close"
+  },
+  "nav": {
+    "home": "Home",
+    "root": "Root",
+    "project": "Active Repository",
+    "noFolder": "No folder selected",
+    "browse": "Browse…",
+    "selectFolder": "Select This Folder"
+  },
+  "search": {
+    "placeholder": "Search symbols, ask a question, or A → B to trace",
+    "modeAuto": "Auto",
+    "modeAutoDesc": "Intelligent routing by symbol / query pattern",
+    "modeQuery": "Query",
+    "modeQueryDesc": "Multi-tier architecture question",
+    "modeImpact": "Impact",
+    "modeImpactDesc": "Blast radius & caller risk analysis",
+    "modeTrace": "Trace",
+    "modeTraceDesc": "Cross-module call graph path tracing"
+  },
+  "actions": {
+    "layers": "Layers",
+    "index": "Index",
+    "tour": "Tour",
+    "byok": "AI Settings",
+    "blastRadius": "Blast Radius",
+    "tracePath": "Trace Path",
+    "focus": "Focus"
+  },
+  "status": {
+    "notIndexed": "Not indexed",
+    "indexing": "Indexing...",
+    "ready": "Ready"
+  },
+  "insights": {
+    "title": "Insights",
+    "godObject": "God Object Detected",
+    "highCoupling": "High Coupling Warning",
+    "circularDependency": "Circular Dependency Detected"
+  },
+  "panel": {
+    "sourcePreview": "Source Preview",
+    "noSelection": "Select a node to view context and actionable insights."
+  }
+}

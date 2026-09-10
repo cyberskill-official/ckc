@@ -1,0 +1,54 @@
+{
+  "app": {
+    "title": "CKC - Khám Phá Tri Thức",
+    "loading": "Đang tải...",
+    "error": "Lỗi",
+    "cancel": "Hủy",
+    "save": "Lưu",
+    "retry": "Thử lại",
+    "close": "Đóng"
+  },
+  "nav": {
+    "home": "Trang chủ",
+    "root": "Thư mục gốc",
+    "project": "Dự án đang mở",
+    "noFolder": "Chưa chọn thư mục",
+    "browse": "Duyệt...",
+    "selectFolder": "Chọn Thư mục này"
+  },
+  "search": {
+    "placeholder": "Tìm kiếm ký hiệu, đặt câu hỏi, hoặc A → B để truy vết...",
+    "modeAuto": "Tự động",
+    "modeAutoDesc": "Phân luồng thông minh theo mẫu truy vấn",
+    "modeQuery": "Truy vấn",
+    "modeQueryDesc": "Hỏi đáp về kiến trúc đa tầng",
+    "modeImpact": "Tác động",
+    "modeImpactDesc": "Phân tích bán kính ảnh hưởng",
+    "modeTrace": "Truy vết",
+    "modeTraceDesc": "Truy vết đường dẫn qua các module"
+  },
+  "actions": {
+    "layers": "Bộ lọc",
+    "index": "Quét (Index)",
+    "tour": "Hướng dẫn",
+    "byok": "Cấu hình AI",
+    "blastRadius": "Bán kính ảnh hưởng",
+    "tracePath": "Truy vết đường đi",
+    "focus": "Tập trung"
+  },
+  "status": {
+    "notIndexed": "Chưa quét",
+    "indexing": "Đang quét...",
+    "ready": "Sẵn sàng"
+  },
+  "insights": {
+    "title": "Phân tích",
+    "godObject": "Phát hiện đối tượng quá tải (God Object)",
+    "highCoupling": "Cảnh báo phụ thuộc chằng chịt (High Coupling)",
+    "circularDependency": "Phát hiện phụ thuộc vòng"
+  },
+  "panel": {
+    "sourcePreview": "Xem mã nguồn",
+    "noSelection": "Chọn một node để xem ngữ cảnh và các phân tích chi tiết."
+  }
+}
