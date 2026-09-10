@@ -302,7 +302,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             (
                 "default-src 'self'; "
                 "script-src 'self' https://cdn.jsdelivr.net; "
-                "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
+                "style-src 'self' https://fonts.googleapis.com "
+                "https://cdn.jsdelivr.net 'unsafe-inline'; "
                 "img-src 'self' data: blob:; "
                 "connect-src 'self'; "
                 "font-src 'self' https://fonts.gstatic.com data:; "

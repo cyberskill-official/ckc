@@ -29,19 +29,13 @@
             integrity="sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I"
             crossorigin="anonymous"></script>
     
-    <!-- Driver.js Onboarding Tours (loaded dynamically to avoid console errors if CDN unreachable) -->
-    <script>
-    (function(){
-      var css=document.createElement('link');css.rel='stylesheet';
-      css.href='https://cdn.jsdelivr.net/npm/driver.js@1.8.0/dist/driver.css';
-      document.head.appendChild(css);
-      var js=document.createElement('script');
-      js.src='https://cdn.jsdelivr.net/npm/driver.js@1.8.0/dist/driver.js.iife.js';
-      js.crossOrigin='anonymous';
-      js.onerror=function(){console.info('driver.js CDN unavailable; onboarding tour disabled');};
-      document.head.appendChild(js);
-    })();
-    </script>
+    <!-- Driver.js Onboarding Tours -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.8.0/dist/driver.css"
+          integrity="sha384-XUGWln86d3kDvw/W1Qbii8QQyeWs2LcFYfGhYrmSZ0ZiXxowttKpfdhPdLE+WMFx"
+          crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/driver.js@1.8.0/dist/driver.js.iife.js"
+            integrity="sha384-ZD4UAn12lO2plEJ4lonOHO0fRSCgq0VAuoDx6/rglijDjzDYIXgCexIVu3PFJpJf"
+            crossorigin="anonymous"></script>
     
     <link rel="stylesheet" href="styles.css">
 </head>
