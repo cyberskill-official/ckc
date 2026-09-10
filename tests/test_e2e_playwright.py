@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+from pathlib import Path
 
 import pytest
 
@@ -90,6 +92,45 @@ class TestWelcomeOverlay:
         expect(welcome).to_be_visible()
         page.close()
         context.close()
+
+    def test_folder_browser_opens_by_default(self, browser):
+        context = browser.new_context()
+        page = context.new_page()
+        page.goto(BASE_URL, wait_until="networkidle")
+        page.evaluate(
+            "sessionStorage.removeItem('ckc_project_path'); "
+            "localStorage.removeItem('ckc_project_path')"
+        )
+        page.reload(wait_until="networkidle")
+        page.wait_for_timeout(500)
+        dialog = page.locator("#folder-browser-dialog")
+        expect(dialog).to_be_visible()
+        page.close()
+        context.close()
+
+
+class TestUnindexedProject:
+    """Verify selecting an unindexed folder prompts for indexing rather than showing error."""
+
+    def test_unindexed_prompt_shown(self, browser):
+        test_dir = Path.cwd() / "examples" / "unindexed-test-repo"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        (test_dir / ".git").mkdir(exist_ok=True)
+        try:
+            context = browser.new_context()
+            page = context.new_page()
+            page.goto(f"{BASE_URL}?project={test_dir}", wait_until="networkidle")
+            page.wait_for_timeout(800)
+            prompt = page.locator("#unindexed-overlay")
+            expect(prompt).to_be_visible()
+            start_btn = page.locator("#unindexed-start-btn")
+            expect(start_btn).to_be_visible()
+            badge_text = page.locator("#ready-badge .badge-text")
+            expect(badge_text).to_have_text("Not indexed")
+            page.close()
+            context.close()
+        finally:
+            shutil.rmtree(test_dir, ignore_errors=True)
 
 
 class TestSearchWorkflow:
