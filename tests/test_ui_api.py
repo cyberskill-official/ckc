@@ -53,7 +53,8 @@ class TestWebUIApi(unittest.TestCase):
 
     def test_browse_hides_hidden_dirs(self):
         """POST /api/browse should not return dot-prefixed directories."""
-        import tempfile, os
+        import os
+        import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             os.makedirs(os.path.join(tmp, ".hidden_dir"))
             os.makedirs(os.path.join(tmp, "visible_dir"))

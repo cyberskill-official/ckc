@@ -5,6 +5,7 @@ Inspired by ICM's 'glass-box' observability: every result is a readable file.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import threading
 from datetime import datetime
@@ -49,10 +50,8 @@ class ResultCache:
         files_to_remove = files[: len(files) - self.max_entries]
 
         for f in files_to_remove:
-            try:
+            with contextlib.suppress(OSError):
                 f.unlink()
-            except OSError:
-                pass
 
     def list_results(self) -> list[Path]:
         if not self.results_dir.exists():
@@ -68,7 +67,5 @@ class ResultCache:
             if not self.results_dir.exists():
                 return
             for f in self.results_dir.glob("*.md"):
-                try:
+                with contextlib.suppress(OSError):
                     f.unlink()
-                except OSError:
-                    pass

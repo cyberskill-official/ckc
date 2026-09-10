@@ -200,11 +200,20 @@ class TracePipeline:
 
     def _reading_guide(self, has_snippets: bool, has_tags: bool) -> str:
         lines = ["## Reading Guide"]
-        lines.append("- **For the execution path**: See the Mermaid diagram for a visual overview")
+        lines.append(
+            "- **For the execution path**: See the Mermaid diagram"
+            " for a visual overview"
+        )
         if has_snippets:
-            lines.append("- **For code at each hop**: Review the Hop-by-Hop Breakdown with source snippets")
+            lines.append(
+                "- **For code at each hop**: Review the Hop-by-Hop"
+                " Breakdown with source snippets"
+            )
         if has_tags:
-            lines.append("- **For domain context**: Check domain tags on each hop for cross-cutting concerns")
+            lines.append(
+                "- **For domain context**: Check domain tags on each"
+                " hop for cross-cutting concerns"
+            )
         lines.append("")
         return "\n".join(lines)
 

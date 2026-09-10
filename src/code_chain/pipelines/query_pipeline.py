@@ -165,11 +165,20 @@ class QueryPipeline:
     def _reading_guide(self, has_tier1: bool, has_tier2: bool, has_tier3: bool) -> str:
         lines = ["## Reading Guide"]
         if has_tier1:
-            lines.append("- **For architecture understanding**: Start with §1 (Graphify) for project-wide context")
+            lines.append(
+                "- **For architecture understanding**: Start with §1"
+                " (Graphify) for project-wide context"
+            )
         if has_tier2:
-            lines.append("- **For execution flow**: See §2 (GitNexus) for call graph and upstream/downstream")
+            lines.append(
+                "- **For execution flow**: See §2 (GitNexus)"
+                " for call graph and upstream/downstream"
+            )
         if has_tier3:
-            lines.append("- **For code navigation**: Jump to §3 (CodeGraph) for exact symbols and source")
+            lines.append(
+                "- **For code navigation**: Jump to §3 (CodeGraph)"
+                " for exact symbols and source"
+            )
         if not (has_tier1 or has_tier2 or has_tier3):
             lines.append("- *No direct data returned for this query.*")
         lines.append("")
