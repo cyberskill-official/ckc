@@ -20,7 +20,22 @@ const state = {
     isTraceMode: false,
     graphData: null,
     communities: [],
-    filters: { code: true, doc: true, schema: true, test: true },
+    filters: {
+        code: true,
+        doc: true,
+        schema: true,
+        test: true,
+        hideVendor: true,
+        relCalls: true,
+        relImports: true,
+        relDefines: true,
+        relInherits: true
+    },
+    layoutMode: '3d',
+    incomingCallers: new Set(),
+    outgoingCallees: new Set(),
+    indexingTimer: null,
+    indexingStartTime: null,
     isAutoRotating: false,
     prefersReducedMotion: typeof window !== 'undefined'
         && window.matchMedia
@@ -134,10 +149,15 @@ const els = {
     traceCancelBtn: document.getElementById('trace-cancel-btn'),
 
     // Filters & Communities
+    filterHideVendor: document.getElementById('filter-hide-vendor'),
     filterCode: document.getElementById('filter-code'),
     filterDoc: document.getElementById('filter-doc'),
     filterSchema: document.getElementById('filter-schema'),
     filterTest: document.getElementById('filter-test'),
+    filterRelCalls: document.getElementById('filter-rel-calls'),
+    filterRelImports: document.getElementById('filter-rel-imports'),
+    filterRelDefines: document.getElementById('filter-rel-defines'),
+    filterRelInherits: document.getElementById('filter-rel-inherits'),
     countCode: document.getElementById('count-code'),
     countDoc: document.getElementById('count-doc'),
     countSchema: document.getElementById('count-schema'),
@@ -155,6 +175,10 @@ const els = {
     graphViewport: document.getElementById('graph-viewport'),
     container3d: document.getElementById('graph-3d'),
     clearOverlaysBtn: document.getElementById('clear-overlays-btn'),
+    graphLayoutModes: document.getElementById('graph-layout-modes'),
+    mode3dBtn: document.getElementById('mode-3d-btn'),
+    mode2dBtn: document.getElementById('mode-2d-btn'),
+    modeDagBtn: document.getElementById('mode-dag-btn'),
 
     // Right Panel Context Inspector
     contextPanel: document.getElementById('context-panel'),
@@ -166,9 +190,20 @@ const els = {
     nodeSource: document.getElementById('node-source'),
     nodeCommunity: document.getElementById('node-community'),
     nodeDegree: document.getElementById('node-degree'),
+    nodeInDegree: document.getElementById('node-in-degree'),
+    nodeOutDegree: document.getElementById('node-out-degree'),
     nodeConnections: document.getElementById('node-connections'),
     copySymbolNameBtn: document.getElementById('copy-symbol-name-btn'),
     copySourcePathBtn: document.getElementById('copy-source-path-btn'),
+    actionFocusNode: document.getElementById('action-focus-node'),
+    actionTraceFrom: document.getElementById('action-trace-from'),
+    actionImpactFrom: document.getElementById('action-impact-from'),
+    btnPreviewSource: document.getElementById('btn-preview-source'),
+    sourcePreviewContainer: document.getElementById('source-preview-container'),
+    sourcePreviewFile: document.getElementById('source-preview-file'),
+    sourcePreviewLang: document.getElementById('source-preview-lang'),
+    sourcePreviewCode: document.getElementById('source-preview-code'),
+    closeSourcePreviewBtn: document.getElementById('close-source-preview-btn'),
     actionImpact: document.getElementById('action-impact'),
     actionTrace: document.getElementById('action-trace'),
     actionQuery: document.getElementById('action-query'),
@@ -180,6 +215,19 @@ const els = {
     terminalOutput: document.getElementById('terminal-output'),
     resultsOutput: document.getElementById('results-output'),
     copyResultsBtn: document.getElementById('copy-results-btn'),
+
+    // Indexing Dashboard
+    indexingDashboard: document.getElementById('indexing-progress-dashboard'),
+    progressTierTitle: document.getElementById('progress-current-tier-title'),
+    progressElapsedTimer: document.getElementById('progress-elapsed-timer'),
+    progressHeartbeatBadge: document.getElementById('progress-heartbeat-badge'),
+    indexingProgressBar: document.getElementById('indexing-progress-bar'),
+    stepperTier1: document.getElementById('stepper-tier-1'),
+    stepperTier2: document.getElementById('stepper-tier-2'),
+    stepperTier3: document.getElementById('stepper-tier-3'),
+    stepperStatus1: document.getElementById('stepper-status-1'),
+    stepperStatus2: document.getElementById('stepper-status-2'),
+    stepperStatus3: document.getElementById('stepper-status-3'),
 
     // Toasts
     toastContainer: document.getElementById('toast-container')
@@ -491,6 +539,16 @@ function setBusy(busy) {
 // 3D Force-Directed Graph Engine
 // ==========================================================================
 
+function getLinkRelationColor(relation) {
+    if (!relation) return 'rgba(255, 255, 255, 0.15)';
+    const rel = relation.toLowerCase();
+    if (rel === 'calls' || rel === 'call' || rel === 'indirect_call') return '#38bdf8'; // Sky blue
+    if (rel === 'imports' || rel === 'imports_from' || rel === 'import') return '#a78bfa'; // Violet
+    if (rel === 'defines' || rel === 'contains' || rel === 'method' || rel === 'defined_in') return '#34d399'; // Emerald
+    if (rel === 'inherits' || rel === 'extends' || rel === 'mixes_in') return '#fbbf24'; // Amber
+    return 'rgba(255, 255, 255, 0.15)';
+}
+
 function init3DGraph() {
     if (!els.container3d || !window.ForceGraph3D) return;
 
@@ -508,6 +566,12 @@ function init3DGraph() {
             if (node.__impactTarget) return '#ef4444';
             if (node.__impacted) return '#f59e0b';
             if (node.__tracePath) return '#38bdf8';
+            if (state.selectedNode) {
+                if (node.id === state.selectedNode.id) return '#f43f5e';
+                if (state.incomingCallers && state.incomingCallers.has(node.id)) return '#38bdf8';
+                if (state.outgoingCallees && state.outgoingCallees.has(node.id)) return '#f59e0b';
+                return 'rgba(255, 255, 255, 0.08)';
+            }
             if (state.highlightNodes.size > 0 && !state.highlightNodes.has(node.id)) {
                 return 'rgba(255, 255, 255, 0.08)';
             }
@@ -518,9 +582,12 @@ function init3DGraph() {
         })
         .nodeLabel(node => {
             const cat = (node.category || 'code').toUpperCase();
+            const kind = node.kind ? ` &bull; ${escapeHtml(node.kind)}` : '';
+            const callers = node.in_degree != null ? ` &bull; ${node.in_degree} in` : '';
+            const callees = node.out_degree != null ? ` &bull; ${node.out_degree} out` : '';
             return `<div style="background:#131620;border:1px solid rgba(255,255,255,0.14);border-radius:6px;padding:6px 10px;font-family:'IBM Plex Sans',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.5);">
                 <div style="font-weight:700;font-size:13px;color:#f3f4f6;font-family:'JetBrains Mono',monospace;">${escapeHtml(node.label || node.id)}</div>
-                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">${cat} &bull; ${node.degree || 0} connections</div>
+                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">${cat}${kind} &bull; ${node.degree || 0} total${callers}${callees}</div>
             </div>`;
         })
         .nodeOpacity(0.95)
@@ -528,12 +595,40 @@ function init3DGraph() {
             if (link.__highlight) return '#38bdf8';
             if (link.__trace) return '#38bdf8';
             if (link.__impact) return '#ef4444';
+            if (state.selectedNode) {
+                const s = typeof link.source === 'object' ? link.source.id : link.source;
+                const t = typeof link.target === 'object' ? link.target.id : link.target;
+                if (t === state.selectedNode.id) return '#38bdf8';
+                if (s === state.selectedNode.id) return '#f59e0b';
+                return 'rgba(255, 255, 255, 0.03)';
+            }
             if (state.highlightNodes.size > 0) return 'rgba(255, 255, 255, 0.03)';
-            return 'rgba(255, 255, 255, 0.12)';
+            return getLinkRelationColor(link.relation);
         })
         .linkWidth(link => {
             if (link.__highlight || link.__trace || link.__impact) return 2.5;
+            if (state.selectedNode) {
+                const s = typeof link.source === 'object' ? link.source.id : link.source;
+                const t = typeof link.target === 'object' ? link.target.id : link.target;
+                if (s === state.selectedNode.id || t === state.selectedNode.id) return 2.2;
+            }
             return 0.8;
+        })
+        .linkDirectionalArrowLength(link => {
+            if (state.highlightNodes.size > 0 && !link.__highlight && !link.__trace && !link.__impact) return 0;
+            return 3.5;
+        })
+        .linkDirectionalArrowRelPos(1)
+        .linkDirectionalArrowColor(link => {
+            if (link.__trace) return '#38bdf8';
+            if (link.__impact) return '#ef4444';
+            if (state.selectedNode) {
+                const s = typeof link.source === 'object' ? link.source.id : link.source;
+                const t = typeof link.target === 'object' ? link.target.id : link.target;
+                if (t === state.selectedNode.id) return '#38bdf8';
+                if (s === state.selectedNode.id) return '#f59e0b';
+            }
+            return getLinkRelationColor(link.relation);
         })
         .linkDirectionalParticles(link => {
             if (state.prefersReducedMotion) return 0;
@@ -597,6 +692,38 @@ function init3DGraph() {
     state.graph3d.d3Force('charge').strength(-180);
     state.graph3d.d3Force('link').distance(45);
 }
+
+function setLayoutMode(mode) {
+    if (!state.graph3d) return;
+    state.layoutMode = mode;
+
+    [els.mode3dBtn, els.mode2dBtn, els.modeDagBtn].forEach(btn => {
+        if (btn) btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+
+    if (mode === '2d') {
+        state.graph3d.numDimensions(2);
+        state.graph3d.dagMode(null);
+        state.graph3d.cameraPosition({ x: 0, y: 0, z: 280 }, { x: 0, y: 0, z: 0 }, motionMs(700));
+        showToast('Switched to 2D Planar Map', 'info');
+    } else if (mode === 'dag') {
+        state.graph3d.numDimensions(3);
+        state.graph3d.dagMode('td');
+        state.graph3d.dagLevelDistance(65);
+        state.graph3d.cameraPosition({ x: 0, y: -40, z: 320 }, { x: 0, y: 0, z: 0 }, motionMs(700));
+        showToast('Switched to Hierarchical Top-Down DAG', 'info');
+    } else {
+        state.graph3d.numDimensions(3);
+        state.graph3d.dagMode(null);
+        state.graph3d.cameraPosition({ x: 0, y: 0, z: 280 }, { x: 0, y: 0, z: 0 }, motionMs(700));
+        showToast('Switched to 3D Force Graph', 'info');
+    }
+
+    if (typeof state.graph3d.d3ReheatSimulation === 'function') {
+        state.graph3d.d3ReheatSimulation();
+    }
+}
+window.setLayoutMode = setLayoutMode;
 
 function getNodeCommunityColor(commId) {
     if (commId == null) return '#38bdf8';
@@ -784,12 +911,34 @@ function setupEventListeners() {
         els.resetCamBtn.addEventListener('click', resetCameraView);
     }
 
-    // Entity Filters
+    // Layout Mode Switcher Buttons
+    if (els.mode3dBtn) els.mode3dBtn.addEventListener('click', () => setLayoutMode('3d'));
+    if (els.mode2dBtn) els.mode2dBtn.addEventListener('click', () => setLayoutMode('2d'));
+    if (els.modeDagBtn) els.modeDagBtn.addEventListener('click', () => setLayoutMode('dag'));
+
+    // Entity Filters & Noise Reduction
+    if (els.filterHideVendor) {
+        els.filterHideVendor.addEventListener('change', (e) => {
+            state.filters.hideVendor = e.target.checked;
+            applyFilters();
+        });
+    }
+
     ['code', 'doc', 'schema', 'test'].forEach(cat => {
         const checkbox = els[`filter${cat.charAt(0).toUpperCase() + cat.slice(1)}`];
         if (checkbox) {
             checkbox.addEventListener('change', (e) => {
                 state.filters[cat] = e.target.checked;
+                applyFilters();
+            });
+        }
+    });
+
+    ['Calls', 'Imports', 'Defines', 'Inherits'].forEach(rel => {
+        const checkbox = els[`filterRel${rel}`];
+        if (checkbox) {
+            checkbox.addEventListener('change', (e) => {
+                state.filters[`rel${rel}`] = e.target.checked;
                 applyFilters();
             });
         }
@@ -843,6 +992,36 @@ function setupEventListeners() {
         els.contextPanel.classList.add('closed');
         clearSelection();
     });
+
+    if (els.actionFocusNode) {
+        els.actionFocusNode.addEventListener('click', () => {
+            if (state.selectedNode && state.graph3d) {
+                const gNodes = state.graph3d.graphData().nodes;
+                const targetNode = gNodes.find(n => n.id === state.selectedNode.id);
+                if (targetNode) flyToNode(targetNode);
+            }
+        });
+    }
+
+    if (els.actionTraceFrom) {
+        els.actionTraceFrom.addEventListener('click', () => {
+            if (state.selectedNode) enterTraceMode(state.selectedNode);
+        });
+    }
+
+    if (els.actionImpactFrom) {
+        els.actionImpactFrom.addEventListener('click', () => {
+            if (state.selectedNode) runImpact(state.selectedNode.label || state.selectedNode.id);
+        });
+    }
+
+    if (els.btnPreviewSource) {
+        els.btnPreviewSource.addEventListener('click', toggleSourcePreview);
+    }
+
+    if (els.closeSourcePreviewBtn) {
+        els.closeSourcePreviewBtn.addEventListener('click', closeSourcePreview);
+    }
 
     els.actionImpact.addEventListener('click', () => {
         if (state.selectedNode) runImpact(state.selectedNode.label || state.selectedNode.id);
@@ -1448,7 +1627,6 @@ function renderGraph(res) {
     state.communities = res.meta?.communities || [];
 
     const rawNodes = (res.elements.nodes || []).map(n => n.data);
-    const rawLinks = (res.elements.edges || []).map(e => e.data);
 
     // Update entity filter counts
     const counts = { code: 0, doc: 0, schema: 0, test: 0 };
@@ -1464,23 +1642,9 @@ function renderGraph(res) {
     // Populate Community List in Layers Popover
     renderCommunityList(state.communities);
 
-    // Sanitize link sources/targets to prevent d3-force object mutation breakage
-    const visibleNodes = rawNodes.filter(n => state.filters[n.category || 'code']);
-    const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
-
-    const cleanLinks = rawLinks.map(l => {
-        const sId = typeof l.source === 'object' ? l.source.id : l.source;
-        const tId = typeof l.target === 'object' ? l.target.id : l.target;
-        return Object.assign({}, l, { source: sId, target: tId });
-    }).filter(l => visibleNodeIds.has(l.source) && visibleNodeIds.has(l.target));
-
-    if (state.graph3d) {
-        state.graph3d.graphData({
-            nodes: visibleNodes,
-            links: cleanLinks
-        });
-        setTimeout(() => { fitGraphView(); }, 600);
-    }
+    // Apply filtering and render into 3D / 2D / DAG
+    applyFilters();
+    setTimeout(() => { fitGraphView(); }, 600);
 }
 
 function renderCommunityList(communities) {
@@ -1541,14 +1705,33 @@ function applyFilters() {
     const rawNodes = (state.graphData.elements.nodes || []).map(n => n.data);
     const rawLinks = (state.graphData.elements.edges || []).map(e => e.data);
 
-    const visibleNodes = rawNodes.filter(n => state.filters[n.category || 'code']);
+    const visibleNodes = rawNodes.filter(n => {
+        // Noise reduction filter for vendor/generated/node_modules/dist files
+        if (state.filters.hideVendor && n.is_vendor) return false;
+        // Entity category filter
+        return state.filters[n.category || 'code'] !== false;
+    });
     const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
 
     const cleanLinks = rawLinks.map(l => {
         const sId = typeof l.source === 'object' ? l.source.id : l.source;
         const tId = typeof l.target === 'object' ? l.target.id : l.target;
         return Object.assign({}, l, { source: sId, target: tId });
-    }).filter(l => visibleNodeIds.has(l.source) && visibleNodeIds.has(l.target));
+    }).filter(l => {
+        if (!visibleNodeIds.has(l.source) || !visibleNodeIds.has(l.target)) return false;
+
+        const rel = (l.relation || '').toLowerCase();
+        if (rel === 'calls' || rel === 'call' || rel === 'indirect_call') {
+            if (state.filters.relCalls === false) return false;
+        } else if (rel === 'imports' || rel === 'imports_from' || rel === 'import') {
+            if (state.filters.relImports === false) return false;
+        } else if (rel === 'defines' || rel === 'contains' || rel === 'method' || rel === 'defined_in') {
+            if (state.filters.relDefines === false) return false;
+        } else if (rel === 'inherits' || rel === 'extends' || rel === 'mixes_in') {
+            if (state.filters.relInherits === false) return false;
+        }
+        return true;
+    });
 
     if (state.graph3d) {
         state.graph3d.graphData({
@@ -1572,14 +1755,19 @@ function selectNode(data) {
         const gLinks = state.graph3d.graphData().links;
 
         const neighbors = new Set([data.id]);
+        state.incomingCallers = new Set();
+        state.outgoingCallees = new Set();
+
         gLinks.forEach(link => {
             const s = typeof link.source === 'object' ? link.source.id : link.source;
             const t = typeof link.target === 'object' ? link.target.id : link.target;
-            if (s === data.id) {
-                neighbors.add(t);
-                link.__highlight = true;
-            } else if (t === data.id) {
+            if (t === data.id) {
                 neighbors.add(s);
+                state.incomingCallers.add(s);
+                link.__highlight = true;
+            } else if (s === data.id) {
+                neighbors.add(t);
+                state.outgoingCallees.add(t);
                 link.__highlight = true;
             } else {
                 link.__highlight = false;
@@ -1590,6 +1778,7 @@ function selectNode(data) {
         state.graph3d.nodeColor(state.graph3d.nodeColor());
         state.graph3d.linkColor(state.graph3d.linkColor());
         state.graph3d.linkWidth(state.graph3d.linkWidth());
+        state.graph3d.linkDirectionalArrowLength(state.graph3d.linkDirectionalArrowLength());
 
         if (targetNode) flyToNode(targetNode);
     }
@@ -1600,16 +1789,20 @@ function selectNode(data) {
 function clearSelection() {
     state.selectedNode = null;
     state.highlightNodes.clear();
+    state.incomingCallers = new Set();
+    state.outgoingCallees = new Set();
 
     if (state.graph3d) {
         state.graph3d.graphData().links.forEach(l => { l.__highlight = false; });
         state.graph3d.nodeColor(state.graph3d.nodeColor());
         state.graph3d.linkColor(state.graph3d.linkColor());
         state.graph3d.linkWidth(state.graph3d.linkWidth());
+        state.graph3d.linkDirectionalArrowLength(state.graph3d.linkDirectionalArrowLength());
     }
 
     els.contextPanel.classList.add('closed');
     els.contextPanel.setAttribute('inert', '');
+    closeSourcePreview();
 }
 
 function handleShiftClick(data) {
@@ -1631,7 +1824,7 @@ function showContextPanel(data) {
     const cat = (data.category || 'code').toLowerCase();
     els.nodeCategory.textContent = cat.charAt(0).toUpperCase() + cat.slice(1);
 
-    let typeLabel = 'Symbol';
+    let typeLabel = data.kind ? (data.kind.charAt(0).toUpperCase() + data.kind.slice(1)) : 'Symbol';
     if (data.is_class) {
         typeLabel = 'Class';
     } else if (data.is_callable) {
@@ -1645,58 +1838,162 @@ function showContextPanel(data) {
 
     els.nodeSource.textContent = (data.source_file || '') + (data.source_location ? `:${data.source_location}` : '');
     els.nodeCommunity.textContent = data.community != null ? `Cluster ${data.community}` : 'None';
-    els.nodeDegree.textContent = data.degree || 0;
 
-    // Build connections list grouped by relation
-    els.nodeConnections.innerHTML = '';
-    const grouped = {};
+    closeSourcePreview();
+
+    // Group incoming callers vs outgoing dependencies
+    const incoming = [];
+    const outgoing = [];
     if (state.graphData && state.graphData.elements.edges) {
         state.graphData.elements.edges.forEach(edge => {
             const e = edge.data;
             const sId = typeof e.source === 'object' ? e.source.id : e.source;
             const tId = typeof e.target === 'object' ? e.target.id : e.target;
-            if (sId === data.id) {
-                const rel = e.relation || 'out';
-                if (!grouped[rel]) grouped[rel] = [];
-                grouped[rel].push(tId);
-            } else if (tId === data.id) {
-                const rel = `in (${e.relation || 'ref'})`;
-                if (!grouped[rel]) grouped[rel] = [];
-                grouped[rel].push(sId);
+            if (tId === data.id) {
+                incoming.push({ id: sId, rel: e.relation || 'references' });
+            } else if (sId === data.id) {
+                outgoing.push({ id: tId, rel: e.relation || 'uses' });
             }
         });
     }
 
-    if (Object.keys(grouped).length === 0) {
-        els.nodeConnections.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No direct connections recorded.</div>';
+    const inCount = data.in_degree != null ? data.in_degree : incoming.length;
+    const outCount = data.out_degree != null ? data.out_degree : outgoing.length;
+
+    if (els.nodeInDegree) els.nodeInDegree.textContent = inCount;
+    if (els.nodeOutDegree) els.nodeOutDegree.textContent = outCount;
+    els.nodeDegree.textContent = (inCount + outCount) || data.degree || 0;
+
+    // Render grouped connections
+    els.nodeConnections.innerHTML = '';
+    if (incoming.length === 0 && outgoing.length === 0) {
+        els.nodeConnections.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0;">No direct connections recorded.</div>';
     } else {
-        for (const [rel, nodeIds] of Object.entries(grouped)) {
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'conn-group';
-            const header = document.createElement('div');
-            header.className = 'conn-group-header';
-            header.textContent = `${rel} (${nodeIds.length})`;
-            groupDiv.appendChild(header);
-
-            const chipsDiv = document.createElement('div');
-            chipsDiv.className = 'conn-chips';
-
-            nodeIds.slice(0, 16).forEach(tid => {
-                const a = document.createElement('a');
-                a.className = 'symbol-link';
-                let friendly = tid;
-                if (state.graphData) {
-                    const found = state.graphData.elements.nodes.find(n => n.data.id === tid);
-                    if (found && found.data.label) friendly = found.data.label;
-                }
-                a.textContent = friendly;
-                a.onclick = () => selectNodeByLabel(friendly);
-                chipsDiv.appendChild(a);
-            });
-
-            groupDiv.appendChild(chipsDiv);
-            els.nodeConnections.appendChild(groupDiv);
+        if (incoming.length > 0) {
+            const inSec = renderConnectionSection(`Incoming Callers & References (${incoming.length})`, incoming, 'in');
+            els.nodeConnections.appendChild(inSec);
         }
+        if (outgoing.length > 0) {
+            const outSec = renderConnectionSection(`Outgoing Calls & Dependencies (${outgoing.length})`, outgoing, 'out');
+            els.nodeConnections.appendChild(outSec);
+        }
+    }
+}
+
+function renderConnectionSection(title, items, dir) {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'conn-group';
+
+    const header = document.createElement('div');
+    header.className = 'conn-group-header';
+    header.textContent = title;
+    groupDiv.appendChild(header);
+
+    const chipsDiv = document.createElement('div');
+    chipsDiv.className = 'conn-chips';
+
+    items.slice(0, 16).forEach(item => {
+        const a = document.createElement('a');
+        a.className = 'symbol-link';
+        let friendly = item.id;
+        if (state.graphData) {
+            const found = state.graphData.elements.nodes.find(n => n.data.id === item.id);
+            if (found && found.data.label) friendly = found.data.label;
+        }
+        const dirArrow = dir === 'in' ? '←' : '→';
+        a.innerHTML = `<span class="rel-tag">${dirArrow} ${escapeHtml(item.rel)}</span> <span>${escapeHtml(friendly)}</span>`;
+        a.onclick = () => selectNodeByLabel(friendly);
+        chipsDiv.appendChild(a);
+    });
+
+    if (items.length > 16) {
+        const more = document.createElement('span');
+        more.className = 'conn-more-count';
+        more.textContent = `+${items.length - 16} more`;
+        chipsDiv.appendChild(more);
+    }
+
+    groupDiv.appendChild(chipsDiv);
+    return groupDiv;
+}
+
+async function toggleSourcePreview() {
+    if (!state.selectedNode || !els.sourcePreviewContainer) return;
+    const isVisible = !els.sourcePreviewContainer.classList.contains('hidden');
+    if (isVisible) {
+        closeSourcePreview();
+        return;
+    }
+
+    const node = state.selectedNode;
+    const file = node.source_file;
+    if (!file) {
+        showToast('No source file location available for this node', 'info');
+        return;
+    }
+
+    let line = 1;
+    if (node.source_location) {
+        const parsed = parseInt(String(node.source_location).split(/[-:,]/)[0], 10);
+        if (!isNaN(parsed) && parsed > 0) line = parsed;
+    }
+
+    els.sourcePreviewContainer.classList.remove('hidden');
+    if (els.sourcePreviewFile) els.sourcePreviewFile.textContent = file;
+    if (els.sourcePreviewLang) els.sourcePreviewLang.textContent = node.file_type || 'code';
+    if (els.sourcePreviewCode) {
+        els.sourcePreviewCode.innerHTML = '<div style="color:var(--text-muted);padding:8px;">Loading source snippet...</div>';
+    }
+
+    try {
+        const queryParams = new URLSearchParams({
+            project: state.currentProject,
+            file: file,
+            line: String(line),
+            window: '30'
+        });
+        const data = await apiFetch(`/api/source?${queryParams.toString()}`);
+        renderSourceSnippet(data);
+    } catch (err) {
+        console.error('Failed to load source snippet:', err);
+        if (els.sourcePreviewCode) {
+            els.sourcePreviewCode.innerHTML = `<div style="color:var(--accent-rose);padding:8px;">Failed to load source: ${escapeHtml(err.message)}</div>`;
+        }
+    }
+}
+
+function renderSourceSnippet(data) {
+    if (!els.sourcePreviewCode) return;
+    if (els.sourcePreviewLang) els.sourcePreviewLang.textContent = data.language || 'code';
+    if (els.sourcePreviewFile) els.sourcePreviewFile.textContent = `${data.file}:${data.highlight_line || data.start_line}`;
+
+    const lines = data.lines || [];
+    const highlightLine = data.highlight_line;
+
+    let html = '';
+    lines.forEach(item => {
+        const lineNum = typeof item === 'object' && item !== null ? item.line_num : '';
+        const codeText = typeof item === 'object' && item !== null ? item.code : item;
+        const isTarget = lineNum === highlightLine;
+        const cls = isTarget ? 'source-line highlight' : 'source-line';
+        html += `<div class="${cls}">` +
+            `<span class="source-line-num">${lineNum}</span>` +
+            `<span class="source-line-code">${escapeHtml(codeText)}</span>` +
+            `</div>`;
+    });
+    els.sourcePreviewCode.innerHTML = html;
+
+    setTimeout(() => {
+        const targetEl = els.sourcePreviewCode.querySelector('.source-line.highlight');
+        if (targetEl) {
+            targetEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+    }, 50);
+}
+
+function closeSourcePreview() {
+    if (els.sourcePreviewContainer) {
+        els.sourcePreviewContainer.classList.add('hidden');
     }
 }
 
@@ -2034,6 +2331,115 @@ function renderOperationResults(markdown) {
 // 3-Tier Indexing Engine (SSE Stream)
 // ==========================================================================
 
+function startIndexingDashboard() {
+    if (els.indexingDashboard) els.indexingDashboard.classList.remove('hidden');
+    if (els.indexingProgressBar) els.indexingProgressBar.style.width = '5%';
+    if (els.progressTierTitle) els.progressTierTitle.textContent = 'Initializing 3-Tier Pipeline...';
+    if (els.progressHeartbeatBadge) els.progressHeartbeatBadge.textContent = 'Active (just now)';
+    if (els.progressElapsedTimer) els.progressElapsedTimer.textContent = '00:00';
+
+    [1, 2, 3].forEach(step => {
+        const card = els[`stepperTier${step}`];
+        const status = els[`stepperStatus${step}`];
+        if (card) {
+            card.dataset.status = 'pending';
+            card.classList.remove('active', 'success', 'error');
+        }
+        if (status) status.textContent = 'Queued';
+    });
+
+    state.indexingStartTime = Date.now();
+    if (state.indexingTimer) clearInterval(state.indexingTimer);
+    state.indexingTimer = setInterval(() => {
+        if (!state.indexingStartTime || !els.progressElapsedTimer) return;
+        const elapsedSec = Math.floor((Date.now() - state.indexingStartTime) / 1000);
+        const mins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+        const secs = String(elapsedSec % 60).padStart(2, '0');
+        els.progressElapsedTimer.textContent = `${mins}:${secs}`;
+    }, 1000);
+}
+
+function updateIndexingStepStart(data) {
+    const step = data.step || 1;
+    const titles = {
+        1: 'Tier 1: Graphify (Architecture & AST)',
+        2: 'Tier 2: GitNexus (Tree-sitter Execution Flow)',
+        3: 'Tier 3: CodeGraph (Symbol Dependencies & Impact)'
+    };
+    if (els.progressTierTitle) {
+        els.progressTierTitle.textContent = titles[step] || `Tier ${step}: ${data.engine || 'Engine'}`;
+    }
+    if (els.progressHeartbeatBadge) {
+        els.progressHeartbeatBadge.textContent = 'Running...';
+    }
+
+    // Mark previous steps as success
+    for (let i = 1; i < step; i++) {
+        const prevCard = els[`stepperTier${i}`];
+        const prevStatus = els[`stepperStatus${i}`];
+        if (prevCard) {
+            prevCard.dataset.status = 'success';
+            prevCard.classList.remove('active');
+            prevCard.classList.add('success');
+        }
+        if (prevStatus) prevStatus.textContent = 'Complete';
+    }
+
+    // Mark current step as active
+    const curCard = els[`stepperTier${step}`];
+    const curStatus = els[`stepperStatus${step}`];
+    if (curCard) {
+        curCard.dataset.status = 'active';
+        curCard.classList.add('active');
+        curCard.classList.remove('success', 'error');
+    }
+    if (curStatus) curStatus.textContent = 'Active';
+
+    // Progress bar fill: 15% -> 45% -> 75%
+    const pct = step === 1 ? 15 : (step === 2 ? 45 : 75);
+    if (els.indexingProgressBar) els.indexingProgressBar.style.width = `${pct}%`;
+}
+
+function updateIndexingHeartbeat(data) {
+    if (!els.progressHeartbeatBadge) return;
+    const elapsed = data.elapsed_seconds ? ` (${data.elapsed_seconds}s)` : '';
+    els.progressHeartbeatBadge.textContent = `Active${elapsed}`;
+}
+
+function updateIndexingLog(data) {
+    if (els.progressHeartbeatBadge && els.progressHeartbeatBadge.textContent !== 'Active (just now)') {
+        els.progressHeartbeatBadge.textContent = 'Active (just now)';
+    }
+}
+
+function updateIndexingStepFinish(data) {
+    const step = data.step || 1;
+    const ok = data.success !== false;
+    const card = els[`stepperTier${step}`];
+    const status = els[`stepperStatus${step}`];
+    if (card) {
+        card.dataset.status = ok ? 'success' : 'error';
+        card.classList.remove('active');
+        card.classList.add(ok ? 'success' : 'error');
+    }
+    if (status) status.textContent = ok ? 'Complete' : 'Failed';
+
+    const pct = step === 1 ? 33 : (step === 2 ? 66 : 95);
+    if (els.indexingProgressBar) els.indexingProgressBar.style.width = `${pct}%`;
+}
+
+function updateIndexingStepError(data) {
+    const step = data.step || 1;
+    const card = els[`stepperTier${step}`];
+    const status = els[`stepperStatus${step}`];
+    if (card) {
+        card.dataset.status = 'error';
+        card.classList.remove('active');
+        card.classList.add('error');
+    }
+    if (status) status.textContent = 'Failed';
+}
+
 async function runIndexing() {
     if (state.inFlight) return;
     document.getElementById('unindexed-overlay')?.remove();
@@ -2044,6 +2450,7 @@ async function runIndexing() {
     setBusy(true);
     openDrawer();
     switchDrawerTab('terminal');
+    startIndexingDashboard();
     els.terminalOutput.textContent = `[CKC Engine] Initiating 3-Tier Indexing for ${state.currentProject}...\n`;
     showToast('Started 3-Tier Indexing pipeline', 'info');
 
@@ -2127,12 +2534,26 @@ function handleIndexingEvent(data) {
     els.terminalOutput.textContent += `${text}\n`;
     els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
 
-    if (data.event === 'complete' || data.type === 'complete') {
+    const eventType = data.event || data.type;
+
+    if (eventType === 'start') {
+        startIndexingDashboard();
+    } else if (eventType === 'step_start') {
+        updateIndexingStepStart(data);
+    } else if (eventType === 'heartbeat') {
+        updateIndexingHeartbeat(data);
+    } else if (eventType === 'log') {
+        updateIndexingLog(data);
+    } else if (eventType === 'step_finish') {
+        updateIndexingStepFinish(data);
+    } else if (eventType === 'step_error') {
+        updateIndexingStepError(data);
+    } else if (eventType === 'complete') {
         const ok = data.overall_success !== false;
         finishIndexing(ok, ok ? 'Indexing completed successfully.' : 'Indexing finished with errors.');
-    } else if (data.event === 'cancelled' || data.type === 'cancelled') {
+    } else if (eventType === 'cancelled') {
         finishIndexing(false, data.message || 'Indexing cancelled by user.');
-    } else if (data.event === 'error' || data.type === 'error') {
+    } else if (eventType === 'error') {
         finishIndexing(false, data.message || 'Indexing error occurred.');
     }
 }
@@ -2144,9 +2565,33 @@ function finishIndexing(success, msg) {
         state.indexingAbort.abort();
     }
     state.indexingAbort = null;
+    if (state.indexingTimer) {
+        clearInterval(state.indexingTimer);
+        state.indexingTimer = null;
+    }
+
     if (els.cancelIndexBtn) els.cancelIndexBtn.classList.add('hidden');
     if (els.runIndexBtn) els.runIndexBtn.classList.remove('hidden');
     setBusy(false);
+
+    if (success) {
+        if (els.indexingProgressBar) els.indexingProgressBar.style.width = '100%';
+        if (els.progressTierTitle) els.progressTierTitle.textContent = 'All 3 Tiers Indexed Successfully';
+        if (els.progressHeartbeatBadge) els.progressHeartbeatBadge.textContent = 'Complete';
+        [1, 2, 3].forEach(step => {
+            const card = els[`stepperTier${step}`];
+            const status = els[`stepperStatus${step}`];
+            if (card && card.dataset.status !== 'error') {
+                card.dataset.status = 'success';
+                card.classList.remove('active');
+                card.classList.add('success');
+            }
+            if (status && status.textContent !== 'Failed') status.textContent = 'Complete';
+        });
+    } else {
+        if (els.progressTierTitle) els.progressTierTitle.textContent = 'Indexing Stopped';
+        if (els.progressHeartbeatBadge) els.progressHeartbeatBadge.textContent = 'Stopped';
+    }
 
     els.terminalOutput.textContent += `\n[CKC Engine] ${msg}\n`;
     els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;

@@ -233,9 +233,19 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
         </div>
-        <div class="popover-body custom-scroll">
             <div class="layers-section">
-                <h5>Entity Filter</h5>
+                <h5>Noise Reduction</h5>
+                <label class="checkbox-row" id="hide-vendor-label">
+                    <input type="checkbox" id="filter-hide-vendor" checked>
+                    <span class="checkbox-box"></span>
+                    <span class="checkbox-text">
+                        <strong>Hide Vendor & Generated Files</strong>
+                        <small>Exclude node_modules, vendor/, dist/, storage/, minified bundles</small>
+                    </span>
+                </label>
+            </div>
+            <div class="layers-section">
+                <h5>Entity Category</h5>
                 <div class="filter-grid">
                     <label class="filter-card">
                         <input type="checkbox" id="filter-code" checked>
@@ -260,6 +270,31 @@
                         <span class="chip-shape shape-test"></span>
                         <span class="filter-name">Tests</span>
                         <span class="filter-count" id="count-test">0</span>
+                    </label>
+                </div>
+            </div>
+            <div class="layers-section">
+                <h5>Relationship Flow</h5>
+                <div class="filter-grid filter-grid-rel">
+                    <label class="filter-card rel-card">
+                        <input type="checkbox" id="filter-rel-calls" checked>
+                        <span class="rel-dot rel-calls"></span>
+                        <span class="filter-name">Calls</span>
+                    </label>
+                    <label class="filter-card rel-card">
+                        <input type="checkbox" id="filter-rel-imports" checked>
+                        <span class="rel-dot rel-imports"></span>
+                        <span class="filter-name">Imports</span>
+                    </label>
+                    <label class="filter-card rel-card">
+                        <input type="checkbox" id="filter-rel-defines" checked>
+                        <span class="rel-dot rel-defines"></span>
+                        <span class="filter-name">Defines</span>
+                    </label>
+                    <label class="filter-card rel-card">
+                        <input type="checkbox" id="filter-rel-inherits" checked>
+                        <span class="rel-dot rel-inherits"></span>
+                        <span class="filter-name">Inherits</span>
                     </label>
                 </div>
             </div>
@@ -369,6 +404,11 @@
 
         <!-- Floating Minimalist HUD Controls Dock (Bottom-Right) -->
         <div class="canvas-hud-dock">
+            <div class="layout-mode-group" id="graph-layout-modes" role="group" aria-label="Graph Layout Mode">
+                <button type="button" id="mode-3d-btn" class="layout-mode-btn active" data-mode="3d" title="3D Spatial Force Graph">3D</button>
+                <button type="button" id="mode-2d-btn" class="layout-mode-btn" data-mode="2d" title="2D Planar Map">2D</button>
+                <button type="button" id="mode-dag-btn" class="layout-mode-btn" data-mode="dag" title="Hierarchical Top-Down DAG">DAG</button>
+            </div>
             <button id="clear-overlays-btn" class="hud-btn hidden" title="Clear Path & Impact Overlays">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -436,7 +476,15 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <span class="metric-num" id="node-degree">0</span>
-                    <span class="metric-name">Direct Connections</span>
+                    <span class="metric-name">Total Degree</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-num" id="node-in-degree">0</span>
+                    <span class="metric-name">Inbound Callers</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-num" id="node-out-degree">0</span>
+                    <span class="metric-name">Outbound Deps</span>
                 </div>
                 <div class="metric-card">
                     <span class="metric-num" id="node-community">0</span>
@@ -444,20 +492,51 @@
                 </div>
             </div>
 
-            <!-- Source Location with Copy Path Action -->
+            <!-- Quick Action Buttons -->
+            <div class="node-quick-actions">
+                <button type="button" id="action-focus-node" class="btn btn-secondary btn-sm" title="Center camera on symbol">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+                    <span>Focus</span>
+                </button>
+                <button type="button" id="action-trace-from" class="btn btn-secondary btn-sm" title="Trace execution flow from this symbol">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line></svg>
+                    <span>Trace From Here</span>
+                </button>
+                <button type="button" id="action-impact-from" class="btn btn-action-danger btn-sm" title="Analyze impact / blast radius">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                    <span>Blast Radius</span>
+                </button>
+            </div>
+
+            <!-- Source Location with Preview & Copy Actions -->
             <div class="inspector-section">
                 <div class="section-label-row">
                     <span class="section-label">Source File & Location</span>
-                    <button id="copy-source-path-btn" class="btn-link-action" title="Copy Source File Path">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                        </svg>
-                        <span>Copy Path</span>
-                    </button>
+                    <div class="source-action-group">
+                        <button type="button" id="btn-preview-source" class="btn-link-action" title="Preview source code">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                            <span>Preview</span>
+                        </button>
+                        <button type="button" id="copy-source-path-btn" class="btn-link-action" title="Copy Source File Path">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            <span>Copy Path</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="source-box">
                     <code id="node-source">—</code>
+                </div>
+                <!-- Inline Source Preview Drawer -->
+                <div id="source-preview-container" class="source-preview-container hidden">
+                    <div class="source-preview-header">
+                        <span id="source-preview-file" class="source-file-badge">file</span>
+                        <span id="source-preview-lang" class="source-lang-badge">lang</span>
+                        <button type="button" id="close-source-preview-btn" class="btn-preview-close" aria-label="Close Preview">✕</button>
+                    </div>
+                    <div id="source-preview-code" class="source-preview-code custom-scroll"></div>
                 </div>
             </div>
 
@@ -536,6 +615,48 @@
         </div>
         <div class="drawer-content">
             <div class="tab-pane active" id="pane-terminal">
+                <!-- Indexing Multi-Stage Progress Dashboard -->
+                <div id="indexing-progress-dashboard" class="indexing-progress-dashboard hidden">
+                    <div class="progress-meta-row">
+                        <div class="progress-tier-badge">
+                            <span class="pulse-dot" id="progress-pulse"></span>
+                            <span class="progress-tier-title" id="progress-current-tier-title">3-Tier Indexing Engine</span>
+                        </div>
+                        <div class="progress-metrics">
+                            <span id="progress-elapsed-timer" class="progress-timer" title="Elapsed Time">00:00</span>
+                            <span id="progress-heartbeat-badge" class="progress-heartbeat" title="Activity Status">Active (just now)</span>
+                        </div>
+                    </div>
+                    <div class="progress-bar-track">
+                        <div id="indexing-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="stepper-cards-grid">
+                        <div class="stepper-card" id="stepper-tier-1" data-status="pending">
+                            <div class="stepper-icon"><span class="step-num">1</span></div>
+                            <div class="stepper-info">
+                                <div class="stepper-title">Tier 1: Graphify</div>
+                                <div class="stepper-desc">Architecture & AST</div>
+                            </div>
+                            <span class="stepper-status-badge" id="stepper-status-1">Queued</span>
+                        </div>
+                        <div class="stepper-card" id="stepper-tier-2" data-status="pending">
+                            <div class="stepper-icon"><span class="step-num">2</span></div>
+                            <div class="stepper-info">
+                                <div class="stepper-title">Tier 2: GitNexus</div>
+                                <div class="stepper-desc">Tree-sitter Flow</div>
+                            </div>
+                            <span class="stepper-status-badge" id="stepper-status-2">Queued</span>
+                        </div>
+                        <div class="stepper-card" id="stepper-tier-3" data-status="pending">
+                            <div class="stepper-icon"><span class="step-num">3</span></div>
+                            <div class="stepper-info">
+                                <div class="stepper-title">Tier 3: CodeGraph</div>
+                                <div class="stepper-desc">Symbols & Impact</div>
+                            </div>
+                            <span class="stepper-status-badge" id="stepper-status-3">Queued</span>
+                        </div>
+                    </div>
+                </div>
                 <pre id="terminal-output" class="custom-scroll"></pre>
             </div>
             <div class="tab-pane" id="pane-results">

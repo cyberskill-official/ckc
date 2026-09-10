@@ -269,6 +269,52 @@ class TestWebUIApi(unittest.TestCase):
         self.assertIn("CKC", res.text)
         self.assertIn("cy", res.text)  # Cytoscape graph container
 
+    def test_graph_enriched_attributes(self):
+        res = self.client.get(f"/api/graph?project={self.test_repo}")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        nodes = data["elements"]["nodes"]
+        self.assertGreater(len(nodes), 0)
+        sample = nodes[0]["data"]
+        self.assertIn("kind", sample)
+        self.assertIn("is_vendor", sample)
+        self.assertIn("in_degree", sample)
+        self.assertIn("out_degree", sample)
+        self.assertIsInstance(sample["is_vendor"], bool)
+        self.assertIsInstance(sample["in_degree"], int)
+        self.assertIsInstance(sample["out_degree"], int)
+
+    def test_source_snippet_success(self):
+        res = self.client.get(
+            f"/api/source?project={self.test_repo}&file=src/auth.py&line=10&window=5"
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["file"], "src/auth.py")
+        self.assertEqual(data["language"], "python")
+        self.assertIn("lines", data)
+        self.assertEqual(data["highlight_line"], 10)
+        self.assertGreater(len(data["lines"]), 0)
+        self.assertEqual(data["lines"][0]["line_num"], data["start_line"])
+
+    def test_source_snippet_string_line_syntax(self):
+        res = self.client.get(
+            f"/api/source?project={self.test_repo}&file=src/auth.py&line=L10&window=5"
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["highlight_line"], 10)
+
+    def test_source_snippet_path_traversal_blocked(self):
+        res = self.client.get(f"/api/source?project={self.test_repo}&file=../../etc/passwd")
+        self.assertIn(res.status_code, (400, 403))
+
+    def test_source_snippet_not_found(self):
+        res = self.client.get(
+            f"/api/source?project={self.test_repo}&file=app/nonexistent_file_xyz.py"
+        )
+        self.assertEqual(res.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

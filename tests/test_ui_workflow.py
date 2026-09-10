@@ -138,6 +138,67 @@ class TestUIWorkflowIntegration(unittest.TestCase):
             self.assertIn("is_indexed", item)
             self.assertIsInstance(item["is_indexed"], bool)
 
+    def test_graph_workflows_and_indexing_dashboard_contracts(self):
+        """Verify HTML and CSS contain contracts for layout modes, filters, and dashboard."""
+        res_html = self.client.get("/")
+        self.assertEqual(res_html.status_code, 200)
+        html = res_html.text
+
+        # Layout modes & fallback contracts
+        self.assertIn("graph-layout-modes", html)
+        self.assertIn("mode-3d-btn", html)
+        self.assertIn("mode-2d-btn", html)
+        self.assertIn("mode-dag-btn", html)
+
+        # Noise reduction & relationship flow filters
+        self.assertIn("filter-hide-vendor", html)
+        self.assertIn("filter-rel-calls", html)
+        self.assertIn("filter-rel-imports", html)
+        self.assertIn("filter-rel-defines", html)
+        self.assertIn("filter-rel-inherits", html)
+
+        # Context panel metrics, quick actions & source preview drawer
+        self.assertIn("node-in-degree", html)
+        self.assertIn("node-out-degree", html)
+        self.assertIn("action-focus-node", html)
+        self.assertIn("action-trace-from", html)
+        self.assertIn("action-impact-from", html)
+        self.assertIn("btn-preview-source", html)
+        self.assertIn("source-preview-container", html)
+        self.assertIn("source-preview-code", html)
+
+        # Multi-stage indexing progress dashboard & heartbeat
+        self.assertIn("indexing-progress-dashboard", html)
+        self.assertIn("progress-current-tier-title", html)
+        self.assertIn("progress-elapsed-timer", html)
+        self.assertIn("progress-heartbeat-badge", html)
+        self.assertIn("indexing-progress-bar", html)
+        self.assertIn("stepper-tier-1", html)
+        self.assertIn("stepper-tier-2", html)
+        self.assertIn("stepper-tier-3", html)
+
+        res_css = self.client.get("/styles.css")
+        self.assertEqual(res_css.status_code, 200)
+        css = res_css.text
+        self.assertIn(".indexing-progress-dashboard", css)
+        self.assertIn(".layout-mode-btn", css)
+        self.assertIn(".source-preview-container", css)
+        self.assertIn(".source-line.highlight", css)
+
+    def test_source_preview_workflow(self):
+        """Verify /api/source retrieves snippet around target line."""
+        res = self.client.get(
+            f"/api/source?project={self.test_repo}&file=src/api.py&line=5&window=10"
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["file"], "src/api.py")
+        self.assertEqual(data["language"], "python")
+        self.assertEqual(data["highlight_line"], 5)
+        self.assertIsInstance(data["lines"], list)
+        self.assertTrue(len(data["lines"]) > 0)
+        self.assertEqual(data["lines"][0]["line_num"], data["start_line"])
+
 
 if __name__ == "__main__":
     unittest.main()

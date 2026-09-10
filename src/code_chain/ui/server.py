@@ -13,6 +13,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -844,6 +845,8 @@ async def stream_indexing(request: Request):
 
                 try:
                     step_env = graphify_env if engine == "graphify" else None
+                    step_start_time = time.monotonic()
+                    last_output_time = time.monotonic()
                     proc = await asyncio.create_subprocess_exec(
                         *cmd,
                         cwd=str(resolved),
@@ -894,11 +897,26 @@ async def stream_indexing(request: Request):
                         except TimeoutError:
                             if proc.returncode is not None:
                                 break
-                            # No output yet; re-check cancel / deadline
+                            # Emit periodic heartbeat if subprocess is silent
+                            if time.monotonic() - last_output_time >= 3.0:
+                                elapsed_sec = round(time.monotonic() - step_start_time, 1)
+                                yield json.dumps(
+                                    {
+                                        "event": "heartbeat",
+                                        "step": step_idx,
+                                        "engine": engine,
+                                        "elapsed_seconds": elapsed_sec,
+                                        "message": (
+                                            f"[{engine}] Analysis active ({elapsed_sec}s)..."
+                                        ),
+                                    }
+                                )
+                                last_output_time = time.monotonic()
                             continue
 
                         if not line_bytes:
                             break
+                        last_output_time = time.monotonic()
                         clean_line = line_bytes.decode("utf-8", errors="replace").rstrip()
                         yield json.dumps(
                             {
@@ -1166,6 +1184,26 @@ def _subsample_graph_nodes(
     return kept, kept_links, True
 
 
+_VENDOR_PATTERNS: tuple[str, ...] = (
+    "node_modules/",
+    "vendor/",
+    "storage/",
+    "dist/",
+    "build/",
+    "site-packages/",
+    "__pycache__/",
+    ".min.js",
+    ".min.css",
+    "package-lock.json",
+    "composer.lock",
+)
+
+
+def _is_vendor_path(path: str) -> bool:
+    norm = path.replace("\\", "/").lower()
+    return any(p in norm for p in _VENDOR_PATTERNS)
+
+
 def _build_cytoscape_graph(resolved: Path, graph_file: Path) -> tuple[dict[str, Any], float, int]:
     """Read/transform graph.json off the event loop. Returns (payload, mtime, size)."""
     st = graph_file.stat()
@@ -1192,13 +1230,17 @@ def _build_cytoscape_graph(resolved: Path, graph_file: Path) -> tuple[dict[str, 
         raw_nodes, raw_links, cap=_GRAPH_SUBSAMPLE_NODE_CAP
     )
 
-    # Compute degree per node (post-subsample)
+    # Compute degree, in-degree, and out-degree per node
     degree_map: dict[str, int] = {}
+    in_degree_map: dict[str, int] = {}
+    out_degree_map: dict[str, int] = {}
     for link in raw_links:
         src = link.get("source", "")
         tgt = link.get("target", "")
         degree_map[src] = degree_map.get(src, 0) + 1
         degree_map[tgt] = degree_map.get(tgt, 0) + 1
+        out_degree_map[src] = out_degree_map.get(src, 0) + 1
+        in_degree_map[tgt] = in_degree_map.get(tgt, 0) + 1
 
     # Build community metadata
     community_members: dict[int, list[str]] = {}
@@ -1230,19 +1272,38 @@ def _build_cytoscape_graph(resolved: Path, graph_file: Path) -> tuple[dict[str, 
         else:
             category = "code"
 
+        is_class = bool(node.get("_callable_class") or node.get("is_class"))
+        is_callable = bool(node.get("_callable") or node.get("is_callable"))
+        if is_class:
+            kind = "class"
+        elif is_callable:
+            kind = "callable"
+        elif category == "doc":
+            kind = "doc"
+        elif category == "schema":
+            kind = "schema"
+        elif category == "test":
+            kind = "test"
+        else:
+            kind = "module"
+
         cy_nodes.append(
             {
                 "data": {
                     "id": nid,
                     "label": label,
                     "category": category,
+                    "kind": kind,
                     "file_type": file_type,
                     "community": node.get("community"),
                     "source_file": source_file,
                     "source_location": node.get("source_location"),
                     "degree": degree_map.get(nid, 0),
-                    "is_callable": bool(node.get("_callable")),
-                    "is_class": bool(node.get("_callable_class")),
+                    "in_degree": in_degree_map.get(nid, 0),
+                    "out_degree": out_degree_map.get(nid, 0),
+                    "is_callable": is_callable,
+                    "is_class": is_class,
+                    "is_vendor": _is_vendor_path(source_file),
                 }
             }
         )
@@ -1415,6 +1476,93 @@ def get_artifact_content(
             status_code=500,
             detail=_public_error_detail(e, public="Error reading artifact."),
         ) from e
+
+
+_SOURCE_EXT_LANG_MAP: dict[str, str] = {
+    ".py": "python",
+    ".php": "php",
+    ".vue": "vue",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".js": "javascript",
+    ".jsx": "jsx",
+    ".json": "json",
+    ".sql": "sql",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".md": "markdown",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".html": "html",
+    ".css": "css",
+}
+
+
+@app.get("/api/source")
+def get_source_snippet(
+    project: str = Query(..., description="Absolute path to target project"),
+    file: str = Query(..., description="Relative or absolute path to source file"),
+    line: str | None = Query(
+        None, description="1-based line number or range to highlight (e.g. 11, L11, L11-L25)"
+    ),
+    window: int = Query(25, description="Number of lines before and after", ge=5, le=100),
+):
+    """Securely fetches a source code window around a given line for symbol inspection."""
+    resolved_proj = validate_project_path(project)
+
+    clean_file = file.strip().lstrip("/")
+    if ".." in clean_file:
+        raise HTTPException(status_code=400, detail="Path traversal not permitted.")
+
+    target_file = (resolved_proj / clean_file).resolve()
+    if not target_file.is_relative_to(resolved_proj):
+        raise HTTPException(status_code=403, detail="File path escapes project directory.")
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail="Source file not found.")
+
+    if target_file.stat().st_size > 2 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File exceeds 2MB limit for preview.")
+
+    try:
+        content = target_file.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading file: {e}") from e
+
+    raw_lines = content.splitlines()
+    total_lines = len(raw_lines)
+
+    parsed_line: int | None = None
+    if line is not None:
+        cleaned = re.sub(r"^[Ll:\s]+", "", str(line).strip())
+        match = re.match(r"(\d+)", cleaned)
+        if match:
+            parsed_line = max(1, int(match.group(1)))
+
+    if parsed_line is None:
+        start_line = 1
+        end_line = min(total_lines, window * 2)
+        highlight_line = None
+    else:
+        start_line = max(1, parsed_line - window)
+        end_line = min(total_lines, parsed_line + window)
+        highlight_line = min(parsed_line, total_lines) if total_lines > 0 else None
+
+    sliced_lines = [
+        {"line_num": idx, "code": raw_lines[idx - 1]} for idx in range(start_line, end_line + 1)
+    ]
+
+    ext = target_file.suffix.lower()
+    language = _SOURCE_EXT_LANG_MAP.get(ext, "text")
+
+    return {
+        "file": str(target_file.relative_to(resolved_proj)),
+        "language": language,
+        "total_lines": total_lines,
+        "start_line": start_line,
+        "end_line": end_line,
+        "highlight_line": highlight_line,
+        "lines": sliced_lines,
+    }
 
 
 # Mount static assets

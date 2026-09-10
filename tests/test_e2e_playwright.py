@@ -397,3 +397,63 @@ class TestResponsive:
                 expect(btn_text.nth(i)).not_to_be_visible()
         page.close()
         context.close()
+
+
+class TestGraphWorkflowsAndLayouts:
+    """Verify layout switcher, noise filters, and indexing dashboard DOM presence."""
+
+    def test_layout_mode_switcher(self, page: Page):
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+
+        btn_2d = page.locator("#mode-2d-btn")
+        btn_3d = page.locator("#mode-3d-btn")
+        btn_dag = page.locator("#mode-dag-btn")
+
+        expect(btn_3d).to_be_visible()
+        expect(btn_2d).to_be_visible()
+        expect(btn_dag).to_be_visible()
+
+        # Switch to 2D
+        btn_2d.click()
+        expect(btn_2d).to_have_class(re.compile(r"active"))
+        expect(btn_3d).not_to_have_class(re.compile(r"active"))
+        mode = page.evaluate("window.state ? window.state.layoutMode : null")
+        assert mode == "2d"
+
+        # Switch to DAG
+        btn_dag.click()
+        expect(btn_dag).to_have_class(re.compile(r"active"))
+        expect(btn_2d).not_to_have_class(re.compile(r"active"))
+        mode = page.evaluate("window.state ? window.state.layoutMode : null")
+        assert mode == "dag"
+
+        # Switch back to 3D
+        btn_3d.click()
+        expect(btn_3d).to_have_class(re.compile(r"active"))
+        mode = page.evaluate("window.state ? window.state.layoutMode : null")
+        assert mode == "3d"
+
+    def test_noise_reduction_and_rel_filters(self, page: Page):
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+
+        page.locator("#layers-toggle-btn").click()
+        vendor_filter = page.locator("#filter-hide-vendor")
+        expect(vendor_filter).to_be_visible()
+        expect(vendor_filter).to_be_checked()
+
+        for rel in ["calls", "imports", "defines", "inherits"]:
+            cb = page.locator(f"#filter-rel-{rel}")
+            expect(cb).to_be_visible()
+            expect(cb).to_be_checked()
+
+    def test_indexing_dashboard_elements_exist(self, page: Page):
+        dashboard = page.locator("#indexing-progress-dashboard")
+        expect(dashboard).to_have_count(1)
+        expect(page.locator("#progress-current-tier-title")).to_have_count(1)
+        expect(page.locator("#progress-elapsed-timer")).to_have_count(1)
+        expect(page.locator("#progress-heartbeat-badge")).to_have_count(1)
+        expect(page.locator("#indexing-progress-bar")).to_have_count(1)
+        for i in range(1, 4):
+            expect(page.locator(f"#stepper-tier-{i}")).to_have_count(1)
