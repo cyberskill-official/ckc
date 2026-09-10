@@ -37,7 +37,14 @@ from code_chain.adapters.graphify_adapter import classify_entity_type
 from code_chain.core.config import ChainConfig
 from code_chain.core.docs_index import index_docs_overlay, local_docs_count
 from code_chain.core.env import load_dotenv
-from code_chain.core.llm import llm_public_status, resolve_llm_config
+from code_chain.core.llm import (
+    LlmUrlDeniedError,
+    disable_llm_config,
+    get_llm_status,
+    llm_public_status,
+    resolve_llm_config,
+    set_llm_config,
+)
 from code_chain.core.orchestrator import CodeKnowledgeChain
 from code_chain.core.paths import (
     UnsafeProjectPathError,
@@ -515,6 +522,13 @@ class BrowsePayload(BaseModel):
     path: str | None = Field(default=None, description="Directory to list; defaults to home")
 
 
+class LlmConfigPayload(BaseModel):
+    provider: str = Field(default="lm-studio", description="Provider identifier")
+    base_url: str = Field(default="http://127.0.0.1:1234/v1", description="OpenAI-compatible URL")
+    api_key: str | None = Field(default=None, description="Optional API key")
+    model: str | None = Field(default=None, description="Optional model identifier")
+
+
 class QueryPayload(BaseModel):
     project_path: str
     query: str = Field(..., min_length=1)
@@ -571,16 +585,26 @@ def health(ready: bool = Query(False, description="When true, check engine CLIs 
 @app.post("/api/browse")
 def browse_directory(payload: BrowsePayload) -> dict[str, Any]:
     """Lists subdirectories at *path* for the folder-browser UI."""
-    start = Path(payload.path).resolve() if payload.path else Path.home()
-    if not start.is_dir():
-        start = start.parent if start.parent.is_dir() else Path.home()
+    try:
+        start = Path(payload.path).resolve() if payload.path else Path.home()
+        if not start.is_dir():
+            start = start.parent if start.parent.is_dir() else Path.home()
+    except Exception:
+        start = Path.home()
 
     entries: list[dict[str, Any]] = []
     try:
         for item in sorted(start.iterdir()):
             if item.is_dir() and not item.name.startswith("."):
-                entries.append({"name": item.name, "type": "dir"})
-    except PermissionError:
+                is_indexed = (item / "graphify-out" / "graph.json").exists()
+                entries.append(
+                    {
+                        "name": item.name,
+                        "type": "dir",
+                        "is_indexed": is_indexed,
+                    }
+                )
+    except (PermissionError, OSError):
         pass
 
     parent = str(start.parent) if start != start.parent else None
@@ -589,6 +613,32 @@ def browse_directory(payload: BrowsePayload) -> dict[str, Any]:
         "parent": parent,
         "entries": entries,
     }
+
+
+@app.get("/api/llm/status")
+def get_llm_status_endpoint() -> dict[str, Any]:
+    """Returns provider status, connectivity, and detected models for BYOK UI."""
+    return get_llm_status()
+
+
+@app.post("/api/llm/config")
+def set_llm_config_endpoint(payload: LlmConfigPayload) -> dict[str, Any]:
+    """Updates runtime LLM provider settings with SSRF validation."""
+    try:
+        return set_llm_config(
+            provider=payload.provider,
+            base_url=payload.base_url,
+            api_key=payload.api_key,
+            model=payload.model,
+        )
+    except LlmUrlDeniedError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/llm/disable")
+def disable_llm_config_endpoint() -> dict[str, Any]:
+    """Disables LLM synthesis in runtime environment."""
+    return disable_llm_config()
 
 
 @app.get("/api/status")

@@ -72,6 +72,65 @@ class TestWebUIApi(unittest.TestCase):
         data = res.json()
         self.assertTrue(len(data["current"]) > 0)
 
+    def test_browse_marks_indexed_dirs(self):
+        """POST /api/browse should mark is_indexed=True when graphify-out/graph.json exists."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            indexed_dir = os.path.join(tmp, "indexed_repo")
+            plain_dir = os.path.join(tmp, "plain_repo")
+            os.makedirs(os.path.join(indexed_dir, "graphify-out"))
+            with open(os.path.join(indexed_dir, "graphify-out", "graph.json"), "w") as f:
+                f.write("{}")
+            os.makedirs(plain_dir)
+
+            res = self.client.post("/api/browse", json={"path": tmp})
+            self.assertEqual(res.status_code, 200)
+            entries = {e["name"]: e for e in res.json()["entries"]}
+            self.assertTrue(entries["indexed_repo"]["is_indexed"])
+            self.assertFalse(entries["plain_repo"]["is_indexed"])
+
+    def test_llm_status_endpoint(self):
+        """GET /api/llm/status should return status structure."""
+        res = self.client.get("/api/llm/status")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("provider", data)
+        self.assertIn("base_url", data)
+        self.assertIn("connected", data)
+        self.assertIn("available_models", data)
+
+    def test_llm_config_endpoint_ssrf_protection(self):
+        """POST /api/llm/config should reject denied SSRF addresses with 400."""
+        res = self.client.post(
+            "/api/llm/config",
+            json={
+                "provider": "custom",
+                "base_url": "http://169.254.169.254/v1",
+            },
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("detail", res.json())
+
+    def test_llm_config_endpoint_valid_and_disable(self):
+        """POST /api/llm/config should accept valid loopback URL, and disable resets."""
+        res = self.client.post(
+            "/api/llm/config",
+            json={
+                "provider": "lm-studio",
+                "base_url": "http://127.0.0.1:1234/v1",
+                "model": "test-model",
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["provider"], "lm-studio")
+        self.assertEqual(data["base_url"], "http://127.0.0.1:1234/v1")
+
+        disable_res = self.client.post("/api/llm/disable")
+        self.assertEqual(disable_res.status_code, 200)
+        self.assertFalse(disable_res.json()["configured"])
+
     def test_cors_loopback_default(self):
         from code_chain.ui.server import is_loopback_host, resolve_cors_origins
 

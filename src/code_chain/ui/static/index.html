@@ -147,6 +147,12 @@
                 <span>Index</span>
             </button>
 
+            <!-- BYOK AI Provider Status Button -->
+            <button id="header-ai-btn" class="btn btn-secondary ai-status-btn" title="AI Model Provider Settings (BYOK)" aria-label="AI Model Provider Settings">
+                <span class="ai-status-dot" id="header-ai-dot"></span>
+                <span id="header-ai-label">LM Studio</span>
+            </button>
+
             <!-- Help / Guided Tour -->
             <button id="help-tour-btn" class="btn btn-secondary" title="Guided Tour (?)" aria-label="Start guided tour">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -193,13 +199,22 @@
             <div class="popover-footer">
                 <div class="popover-badges">
                     <span id="docs-chip" class="badge-chip" title="Indexed Documentation Files">Docs: —</span>
-                    <span id="llm-chip" class="badge-chip" title="LLM Synthesis Model">LLM: Off</span>
+                    <button type="button" id="llm-chip" class="badge-chip badge-chip-interactive" title="Configure AI Model Provider (BYOK)">LLM: LM Studio</button>
                 </div>
                 <button id="load-btn" class="btn btn-primary">
                     <svg class="btn-spinner hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>
                     <svg class="btn-icon-load" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                     <span>Load Project</span>
                 </button>
+            </div>
+            <div class="recent-projects-section" id="recent-projects-section">
+                <div class="recent-projects-header">
+                    <h5>Recent Repositories</h5>
+                    <button type="button" class="btn-clear-recent" id="clear-recent-projects-btn" title="Clear recent list">Clear</button>
+                </div>
+                <div class="recent-projects-list custom-scroll" id="recent-projects-list">
+                    <span class="empty-recent-text">No recent repositories</span>
+                </div>
             </div>
             <div class="popover-history">
                 <h5>Recent Operations</h5>
@@ -267,32 +282,47 @@
             </button>
         </div>
         <div class="popover-body">
-            <p class="popover-desc">Extracts multi-modal architecture, AST execution flows, and symbol dependencies across all 3 engine tiers.</p>
+            <div class="engine-core-banner">
+                <div class="engine-core-badge">
+                    <span class="pulse-dot"></span>
+                    <strong>Core AST Intelligence (Always On · Local)</strong>
+                </div>
+                <p class="engine-core-desc">
+                    Graphify AST, GitNexus flows, and CodeGraph symbol graphs are built 100% locally with 0 external API calls.
+                </p>
+            </div>
+            <p class="popover-desc">Optional enhancements and cache options:</p>
             <div class="options-group">
-                <label class="checkbox-row">
+                <label class="checkbox-row" id="force-index-label">
                     <input type="checkbox" id="force-index">
                     <span class="checkbox-box"></span>
                     <span class="checkbox-text">
                         <strong>Force Re-index</strong>
-                        <small>Purge existing cache and regenerate from scratch</small>
+                        <small>Purge existing cache and regenerate knowledge graphs from scratch (Default: off)</small>
                     </span>
                 </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="multimodal-index">
-                    <span class="checkbox-box"></span>
-                    <span class="checkbox-text">
-                        <strong>Multimodal Extraction</strong>
-                        <small>Index documentation, diagrams, and architecture papers</small>
-                    </span>
-                </label>
-                <label class="checkbox-row">
+                <label class="checkbox-row" id="use-llm-label">
                     <input type="checkbox" id="use-llm" checked>
                     <span class="checkbox-box"></span>
                     <span class="checkbox-text">
                         <strong>LLM Synthesis</strong>
-                        <small>Use local LM Studio or cloud LLM for semantic summaries</small>
+                        <small id="use-llm-desc">Use LM Studio (or BYOK provider) for module summaries (Default: on)</small>
                     </span>
                 </label>
+                <label class="checkbox-row" id="multimodal-label">
+                    <input type="checkbox" id="multimodal-index">
+                    <span class="checkbox-box"></span>
+                    <span class="checkbox-text">
+                        <strong>Multimodal Extraction</strong>
+                        <small>Extract diagrams, docs, and architecture papers (Requires LLM; Default: off)</small>
+                    </span>
+                </label>
+                <div id="llm-dep-warning" class="dep-warning-note hidden">
+                    <span>⚠️ Multimodal extraction requires LLM Synthesis. Enable LLM Synthesis above to activate.</span>
+                </div>
+                <div class="byok-quick-link-row">
+                    <button type="button" class="btn-text-action" id="open-byok-from-index-btn">⚙️ Configure AI Provider (BYOK)</button>
+                </div>
                 <p id="ai-disclosure" class="popover-desc ai-disclosure" hidden>
                     AI synthesis on: prompts leave this host for the configured LLM endpoint.
                     Results are marked as AI-generated.
@@ -525,6 +555,16 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
         </div>
+        <div class="browser-quick-bar">
+            <button type="button" class="quick-nav-pill" id="browser-quick-home" title="Go to Home Directory">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+                <span>Home</span>
+            </button>
+            <button type="button" class="quick-nav-pill" id="browser-quick-root" title="Go to Root Directory">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <span>Root (/)</span>
+            </button>
+        </div>
         <nav class="browser-breadcrumbs" id="browser-breadcrumbs"></nav>
         <div class="browser-list custom-scroll" id="browser-list"></div>
         <div class="browser-footer">
@@ -532,6 +572,105 @@
             <div class="browser-actions">
                 <button type="button" class="btn btn-secondary" id="browser-cancel-btn">Cancel</button>
                 <button type="button" class="btn btn-primary" id="browser-select-btn">Select This Folder</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- BYOK Provider Configuration Dialog -->
+    <dialog id="byok-dialog" class="byok-dialog">
+        <div class="byok-header">
+            <div class="byok-title-group">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+                <h4>Bring Your Own Key (BYOK) · Model Provider</h4>
+            </div>
+            <button type="button" class="popover-close-btn" id="byok-close-btn" aria-label="Close">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+
+        <div class="byok-body custom-scroll">
+            <div class="byok-status-card" id="byok-status-card">
+                <div class="byok-status-icon" id="byok-status-icon">
+                    <span class="status-indicator status-probing"></span>
+                </div>
+                <div class="byok-status-info">
+                    <div class="byok-status-headline" id="byok-status-headline">Detecting Provider...</div>
+                    <div class="byok-status-sub" id="byok-status-sub">Probing local LM Studio server...</div>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="byok-retry-btn">
+                    <svg class="btn-spinner hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle></svg>
+                    <span>Retry</span>
+                </button>
+            </div>
+
+            <!-- Provider Presets -->
+            <div class="form-group">
+                <label>Provider Preset</label>
+                <div class="provider-pill-grid">
+                    <button type="button" class="provider-pill active" data-provider="lm-studio">
+                        <strong>LM Studio</strong>
+                        <small>Local (Default)</small>
+                    </button>
+                    <button type="button" class="provider-pill" data-provider="ollama">
+                        <strong>Ollama</strong>
+                        <small>Local</small>
+                    </button>
+                    <button type="button" class="provider-pill" data-provider="openai">
+                        <strong>OpenAI</strong>
+                        <small>Cloud API</small>
+                    </button>
+                    <button type="button" class="provider-pill" data-provider="custom">
+                        <strong>Custom</strong>
+                        <small>OpenAI-Compatible</small>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Base URL -->
+            <div class="form-group">
+                <label for="byok-base-url">Base URL</label>
+                <input type="url" id="byok-base-url" class="text-input" placeholder="http://127.0.0.1:1234/v1" />
+                <small class="field-help">OpenAI-compatible /v1 endpoint (loopback or allowed domain).</small>
+            </div>
+
+            <!-- Model Selection -->
+            <div class="form-group">
+                <label for="byok-model-select">Active Model</label>
+                <select id="byok-model-select" class="select-input">
+                    <option value="">(Detecting available models...)</option>
+                </select>
+                <input type="text" id="byok-model-custom" class="text-input hidden" placeholder="e.g. local-model" style="margin-top:6px;" />
+            </div>
+
+            <!-- API Key -->
+            <div class="form-group" id="byok-api-key-group">
+                <label for="byok-api-key">API Key <span class="text-subtle">(Optional for local LM Studio / Ollama)</span></label>
+                <div class="password-input-row">
+                    <input type="password" id="byok-api-key" class="text-input" placeholder="lm-studio" autocomplete="off" />
+                    <button type="button" class="btn btn-secondary btn-sm" id="byok-toggle-key" title="Toggle visibility">👁</button>
+                </div>
+            </div>
+
+            <!-- LM Studio Quick Setup Guide (visible when LM Studio offline) -->
+            <div class="lmstudio-guide-card" id="lmstudio-guide-card">
+                <h5>LM Studio Quick Setup</h5>
+                <ol class="lmstudio-steps">
+                    <li>Launch <strong>LM Studio</strong> on your computer.</li>
+                    <li>Download or load any model (e.g., <em>Qwen 2.5</em>, <em>Llama 3</em>, or <em>Mistral</em>).</li>
+                    <li>Open the <strong>Developer / Local Server</strong> tab and click <strong>Start Server</strong> on port <code>1234</code>.</li>
+                    <li>Click <strong>Retry</strong> above to link with CKC.</li>
+                </ol>
+            </div>
+        </div>
+
+        <div class="byok-footer">
+            <button type="button" class="btn btn-secondary" id="byok-skip-btn">Continue without LLM</button>
+            <div class="byok-actions">
+                <button type="button" class="btn btn-secondary" id="byok-cancel-btn">Cancel</button>
+                <button type="button" class="btn btn-primary" id="byok-save-btn">Test & Save</button>
             </div>
         </div>
     </dialog>
