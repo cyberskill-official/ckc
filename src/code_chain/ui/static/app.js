@@ -1539,31 +1539,55 @@ function showUnindexedPrompt(projectPath, statusRes) {
     const overlay = document.createElement('div');
     overlay.id = 'unindexed-overlay';
     overlay.className = 'unindexed-overlay';
+    
+    // Updated to a 3-step wizard for Phase 3
     overlay.innerHTML = DOMPurify.sanitize(`
-        <div class="unindexed-card">
-            <div class="unindexed-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <div class="unindexed-wizard-card" style="max-width: 600px; margin: 40px auto; padding: 24px; background: var(--bg-card); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); border: 1px solid var(--border-subtle);">
+            <div style="text-align: center; margin-bottom: 24px;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="margin-bottom: 12px;">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                 </svg>
+                <h2 style="margin:0 0 8px 0; font-size: 20px; color: var(--text-main);" data-i18n="wizard.title">Repository Setup</h2>
+                <p style="margin:0; color: var(--text-secondary); font-size: 14px;" data-i18n="wizard.subtitle">Complete 3 steps to build the knowledge graph</p>
             </div>
-            <h2 class="unindexed-title">Codebase Not Yet Indexed</h2>
-            <div class="unindexed-repo-tag">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                </svg>
-                <span>${escapeHtml(shortName)}</span>
-            </div>
-            <p class="unindexed-desc">
-                This repository has been selected, but its 3-tier knowledge graph has not been built yet. Start indexing to explore architecture, AST execution flows, and symbol dependencies.
-            </p>
-            <div class="unindexed-actions">
-                <button type="button" class="btn btn-primary btn-lg" id="unindexed-start-btn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                    </svg>
-                    <span>Start Indexing</span>
-                </button>
-                <button type="button" class="btn btn-secondary" id="unindexed-change-btn">Select Other Folder</button>
+            
+            <div class="wizard-steps" style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px;">
+                <!-- Step 1 -->
+                <div class="wizard-step" style="display: flex; gap: 16px; align-items: flex-start; padding: 12px; background: var(--bg-hover); border-radius: 8px;">
+                    <div style="width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">1</div>
+                    <div style="flex-grow: 1;">
+                        <h4 style="margin: 0 0 4px 0; color: var(--text-main);">Select Target Repository</h4>
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-family: monospace; color: var(--primary-light); font-size: 13px;">${escapeHtml(shortName)}</span>
+                            <button class="btn btn-secondary btn-sm" id="wizard-change-folder">Change</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Step 2 -->
+                <div class="wizard-step" style="display: flex; gap: 16px; align-items: flex-start; padding: 12px; background: var(--bg-hover); border-radius: 8px;">
+                    <div style="width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">2</div>
+                    <div style="flex-grow: 1;">
+                        <h4 style="margin: 0 0 4px 0; color: var(--text-main);">Configure AI Provider (BYOK)</h4>
+                        <p style="margin: 0 0 8px 0; font-size: 13px; color: var(--text-secondary);">Required for Tier 3 AST intelligence. Local LM Studio is recommended.</p>
+                        <button class="btn btn-secondary btn-sm" id="wizard-config-ai">Open AI Settings</button>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="wizard-step" style="display: flex; gap: 16px; align-items: flex-start; padding: 12px; background: var(--bg-hover); border-radius: 8px; border: 1px solid var(--primary-light);">
+                    <div style="width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">3</div>
+                    <div style="flex-grow: 1;">
+                        <h4 style="margin: 0 0 4px 0; color: var(--text-main);">Run Indexing Pipeline</h4>
+                        <p style="margin: 0 0 8px 0; font-size: 13px; color: var(--text-secondary);">Build the 3-tier graph. This may take a few minutes for large repositories.</p>
+                        <button type="button" class="btn btn-primary btn-lg" id="unindexed-start-btn" style="width: 100%;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                            </svg>
+                            <span>Start Indexing</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     `);
@@ -1574,8 +1598,12 @@ function showUnindexedPrompt(projectPath, statusRes) {
         runIndexing();
     });
 
-    document.getElementById('unindexed-change-btn')?.addEventListener('click', () => {
+    document.getElementById('wizard-change-folder')?.addEventListener('click', () => {
         openFolderBrowser();
+    });
+
+    document.getElementById('wizard-config-ai')?.addEventListener('click', () => {
+        openByokDialog();
     });
 }
 
