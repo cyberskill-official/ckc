@@ -70,18 +70,27 @@ class TestDocsIndex(unittest.TestCase):
             self.assertIn("Real Heading", names)
 
     def test_auth_service_query_surfaces_arch_doc(self):
-        sample = Path(__file__).resolve().parent.parent / "examples" / "python-auth-service"
-        index_docs_overlay(sample, code_only=True, announce=False)
-        adapter = GraphifyAdapter("graphify", sample)
-        hits = adapter.find_cross_domain_entities("AuthService", limit=8)
-        doc_hits = [e for e in hits if e.entity_type == "doc"]
-        self.assertTrue(
-            any("ARCH" in (e.source_path or "") or "Architecture" in e.name for e in doc_hits),
-            (
-                "Expected ARCH.md doc hit, got: "
-                f"{[(e.name, e.source_path, e.entity_type) for e in hits]}"
-            ),
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp)
+            (sample / "docs").mkdir()
+            (sample / "docs" / "ARCH.md").write_text(
+                "# Architecture Document\nAuthentication is handled by AuthService.\n",
+                encoding="utf-8",
+            )
+            (sample / "src").mkdir()
+            (sample / "src" / "auth.py").write_text("class AuthService: pass\n", encoding="utf-8")
+
+            index_docs_overlay(sample, code_only=True, announce=False)
+            adapter = GraphifyAdapter("graphify", sample)
+            hits = adapter.find_cross_domain_entities("AuthService", limit=8)
+            doc_hits = [e for e in hits if e.entity_type == "doc"]
+            self.assertTrue(
+                any("ARCH" in (e.source_path or "") or "Architecture" in e.name for e in doc_hits),
+                (
+                    "Expected ARCH.md doc hit, got: "
+                    f"{[(e.name, e.source_path, e.entity_type) for e in hits]}"
+                ),
+            )
 
 
 if __name__ == "__main__":

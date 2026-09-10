@@ -50,7 +50,10 @@ def get_available_tools() -> list:
             name="chain_status",
             description=(
                 "Check the indexing health and readiness of Graphify, GitNexus, "
-                "and CodeGraph for a project."
+                "and CodeGraph for a project. "
+                "Inputs: project_path. "
+                "Process: Checks index directories and manifests. "
+                "Output: Summary of index status."
             ),
             input_schema={
                 "type": "object",
@@ -69,7 +72,10 @@ def get_available_tools() -> list:
             name="chain_init",
             description=(
                 "Index a repository across all three knowledge graph engines "
-                "(Graphify, GitNexus, CodeGraph)."
+                "(Graphify, GitNexus, CodeGraph). "
+                "Inputs: project path. "
+                "Process: Graphify extract → GitNexus index → CodeGraph index. "
+                "Output: Indexing summary and manifest."
             ),
             input_schema={
                 "type": "object",
@@ -98,8 +104,12 @@ def get_available_tools() -> list:
             name="chain_query",
             description=(
                 "Query the 3-tier chained knowledge graph to understand features, "
-                "architecture, and connections across documentation, AST execution "
-                "flows, and verbatim code blocks."
+                "architecture, and connections. "
+                "Inputs: natural language query. "
+                "Process: Tier 1 (Graphify) → cross-domain entities; "
+                "Tier 2 (GitNexus) → AST execution flows; "
+                "Tier 3 (CodeGraph) → symbol definitions and source snippets. "
+                "Output: stacked markdown with per-tier sections and reading guide."
             ),
             input_schema={
                 "type": "object",
@@ -130,8 +140,10 @@ def get_available_tools() -> list:
         make_tool_definition(
             name="chain_impact",
             description=(
-                "Calculate blast radius and refactoring impact for a symbol: "
-                "returns upstream callers, affected business processes, impacted "
+                "Calculate blast radius and refactoring impact for a symbol. "
+                "Inputs: target symbol. "
+                "Process: CodeGraph lookup → GitNexus upstream trace. "
+                "Output: returns upstream callers, affected business processes, impacted "
                 "tests, and step-by-step refactoring plan."
             ),
             input_schema={
@@ -163,7 +175,10 @@ def get_available_tools() -> list:
             name="chain_trace",
             description=(
                 "Trace the exact directed execution path between two symbols "
-                "across the codebase, complete with hop sequence and diagram."
+                "across the codebase. "
+                "Inputs: source and destination symbols. "
+                "Process: GitNexus path resolution → CodeGraph snippet fetch. "
+                "Output: trace flow complete with hop sequence and diagram."
             ),
             input_schema={
                 "type": "object",
@@ -196,7 +211,10 @@ def get_available_tools() -> list:
             name="chain_diff",
             description=(
                 "Map current git diff hunks to indexed symbols and affected "
-                "execution flows (GitNexus detect-changes)."
+                "execution flows (GitNexus detect-changes). "
+                "Inputs: git workspace diff. "
+                "Process: map changed lines to AST nodes. "
+                "Output: JSON mapping of diff hunks to affected flows."
             ),
             input_schema={
                 "type": "object",

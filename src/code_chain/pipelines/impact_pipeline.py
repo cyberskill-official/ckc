@@ -131,6 +131,15 @@ class ImpactPipeline:
             query_timeout=self.config.query_timeout,
         )
 
+        has_impact = bool(call_hierarchy or impacted_count > 0)
+        has_docs = bool(graphify_explanation or docs_and_schemas)
+        rg = self._reading_guide(has_impact, bool(affected_tests), has_docs)
+        if "\n## 1." in report:
+            before, after = report.split("\n## 1.", 1)
+            report = f"{before}\n\n{rg}\n## 1.{after}"
+        else:
+            report = f"{rg}\n{report}"
+
         engine_errors = self._collect_engine_errors()
         if engine_errors and outcome in {"ok", "empty"}:
             outcome = "partial_error"
@@ -151,6 +160,19 @@ class ImpactPipeline:
             synthesized_report=report,
             engine_errors=engine_errors,
         )
+
+    def _reading_guide(self, has_impact: bool, has_tests: bool, has_docs: bool) -> str:
+        lines = ["## Reading Guide"]
+        if has_impact:
+            lines.append("- **For refactoring safety**: Start with §1 (Blast Radius) for structural impact")
+        if has_tests:
+            lines.append("- **For test coverage**: Check §2 (CodeGraph) for affected test suites")
+        if has_docs:
+            lines.append("- **For documentation updates**: See §3 (Graphify) for related docs and schemas")
+        if not (has_impact or has_tests or has_docs):
+            lines.append("- *No impact data found.*")
+        lines.append("")
+        return "\n".join(lines)
 
     def _collect_engine_errors(self) -> dict[str, str]:
         errors: dict[str, str] = {}

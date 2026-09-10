@@ -40,12 +40,35 @@ class TestWebUIApi(unittest.TestCase):
         self.assertIn("engine_errors", data)
         self.assertIsInstance(data["engine_errors"], dict)
 
-    def test_samples_endpoint(self):
-        res = self.client.get("/api/samples")
+    def test_browse_returns_directories(self):
+        """POST /api/browse should return directory listing."""
+        res = self.client.post("/api/browse", json={"path": None})
         self.assertEqual(res.status_code, 200)
-        samples = res.json()["samples"]
-        self.assertGreaterEqual(len(samples), 1)
-        self.assertTrue(any(s["id"] == "python-auth-service" for s in samples))
+        data = res.json()
+        self.assertIn("current", data)
+        self.assertIn("parent", data)
+        self.assertIn("entries", data)
+        self.assertIsInstance(data["entries"], list)
+        self.assertGreater(len(data["current"]), 0)
+
+    def test_browse_hides_hidden_dirs(self):
+        """POST /api/browse should not return dot-prefixed directories."""
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, ".hidden_dir"))
+            os.makedirs(os.path.join(tmp, "visible_dir"))
+            res = self.client.post("/api/browse", json={"path": tmp})
+            self.assertEqual(res.status_code, 200)
+            names = [e["name"] for e in res.json()["entries"]]
+            self.assertIn("visible_dir", names)
+            self.assertNotIn(".hidden_dir", names)
+
+    def test_browse_invalid_path_falls_back(self):
+        """POST /api/browse with non-existent path should fall back gracefully."""
+        res = self.client.post("/api/browse", json={"path": "/nonexistent/path/12345"})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(len(data["current"]) > 0)
 
     def test_cors_loopback_default(self):
         from code_chain.ui.server import is_loopback_host, resolve_cors_origins

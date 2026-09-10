@@ -134,6 +134,14 @@ class QueryPipeline:
             query_timeout=self.config.query_timeout,
         )
 
+        has_t3 = bool(tier3_symbols or raw_explore.strip())
+        rg = self._reading_guide(bool(tier1_entities), bool(tier2_flows), has_t3)
+        parts = synthesis.split("\n", 4)
+        if len(parts) >= 5:
+            synthesis = "\n".join(parts[:4]) + "\n" + rg + "\n" + parts[4]
+        else:
+            synthesis = rg + "\n" + synthesis
+
         engine_errors = self._collect_engine_errors()
         has_hits = bool(tier1_entities or tier2_flows or tier3_symbols or raw_explore.strip())
         if engine_errors:
@@ -153,6 +161,19 @@ class QueryPipeline:
             outcome=outcome,
             engine_errors=engine_errors,
         )
+
+    def _reading_guide(self, has_tier1: bool, has_tier2: bool, has_tier3: bool) -> str:
+        lines = ["## Reading Guide"]
+        if has_tier1:
+            lines.append("- **For architecture understanding**: Start with §1 (Graphify) for project-wide context")
+        if has_tier2:
+            lines.append("- **For execution flow**: See §2 (GitNexus) for call graph and upstream/downstream")
+        if has_tier3:
+            lines.append("- **For code navigation**: Jump to §3 (CodeGraph) for exact symbols and source")
+        if not (has_tier1 or has_tier2 or has_tier3):
+            lines.append("- *No direct data returned for this query.*")
+        lines.append("")
+        return "\n".join(lines)
 
     def _collect_engine_errors(self) -> dict[str, str]:
         errors: dict[str, str] = {}

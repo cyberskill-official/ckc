@@ -53,6 +53,7 @@ ENGINE_GITIGNORE_ENTRIES = (
     ".gitnexus/",
     ".codegraph/",
     ".code_chain/",
+    ".code_chain/results/",
 )
 
 
