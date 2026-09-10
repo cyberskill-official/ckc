@@ -37,6 +37,7 @@ class CodeKnowledgeChain:
         self.gitnexus = GitNexusAdapter(self.config.gitnexus_bin, self.project_path)
 
         from code_chain.core.result_cache import ResultCache
+
         self.result_cache = ResultCache(
             self.project_path,
             enabled=self.config.result_cache_enabled,

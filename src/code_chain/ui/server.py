@@ -573,15 +573,15 @@ def browse_directory(payload: BrowsePayload) -> dict[str, Any]:
     start = Path(payload.path).resolve() if payload.path else Path.home()
     if not start.is_dir():
         start = start.parent if start.parent.is_dir() else Path.home()
-    
+
     entries: list[dict[str, Any]] = []
     try:
         for item in sorted(start.iterdir()):
-            if item.is_dir() and not item.name.startswith('.'):
+            if item.is_dir() and not item.name.startswith("."):
                 entries.append({"name": item.name, "type": "dir"})
     except PermissionError:
         pass
-    
+
     parent = str(start.parent) if start != start.parent else None
     return {
         "current": str(start),

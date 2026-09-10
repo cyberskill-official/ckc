@@ -171,13 +171,11 @@ class QueryPipeline:
             )
         if has_tier2:
             lines.append(
-                "- **For execution flow**: See §2 (GitNexus)"
-                " for call graph and upstream/downstream"
+                "- **For execution flow**: See §2 (GitNexus) for call graph and upstream/downstream"
             )
         if has_tier3:
             lines.append(
-                "- **For code navigation**: Jump to §3 (CodeGraph)"
-                " for exact symbols and source"
+                "- **For code navigation**: Jump to §3 (CodeGraph) for exact symbols and source"
             )
         if not (has_tier1 or has_tier2 or has_tier3):
             lines.append("- *No direct data returned for this query.*")

@@ -165,18 +165,13 @@ class ImpactPipeline:
         lines = ["## Reading Guide"]
         if has_impact:
             lines.append(
-                "- **For refactoring safety**: Start with §1 (Blast Radius)"
-                " for structural impact"
+                "- **For refactoring safety**: Start with §1 (Blast Radius) for structural impact"
             )
         if has_tests:
-            lines.append(
-                "- **For test coverage**: Check §2 (CodeGraph)"
-                " for affected test suites"
-            )
+            lines.append("- **For test coverage**: Check §2 (CodeGraph) for affected test suites")
         if has_docs:
             lines.append(
-                "- **For documentation updates**: See §3 (Graphify)"
-                " for related docs and schemas"
+                "- **For documentation updates**: See §3 (Graphify) for related docs and schemas"
             )
         if not (has_impact or has_tests or has_docs):
             lines.append("- *No impact data found.*")
