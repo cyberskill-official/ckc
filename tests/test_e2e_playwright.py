@@ -109,6 +109,141 @@ class TestWelcomeOverlay:
         context.close()
 
 
+class TestFolderBrowserFlow:
+    """Verify folder browser dialog interactions, recovery, and dismissal."""
+
+    def test_dialog_closes_on_escape(self, browser):
+        context = browser.new_context()
+        page = context.new_page()
+        page.goto(BASE_URL, wait_until="networkidle")
+        page.evaluate(
+            "sessionStorage.removeItem('ckc_project_path'); "
+            "localStorage.removeItem('ckc_project_path')"
+        )
+        page.reload(wait_until="networkidle")
+        dialog = page.locator("#folder-browser-dialog")
+        expect(dialog).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(dialog).not_to_be_visible()
+        page.close()
+        context.close()
+
+    def test_dialog_closes_on_close_button(self, browser):
+        context = browser.new_context()
+        page = context.new_page()
+        page.goto(BASE_URL, wait_until="networkidle")
+        page.evaluate(
+            "sessionStorage.removeItem('ckc_project_path'); "
+            "localStorage.removeItem('ckc_project_path')"
+        )
+        page.reload(wait_until="networkidle")
+        dialog = page.locator("#folder-browser-dialog")
+        expect(dialog).to_be_visible()
+        page.locator("#browser-close-btn").click()
+        expect(dialog).not_to_be_visible()
+        page.close()
+        context.close()
+
+    def test_quick_nav_buttons_present(self, browser):
+        context = browser.new_context()
+        page = context.new_page()
+        page.goto(BASE_URL, wait_until="networkidle")
+        page.evaluate("openFolderBrowser()")
+        home_btn = page.locator("#browser-quick-home")
+        root_btn = page.locator("#browser-quick-root")
+        expect(home_btn).to_be_visible()
+        expect(root_btn).to_be_visible()
+        page.close()
+        context.close()
+
+
+class TestBYOKConfiguration:
+    """Verify BYOK provider configuration dialog and fallback flows."""
+
+    def test_byok_dialog_opens_from_header_pill(self, page: Page):
+        btn = page.locator("#header-ai-btn")
+        expect(btn).to_be_visible()
+        btn.click()
+        dialog = page.locator("#byok-dialog")
+        expect(dialog).to_be_visible()
+
+    def test_byok_provider_preset_switching(self, page: Page):
+        page.locator("#header-ai-btn").click()
+        dialog = page.locator("#byok-dialog")
+        expect(dialog).to_be_visible()
+
+        # Click Ollama preset
+        ollama_pill = page.locator('.provider-pill[data-provider="ollama"]')
+        ollama_pill.click()
+        base_url_input = page.locator("#byok-base-url")
+        expect(base_url_input).to_have_value("http://127.0.0.1:11434/v1")
+
+        # Click LM Studio preset
+        lms_pill = page.locator('.provider-pill[data-provider="lm-studio"]')
+        lms_pill.click()
+        expect(base_url_input).to_have_value("http://127.0.0.1:1234/v1")
+
+    def test_byok_dialog_closes_on_escape(self, page: Page):
+        page.locator("#header-ai-btn").click()
+        dialog = page.locator("#byok-dialog")
+        expect(dialog).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(dialog).not_to_be_visible()
+
+    def test_byok_skip_button(self, page: Page):
+        page.locator("#header-ai-btn").click()
+        dialog = page.locator("#byok-dialog")
+        expect(dialog).to_be_visible()
+        page.locator("#byok-skip-btn").click()
+        expect(dialog).not_to_be_visible()
+
+
+class TestIndexOptionsAndDependencies:
+    """Verify index options, AST intelligence guarantees, and dependency constraints."""
+
+    def test_core_engine_banner_visible(self, page: Page):
+        page.locator("#header-index-btn").click()
+        banner = page.locator(".engine-core-banner")
+        expect(banner).to_be_visible()
+
+    def test_defaults_force_off_llm_on_multi_off(self, page: Page):
+        page.locator("#header-index-btn").click()
+        force_box = page.locator("#force-index")
+        llm_box = page.locator("#use-llm")
+        multi_box = page.locator("#multimodal-index")
+
+        expect(force_box).not_to_be_checked()
+        expect(llm_box).to_be_checked()
+        expect(multi_box).not_to_be_checked()
+
+    def test_unchecking_llm_disables_multimodal(self, page: Page):
+        page.locator("#header-index-btn").click()
+        llm_box = page.locator("#use-llm")
+        multi_box = page.locator("#multimodal-index")
+        dep_warning = page.locator("#llm-dep-warning")
+
+        expect(llm_box).to_be_checked()
+        llm_box.uncheck()
+        expect(multi_box).to_be_disabled()
+        expect(dep_warning).to_be_visible()
+
+        # Re-check LLM restores capability
+        llm_box.check()
+        expect(multi_box).not_to_be_disabled()
+        expect(dep_warning).not_to_be_visible()
+
+
+class TestRecentProjects:
+    """Verify Recent Projects list and project switching support."""
+
+    def test_recent_projects_section_rendered(self, page: Page):
+        page.locator("#project-pill-btn").click()
+        section = page.locator("#recent-projects-section")
+        expect(section).to_be_visible()
+        list_container = page.locator("#recent-projects-list")
+        expect(list_container).to_be_visible()
+
+
 class TestUnindexedProject:
     """Verify selecting an unindexed folder prompts for indexing rather than showing error."""
 

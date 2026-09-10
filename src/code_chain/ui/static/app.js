@@ -38,6 +38,14 @@ const state = {
     searchMode: 'auto',
     searchSelectedIndex: -1,
     currentMatches: [],
+    byok: {
+        provider: 'lm-studio',
+        baseUrl: 'http://127.0.0.1:1234/v1',
+        model: null,
+        apiKey: '',
+        connected: false,
+        models: []
+    },
     palette: [
         '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb7185',
         '#f59e0b', '#10b981', '#34d399', '#2dd4bf', '#22d3ee',
@@ -70,12 +78,31 @@ const els = {
     browserSelectBtn: document.getElementById('browser-select-btn'),
     browserCancelBtn: document.getElementById('browser-cancel-btn'),
     browserCloseBtn: document.getElementById('browser-close-btn'),
+    browserQuickHome: document.getElementById('browser-quick-home'),
+    browserQuickRoot: document.getElementById('browser-quick-root'),
     helpTourBtn: document.getElementById('help-tour-btn'),
+    headerAiBtn: document.getElementById('header-ai-btn'),
+    headerAiDot: document.getElementById('header-ai-dot'),
+    headerAiLabel: document.getElementById('header-ai-label'),
+    byokDialog: document.getElementById('byok-dialog'),
+    byokCloseBtn: document.getElementById('byok-close-btn'),
+    byokCancelBtn: document.getElementById('byok-cancel-btn'),
+    byokSaveBtn: document.getElementById('byok-save-btn'),
+    byokSkipBtn: document.getElementById('byok-skip-btn'),
+    byokRetryBtn: document.getElementById('byok-retry-btn'),
+    byokBaseUrl: document.getElementById('byok-base-url'),
+    byokModelSelect: document.getElementById('byok-model-select'),
+    byokModelCustom: document.getElementById('byok-model-custom'),
+    byokApiKey: document.getElementById('byok-api-key'),
+    byokToggleKey: document.getElementById('byok-toggle-key'),
     loadBtn: document.getElementById('load-btn'),
     readyBadge: document.getElementById('ready-badge'),
     readyBadgeText: document.querySelector('#ready-badge .badge-text'),
     docsChip: document.getElementById('docs-chip'),
     llmChip: document.getElementById('llm-chip'),
+    recentProjectsList: document.getElementById('recent-projects-list'),
+    clearRecentProjectsBtn: document.getElementById('clear-recent-projects-btn'),
+    openByokFromIndexBtn: document.getElementById('open-byok-from-index-btn'),
     autoRotateBtn: document.getElementById('auto-rotate-btn'),
     fitBtn: document.getElementById('fit-btn'),
     resetCamBtn: document.getElementById('reset-cam-btn'),
@@ -232,6 +259,9 @@ function init() {
     if (els.uiTokenInput) els.uiTokenInput.value = state.uiToken;
     if (els.useLlm) els.useLlm.checked = state.useLlm;
     updateAiDisclosure();
+    updateIndexingDependencies();
+    renderRecentProjects();
+    checkLlmStatus();
 
     updateProjectLabel();
     init3DGraph();
@@ -888,6 +918,14 @@ function setupEventListeners() {
         const isInput = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT');
 
         if (e.key === 'Escape') {
+            if (els.folderBrowserDialog && els.folderBrowserDialog.open) {
+                closeFolderBrowser();
+                return;
+            }
+            if (els.byokDialog && els.byokDialog.open) {
+                closeByokDialog();
+                return;
+            }
             if (state.isTraceMode) {
                 exitTraceMode();
             } else {
@@ -949,6 +987,108 @@ function setupEventListeners() {
     }
     if (els.browserCloseBtn) {
         els.browserCloseBtn.addEventListener('click', closeFolderBrowser);
+    }
+    if (els.browserQuickHome) {
+        els.browserQuickHome.addEventListener('click', () => navigateBrowserTo(null));
+    }
+    if (els.browserQuickRoot) {
+        els.browserQuickRoot.addEventListener('click', () => navigateBrowserTo('/'));
+    }
+    if (els.folderBrowserDialog) {
+        els.folderBrowserDialog.addEventListener('click', (e) => {
+            const rect = els.folderBrowserDialog.getBoundingClientRect();
+            const isInDialog = (
+                rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                rect.left <= e.clientX && e.clientX <= rect.left + rect.width
+            );
+            if (!isInDialog) {
+                closeFolderBrowser();
+            }
+        });
+        els.folderBrowserDialog.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            closeFolderBrowser();
+        });
+    }
+
+    // BYOK Provider Dialog
+    if (els.headerAiBtn) {
+        els.headerAiBtn.addEventListener('click', openByokDialog);
+    }
+    if (els.llmChip) {
+        els.llmChip.addEventListener('click', openByokDialog);
+    }
+    if (els.openByokFromIndexBtn) {
+        els.openByokFromIndexBtn.addEventListener('click', () => {
+            closeAllPopovers();
+            openByokDialog();
+        });
+    }
+    if (els.byokCloseBtn) {
+        els.byokCloseBtn.addEventListener('click', closeByokDialog);
+    }
+    if (els.byokCancelBtn) {
+        els.byokCancelBtn.addEventListener('click', closeByokDialog);
+    }
+    if (els.byokSaveBtn) {
+        els.byokSaveBtn.addEventListener('click', saveByokConfig);
+    }
+    if (els.byokSkipBtn) {
+        els.byokSkipBtn.addEventListener('click', skipByok);
+    }
+    if (els.byokRetryBtn) {
+        els.byokRetryBtn.addEventListener('click', () => probeByokProvider());
+    }
+    if (els.byokToggleKey && els.byokApiKey) {
+        els.byokToggleKey.addEventListener('click', () => {
+            const isPw = els.byokApiKey.type === 'password';
+            els.byokApiKey.type = isPw ? 'text' : 'password';
+            els.byokToggleKey.textContent = isPw ? '🔒' : '👁';
+        });
+    }
+    if (els.byokModelSelect) {
+        els.byokModelSelect.addEventListener('change', () => {
+            if (els.byokModelSelect.value === '__custom__') {
+                if (els.byokModelCustom) els.byokModelCustom.classList.remove('hidden');
+            } else {
+                if (els.byokModelCustom) els.byokModelCustom.classList.add('hidden');
+            }
+        });
+    }
+    document.querySelectorAll('.provider-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+            const provider = pill.dataset.provider;
+            selectProviderPreset(provider);
+        });
+    });
+    if (els.byokDialog) {
+        els.byokDialog.addEventListener('click', (e) => {
+            const rect = els.byokDialog.getBoundingClientRect();
+            const isInDialog = (
+                rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                rect.left <= e.clientX && e.clientX <= rect.left + rect.width
+            );
+            if (!isInDialog) {
+                closeByokDialog();
+            }
+        });
+        els.byokDialog.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            closeByokDialog();
+        });
+    }
+
+    // Recent Projects
+    if (els.clearRecentProjectsBtn) {
+        els.clearRecentProjectsBtn.addEventListener('click', clearRecentProjects);
+    }
+
+    // Indexing Option Dependencies
+    if (els.useLlm) {
+        els.useLlm.addEventListener('change', () => {
+            persistUseLlmFromInput();
+            updateIndexingDependencies();
+        });
     }
 
     // Help Tour
@@ -1173,6 +1313,7 @@ async function loadProject() {
 
         const isGraphIndexed = !!statusRes.status?.graphify?.indexed;
         if (!isGraphIndexed) {
+            addRecentProject(state.currentProject, { indexed: false });
             document.getElementById('graph-legend')?.classList.add('hidden');
             showUnindexedPrompt(state.currentProject, statusRes);
             showToast(`Repository selected: ${getProjectShortName(state.currentProject)}. Run indexing to build the knowledge graph.`, 'info');
@@ -1181,9 +1322,15 @@ async function loadProject() {
 
         const graphRes = await apiFetch(`/api/graph?project=${encodeURIComponent(state.currentProject)}`);
         renderGraph(graphRes);
+        addRecentProject(state.currentProject, {
+            indexed: true,
+            nodeCount: graphRes.meta?.node_count || 0,
+            edgeCount: graphRes.meta?.edge_count || 0,
+        });
         showToast(`Loaded ${state.currentProjectLabel ? state.currentProjectLabel.textContent : 'project'} (${graphRes.meta?.node_count || 0} symbols)`, 'success');
     } catch (e) {
         if (e.message && e.message.includes('not yet indexed')) {
+            addRecentProject(state.currentProject, { indexed: false });
             document.getElementById('graph-legend')?.classList.add('hidden');
             showUnindexedPrompt(state.currentProject);
             showToast('Codebase not yet indexed. Run indexing to build the knowledge graph.', 'info');
@@ -2085,6 +2232,7 @@ function switchDrawerTab(tab) {
 
 async function openFolderBrowser() {
     if (!els.folderBrowserDialog) return;
+    closeAllPopovers({ restoreFocus: false });
     const startPath = state.currentProject || localStorage.getItem('ckc_last_browse_dir') || localStorage.getItem('ckc_project_path') || '';
     if (!els.folderBrowserDialog.open) {
         els.folderBrowserDialog.showModal();
@@ -2093,6 +2241,15 @@ async function openFolderBrowser() {
 }
 
 async function navigateBrowserTo(path) {
+    if (!els.browserList) return;
+    els.browserList.innerHTML = `
+        <div class="browser-loading">
+            <svg class="btn-spinner" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"></circle>
+            </svg>
+            <span>Loading directories...</span>
+        </div>
+    `;
     try {
         const res = await apiFetch('/api/browse', {
             method: 'POST',
@@ -2100,6 +2257,19 @@ async function navigateBrowserTo(path) {
         });
         renderBrowserContents(res);
     } catch (e) {
+        console.error('Browse failed:', e);
+        els.browserList.innerHTML = `
+            <div class="browser-error">
+                <div class="browser-error-title">Could not load directory</div>
+                <div class="browser-error-msg">${escapeHtml(e.message)}</div>
+                <div class="browser-error-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" id="browser-error-home-btn">Go to Home Directory</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="browser-error-root-btn">Go to Root (/)</button>
+                </div>
+            </div>
+        `;
+        document.getElementById('browser-error-home-btn')?.addEventListener('click', () => navigateBrowserTo(null));
+        document.getElementById('browser-error-root-btn')?.addEventListener('click', () => navigateBrowserTo('/'));
         showToast(`Browse failed: ${e.message}`, 'error');
     }
 }
@@ -2159,7 +2329,7 @@ function renderBrowserContents(data) {
             els.browserList.appendChild(parentItem);
         }
         
-        if (data.entries.length === 0) {
+        if (!data.entries || data.entries.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'browser-empty';
             empty.textContent = 'No subdirectories';
@@ -2169,11 +2339,13 @@ function renderBrowserContents(data) {
                 const item = document.createElement('button');
                 item.type = 'button';
                 item.className = 'browser-item';
+                const badgeHtml = entry.is_indexed ? '<span class="browser-item-badge">Indexed</span>' : '';
                 item.innerHTML = `
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                     </svg>
                     <span>${escapeHtml(entry.name)}</span>
+                    ${badgeHtml}
                 `;
                 const targetPath = data.current + (data.current.endsWith('/') ? '' : '/') + entry.name;
                 item.addEventListener('click', () => navigateBrowserTo(targetPath));
@@ -2190,7 +2362,7 @@ function renderBrowserContents(data) {
 }
 
 function closeFolderBrowser() {
-    if (els.folderBrowserDialog) {
+    if (els.folderBrowserDialog && els.folderBrowserDialog.open) {
         els.folderBrowserDialog.close();
     }
 }
@@ -2204,14 +2376,371 @@ function confirmFolderSelection() {
     localStorage.setItem('ckc_project_path', state.currentProject);
     localStorage.setItem('ckc_last_browse_dir', state.currentProject);
     if (els.projectInput) els.projectInput.value = selected;
-    if (els.projectPathText) els.projectPathText.textContent = getProjectShortName(selected);
-    if (els.projectPathText) els.projectPathText.title = selected;
+    if (els.projectPathText) {
+        els.projectPathText.textContent = getProjectShortName(selected);
+        els.projectPathText.title = selected;
+    }
     updateProjectLabel();
     closeFolderBrowser();
-    closeAllPopovers();
+    closeAllPopovers({ restoreFocus: false });
     loadProject();
     if (!localStorage.getItem('ckc_has_seen_tour')) {
         setTimeout(() => startOnboardingTour(false), 1200);
+    }
+}
+
+// ==========================================================================
+// Recent Projects Management
+// ==========================================================================
+
+function getRecentProjects() {
+    try {
+        const raw = localStorage.getItem('ckc_recent_projects');
+        return raw ? JSON.parse(raw) : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function addRecentProject(projectPath, meta = {}) {
+    if (!projectPath) return;
+    let list = getRecentProjects().filter(p => p.path !== projectPath);
+    const shortName = getProjectShortName(projectPath);
+    list.unshift({
+        path: projectPath,
+        name: shortName,
+        lastOpened: Date.now(),
+        indexed: meta.indexed !== undefined ? !!meta.indexed : false,
+        nodeCount: meta.nodeCount || 0,
+        edgeCount: meta.edgeCount || 0
+    });
+    list = list.slice(0, 8);
+    try {
+        localStorage.setItem('ckc_recent_projects', JSON.stringify(list));
+    } catch (_) {}
+    renderRecentProjects();
+}
+
+function clearRecentProjects() {
+    localStorage.removeItem('ckc_recent_projects');
+    renderRecentProjects();
+}
+
+function renderRecentProjects() {
+    if (!els.recentProjectsList) return;
+    const list = getRecentProjects();
+    els.recentProjectsList.innerHTML = '';
+    if (list.length === 0) {
+        els.recentProjectsList.innerHTML = '<span class="empty-recent-text">No recent repositories</span>';
+        return;
+    }
+
+    list.forEach(item => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'recent-project-item';
+        if (item.path === state.currentProject) {
+            row.classList.add('active');
+        }
+
+        const pillClass = item.indexed ? 'recent-project-pill indexed' : 'recent-project-pill unindexed';
+        const pillText = item.indexed
+            ? (item.nodeCount ? `${item.nodeCount.toLocaleString()} symbols` : 'Indexed')
+            : 'Unindexed';
+
+        row.innerHTML = `
+            <div class="recent-project-info">
+                <span class="recent-project-name">${escapeHtml(item.name)}</span>
+                <span class="recent-project-path">${escapeHtml(item.path)}</span>
+            </div>
+            <span class="${pillClass}">${escapeHtml(pillText)}</span>
+        `;
+        row.addEventListener('click', () => {
+            switchToProject(item.path);
+        });
+        els.recentProjectsList.appendChild(row);
+    });
+}
+
+async function switchToProject(projectPath) {
+    if (!projectPath || state.inFlight) return;
+    closeAllPopovers({ restoreFocus: false });
+    state.currentProject = projectPath;
+    sessionStorage.setItem('ckc_project_path', state.currentProject);
+    localStorage.setItem('ckc_project_path', state.currentProject);
+    localStorage.setItem('ckc_last_browse_dir', state.currentProject);
+    if (els.projectInput) els.projectInput.value = state.currentProject;
+    if (els.projectPathText) {
+        els.projectPathText.textContent = getProjectShortName(state.currentProject);
+        els.projectPathText.title = state.currentProject;
+    }
+    updateProjectLabel();
+    renderRecentProjects();
+    await loadProject();
+}
+
+// ==========================================================================
+// Indexing Option Dependencies
+// ==========================================================================
+
+function updateIndexingDependencies() {
+    const llmEnabled = els.useLlm ? els.useLlm.checked : false;
+    const multiInput = els.multimodalIndex;
+    const depWarning = document.getElementById('llm-dep-warning');
+    const multiLabel = document.getElementById('multimodal-label');
+
+    if (multiInput) {
+        if (!llmEnabled) {
+            multiInput.checked = false;
+            multiInput.disabled = true;
+            if (multiLabel) multiLabel.classList.add('disabled');
+            if (depWarning) depWarning.classList.remove('hidden');
+        } else {
+            multiInput.disabled = false;
+            if (multiLabel) multiLabel.classList.remove('disabled');
+            if (depWarning) depWarning.classList.add('hidden');
+        }
+    }
+}
+
+// ==========================================================================
+// BYOK (Bring Your Own Key) Provider Management
+// ==========================================================================
+
+async function checkLlmStatus() {
+    try {
+        const res = await apiFetch('/api/llm/status');
+        state.byok = {
+            provider: res.provider || 'lm-studio',
+            baseUrl: res.base_url || 'http://127.0.0.1:1234/v1',
+            model: res.model || null,
+            apiKey: '',
+            connected: !!res.connected,
+            configured: !!res.configured,
+            models: res.available_models || [],
+            error: res.error || null
+        };
+        updateLlmBadges();
+        return res;
+    } catch (e) {
+        console.warn('Failed to fetch LLM status:', e);
+        state.byok.connected = false;
+        updateLlmBadges();
+        return null;
+    }
+}
+
+function updateLlmBadges() {
+    if (els.headerAiDot && els.headerAiLabel) {
+        if (state.byok.connected) {
+            els.headerAiDot.className = 'ai-status-dot active';
+            const provName = state.byok.provider === 'lm-studio' ? 'LM Studio' : (state.byok.provider === 'ollama' ? 'Ollama' : (state.byok.provider === 'openai' ? 'OpenAI' : 'Custom LLM'));
+            els.headerAiLabel.textContent = provName;
+            els.headerAiBtn.title = `AI Connected: ${state.byok.model || provName} (${state.byok.baseUrl})`;
+        } else {
+            els.headerAiDot.className = state.byok.configured ? 'ai-status-dot offline' : 'ai-status-dot';
+            els.headerAiLabel.textContent = state.byok.provider === 'lm-studio' ? 'LM Studio' : (state.byok.configured ? 'AI Offline' : 'AI Setup');
+            els.headerAiBtn.title = state.byok.error || 'AI Provider Disconnected (Click to configure BYOK)';
+        }
+    }
+
+    if (els.llmChip) {
+        if (state.byok.connected) {
+            els.llmChip.textContent = `LLM: ${state.byok.model || state.byok.provider}`;
+            els.llmChip.className = 'badge-chip badge-chip-interactive badge-ready';
+        } else {
+            els.llmChip.textContent = state.byok.configured ? 'LLM: Error' : 'LLM: Off';
+            els.llmChip.className = 'badge-chip badge-chip-interactive';
+        }
+    }
+}
+
+function openByokDialog() {
+    if (!els.byokDialog) return;
+    closeAllPopovers({ restoreFocus: false });
+    if (els.byokBaseUrl) els.byokBaseUrl.value = state.byok.baseUrl;
+    if (els.byokApiKey) els.byokApiKey.value = state.byok.apiKey || '';
+    selectProviderPreset(state.byok.provider || 'lm-studio', false);
+    if (!els.byokDialog.open) {
+        els.byokDialog.showModal();
+    }
+    probeByokProvider();
+}
+
+function closeByokDialog() {
+    if (els.byokDialog && els.byokDialog.open) {
+        els.byokDialog.close();
+    }
+}
+
+function selectProviderPreset(provider, updateUrl = true) {
+    document.querySelectorAll('.provider-pill').forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.provider === provider);
+    });
+    const guideCard = document.getElementById('lmstudio-guide-card');
+
+    if (updateUrl && els.byokBaseUrl) {
+        if (provider === 'lm-studio') {
+            els.byokBaseUrl.value = 'http://127.0.0.1:1234/v1';
+        } else if (provider === 'ollama') {
+            els.byokBaseUrl.value = 'http://127.0.0.1:11434/v1';
+        } else if (provider === 'openai') {
+            els.byokBaseUrl.value = 'https://api.openai.com/v1';
+        }
+    }
+
+    if (provider === 'lm-studio') {
+        if (guideCard && !state.byok.connected) guideCard.classList.remove('hidden');
+    } else {
+        if (guideCard) guideCard.classList.add('hidden');
+    }
+}
+
+async function probeByokProvider() {
+    const statusCard = document.getElementById('byok-status-card');
+    const statusIcon = document.getElementById('byok-status-icon');
+    const headline = document.getElementById('byok-status-headline');
+    const sub = document.getElementById('byok-status-sub');
+    const retryBtn = els.byokRetryBtn;
+    const guideCard = document.getElementById('lmstudio-guide-card');
+
+    if (statusIcon) statusIcon.innerHTML = '<span class="status-indicator status-probing"></span>';
+    if (headline) headline.textContent = 'Detecting Provider...';
+    if (sub) sub.textContent = 'Checking connectivity and listing available models...';
+    if (retryBtn) {
+        const spinner = retryBtn.querySelector('.btn-spinner');
+        if (spinner) spinner.classList.remove('hidden');
+    }
+
+    const res = await checkLlmStatus();
+
+    if (retryBtn) {
+        const spinner = retryBtn.querySelector('.btn-spinner');
+        if (spinner) spinner.classList.add('hidden');
+    }
+
+    if (res && res.connected) {
+        if (statusCard) {
+            statusCard.className = 'byok-status-card connected';
+        }
+        if (statusIcon) {
+            statusIcon.innerHTML = '<span class="status-indicator status-connected"></span>';
+        }
+        if (headline) {
+            headline.textContent = `Connected (${res.provider.toUpperCase()})`;
+        }
+        if (sub) {
+            sub.textContent = res.model ? `Active Model: ${res.model}` : `${res.available_models.length} model(s) available`;
+        }
+        if (guideCard) guideCard.classList.add('hidden');
+
+        // Populate models dropdown
+        if (els.byokModelSelect) {
+            els.byokModelSelect.innerHTML = '';
+            if (res.available_models && res.available_models.length > 0) {
+                res.available_models.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = m;
+                    if (m === res.model) opt.selected = true;
+                    els.byokModelSelect.appendChild(opt);
+                });
+            } else {
+                const opt = document.createElement('option');
+                opt.value = res.model || 'local-model';
+                opt.textContent = res.model || 'local-model';
+                opt.selected = true;
+                els.byokModelSelect.appendChild(opt);
+            }
+            const customOpt = document.createElement('option');
+            customOpt.value = '__custom__';
+            customOpt.textContent = 'Custom model name...';
+            els.byokModelSelect.appendChild(customOpt);
+        }
+    } else {
+        if (statusCard) {
+            statusCard.className = 'byok-status-card disconnected';
+        }
+        if (statusIcon) {
+            statusIcon.innerHTML = '<span class="status-indicator status-disconnected"></span>';
+        }
+        if (headline) {
+            headline.textContent = 'Server Not Reachable';
+        }
+        if (sub) {
+            sub.textContent = (res && res.error) || 'Could not connect to provider endpoint.';
+        }
+        const activeProvider = document.querySelector('.provider-pill.active')?.dataset.provider;
+        if (guideCard && activeProvider === 'lm-studio') {
+            guideCard.classList.remove('hidden');
+        }
+        if (els.byokModelSelect) {
+            els.byokModelSelect.innerHTML = '<option value="">(No models detected - server offline)</option><option value="__custom__">Specify custom model...</option>';
+        }
+    }
+}
+
+async function saveByokConfig() {
+    const activePill = document.querySelector('.provider-pill.active');
+    const provider = activePill ? activePill.dataset.provider : 'lm-studio';
+    const baseUrl = (els.byokBaseUrl ? els.byokBaseUrl.value : '').trim();
+    const apiKey = (els.byokApiKey ? els.byokApiKey.value : '').trim();
+
+    let model = '';
+    if (els.byokModelSelect && els.byokModelSelect.value === '__custom__') {
+        model = (els.byokModelCustom ? els.byokModelCustom.value : '').trim();
+    } else if (els.byokModelSelect) {
+        model = els.byokModelSelect.value;
+    }
+
+    if (!baseUrl) {
+        showToast('Please specify a base URL', 'error');
+        return;
+    }
+
+    try {
+        const res = await apiFetch('/api/llm/config', {
+            method: 'POST',
+            body: JSON.stringify({
+                provider: provider,
+                base_url: baseUrl,
+                api_key: apiKey || null,
+                model: model || null
+            })
+        });
+
+        await checkLlmStatus();
+        if (els.useLlm && !els.useLlm.checked) {
+            els.useLlm.checked = true;
+            persistUseLlmFromInput();
+            updateIndexingDependencies();
+        }
+
+        if (res.connected) {
+            showToast(`AI Provider connected: ${res.model || provider}`, 'success');
+        } else {
+            showToast(`Provider saved, but connection failed: ${res.error || 'Offline'}`, 'info');
+        }
+        closeByokDialog();
+    } catch (e) {
+        showToast(`Configuration error: ${e.message}`, 'error');
+    }
+}
+
+async function skipByok() {
+    try {
+        await apiFetch('/api/llm/disable', { method: 'POST' });
+        if (els.useLlm) {
+            els.useLlm.checked = false;
+            persistUseLlmFromInput();
+            updateIndexingDependencies();
+        }
+        await checkLlmStatus();
+        closeByokDialog();
+        showToast('Offline Mode: Pure 3-tier local AST code intelligence active.', 'info');
+    } catch (e) {
+        console.error('Failed to disable LLM:', e);
+        closeByokDialog();
     }
 }
 

@@ -106,6 +106,38 @@ class TestUIWorkflowIntegration(unittest.TestCase):
         self.assertGreaterEqual(data["path_length"], 2)
         self.assertIn("steps", data)
 
+    def test_byok_and_navigation_static_contracts(self):
+        """Verify HTML and CSS contain BYOK, Recent Projects, and Dialog recovery contracts."""
+        res_html = self.client.get("/")
+        self.assertEqual(res_html.status_code, 200)
+        html = res_html.text
+        self.assertIn("byok-dialog", html)
+        self.assertIn("recent-projects-list", html)
+        self.assertIn("header-ai-btn", html)
+        self.assertIn("llm-dep-warning", html)
+        self.assertIn("engine-core-banner", html)
+        self.assertIn("browser-quick-home", html)
+        self.assertIn("browser-quick-root", html)
+        self.assertIn("provider-pill-grid", html)
+
+        res_css = self.client.get("/styles.css")
+        self.assertEqual(res_css.status_code, 200)
+        css = res_css.text
+        self.assertIn(".folder-browser-dialog:not([open])", css)
+        self.assertIn(".byok-dialog:not([open])", css)
+        self.assertIn("display: none !important", css)
+
+    def test_browse_api_indexed_flag(self):
+        """Verify /api/browse returns is_indexed flag for subdirectories."""
+        res = self.client.post("/api/browse", json={"path": self.ckc_repo})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("entries", data)
+        self.assertIn("current", data)
+        for item in data["entries"]:
+            self.assertIn("is_indexed", item)
+            self.assertIsInstance(item["is_indexed"], bool)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ import socket
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any
 
 from code_chain.core.config import llm_http_timeout
 
@@ -230,6 +231,126 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
             headers,
             fp,
         )
+
+
+DEFAULT_LM_STUDIO_URL = "http://127.0.0.1:1234/v1"
+DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434/v1"
+DEFAULT_OPENAI_URL = "https://api.openai.com/v1"
+
+
+def probe_llm_server(
+    base_url: str,
+    api_key: str = "lm-studio",
+    timeout: float = 2.0,
+) -> dict[str, Any]:
+    """Probe an OpenAI-compatible /models endpoint to test connection and list models."""
+    try:
+        validated_url = validate_llm_base_url(base_url)
+    except Exception as exc:
+        return {
+            "connected": False,
+            "models": [],
+            "error": str(exc),
+        }
+
+    url = f"{validated_url}/models"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    opener = urllib.request.build_opener(_NoRedirectHandler)
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
+        raw_models = data.get("data", [])
+        models: list[str] = []
+        if isinstance(raw_models, list):
+            for m in raw_models:
+                if isinstance(m, dict) and "id" in m:
+                    models.append(str(m["id"]))
+                elif isinstance(m, str):
+                    models.append(m)
+        return {
+            "connected": True,
+            "models": models,
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "connected": False,
+            "models": [],
+            "error": f"Connection failed ({exc!s})",
+        }
+
+
+def get_llm_status() -> dict[str, Any]:
+    """Detailed LLM provider diagnostics for the BYOK configuration panel."""
+    provider = os.environ.get("CKC_LLM_PROVIDER") or "lm-studio"
+    configured_base = (
+        os.environ.get("CKC_LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or ""
+    ).strip()
+    base_url = configured_base or DEFAULT_LM_STUDIO_URL
+    current_model = (
+        os.environ.get("CKC_LLM_MODEL") or os.environ.get("OPENAI_MODEL") or ""
+    ).strip() or None
+    api_key = (
+        os.environ.get("CKC_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or "lm-studio"
+    ).strip()
+
+    probe = probe_llm_server(base_url, api_key=api_key, timeout=2.0)
+    connected = probe["connected"]
+    available_models = probe["models"]
+
+    active_model = current_model
+    if not active_model and available_models:
+        chat_models = [m for m in available_models if "embed" not in m.lower()]
+        active_model = chat_models[0] if chat_models else available_models[0]
+
+    return {
+        "provider": provider,
+        "base_url": base_url,
+        "configured": bool(configured_base),
+        "connected": connected,
+        "model": active_model,
+        "available_models": available_models,
+        "error": probe["error"],
+    }
+
+
+def set_llm_config(
+    provider: str = "lm-studio",
+    base_url: str = DEFAULT_LM_STUDIO_URL,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """Update runtime LLM provider settings with SSRF validation."""
+    cleaned_url = validate_llm_base_url(base_url)
+    os.environ["CKC_LLM_PROVIDER"] = provider
+    os.environ["CKC_LLM_BASE_URL"] = cleaned_url
+    if model:
+        os.environ["CKC_LLM_MODEL"] = model
+    elif "CKC_LLM_MODEL" in os.environ and not model:
+        os.environ.pop("CKC_LLM_MODEL", None)
+
+    if api_key is not None and api_key.strip():
+        os.environ["CKC_LLM_API_KEY"] = api_key.strip()
+    elif "CKC_LLM_API_KEY" in os.environ and (api_key is None or not api_key.strip()):
+        os.environ.pop("CKC_LLM_API_KEY", None)
+
+    return get_llm_status()
+
+
+def disable_llm_config() -> dict[str, Any]:
+    """Disables LLM synthesis by clearing relevant environment variables."""
+    os.environ.pop("CKC_LLM_BASE_URL", None)
+    os.environ.pop("OPENAI_BASE_URL", None)
+    os.environ.pop("CKC_LLM_MODEL", None)
+    os.environ.pop("OPENAI_MODEL", None)
+    os.environ.pop("CKC_LLM_API_KEY", None)
+    os.environ.pop("OPENAI_API_KEY", None)
+    return get_llm_status()
 
 
 def synthesize_stacked_context(
