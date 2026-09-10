@@ -11,6 +11,7 @@
 #   CKC_LLM_BASE_URL=http://host.docker.internal:1234/v1
 #   CKC_LLM_MODEL=your-model-name
 #   CKC_LLM_ALLOW_PRIVATE=1   # required for host.docker.internal / private hosts
+# Default CKC_LLM_ALLOW_PRIVATE is 0 (deny private hosts unless opted in).
 
 services:
   ckc:
@@ -30,7 +31,7 @@ services:
       - CKC_LLM_BASE_URL=${CKC_LLM_BASE_URL:-}
       - CKC_LLM_MODEL=${CKC_LLM_MODEL:-}
       - CKC_LLM_API_KEY=${CKC_LLM_API_KEY:-lm-studio}
-      - CKC_LLM_ALLOW_PRIVATE=${CKC_LLM_ALLOW_PRIVATE:-1}
+      - CKC_LLM_ALLOW_PRIVATE=${CKC_LLM_ALLOW_PRIVATE:-0}
       # REQUIRED: compose publishes beyond loopback
       - CKC_UI_TOKEN=${CKC_UI_TOKEN:?CKC_UI_TOKEN is required for docker compose (non-loopback bind)}
     restart: unless-stopped

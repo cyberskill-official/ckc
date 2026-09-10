@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import unittest
 from pathlib import Path
@@ -107,13 +108,49 @@ class TestUIAuth(unittest.TestCase):
         self.assertNotEqual(res.headers.get("access-control-allow-origin"), "*")
 
     def test_query_token_disabled_by_default(self):
-        # FIND-004: GET ?token= must not authenticate unless opted in.
+        # FIND-004 / R2-SEC-06: GET ?token= must not authenticate; POST-only stream.
         with patch.dict(os.environ, {"CKC_UI_TOKEN": "secret-token"}, clear=False):
             os.environ.pop("CKC_ALLOW_QUERY_TOKEN", None)
             denied = self.client.get(
                 f"/api/index/stream?project={self.test_repo}&token=secret-token"
             )
+            self.assertIn(denied.status_code, (401, 405))
+
+    def test_index_stream_post_with_token(self):
+        with patch.dict(os.environ, {"CKC_UI_TOKEN": "secret-token"}, clear=False):
+            denied = self.client.post(
+                "/api/index/stream",
+                json={
+                    "project_path": self.test_repo,
+                    "force": False,
+                    "multimodal": False,
+                },
+            )
             self.assertEqual(denied.status_code, 401)
+            with self.client.stream(
+                "POST",
+                "/api/index/stream",
+                json={
+                    "project_path": self.test_repo,
+                    "force": False,
+                    "multimodal": False,
+                },
+                headers={"Authorization": "Bearer secret-token"},
+            ) as response:
+                self.assertEqual(response.status_code, 200)
+                got_start = False
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        payload = json.loads(line[6:])
+                        if payload.get("event") == "start":
+                            got_start = True
+                            break
+                self.assertTrue(got_start)
+            self.client.post(
+                "/api/index/cancel",
+                json={"project_path": self.test_repo},
+                headers={"Authorization": "Bearer secret-token"},
+            )
 
     def test_xff_ignored_without_trusted_proxies(self):
         # FIND-005: spoofed XFF must not become the rate-limit key.
@@ -138,11 +175,18 @@ class TestUIAuth(unittest.TestCase):
         self.assertFalse(ui_server._artifact_path_allowed("graphify-out-extra/secret.txt"))
         self.assertTrue(ui_server._artifact_path_allowed("graphify-out/graph.json"))
         self.assertTrue(ui_server._artifact_path_allowed(".code_chain/docs_index.json"))
+        # Exact allowlist: arbitrary files under allowlisted roots are denied.
+        self.assertFalse(ui_server._artifact_path_allowed("graphify-out/secret.txt"))
 
         res = self.client.get(
             f"/api/artifacts/content?project={self.test_repo}&file=graphify-out-extra/secret.txt"
         )
         self.assertEqual(res.status_code, 403)
+
+        unexpected = self.client.get(
+            f"/api/artifacts/content?project={self.test_repo}&file=graphify-out/not_in_allowlist.json"
+        )
+        self.assertEqual(unexpected.status_code, 403)
 
     def test_graph_etag_304(self):
         first = self.client.get(f"/api/graph?project={self.test_repo}")

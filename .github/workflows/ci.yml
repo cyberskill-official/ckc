@@ -31,6 +31,27 @@ jobs:
       - name: Run Ruff Format Check
         run: ruff format --check .
 
+  typecheck:
+    name: Typecheck (Pyright)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run Pyright
+        run: pyright
+
   lockfile:
     name: uv.lock check
     runs-on: ubuntu-latest
@@ -155,13 +176,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,e2e]"
-          # ubuntu-latest images sometimes ship a google-chrome apt source whose
-          # Packages index drifts from InRelease (Hash Sum mismatch). That aborts
-          # apt-get update inside `playwright install --with-deps`.
-          sudo rm -f /etc/apt/sources.list.d/google-chrome*.list \
-            /etc/apt/sources.list.d/google-chrome*.sources \
-            /etc/apt/sources.list.d/google.list || true
-          playwright install --with-deps chromium
+          # Prefer Playwright's bundled Chromium without apt google-chrome repos
+          # (Hash Sum mismatch on ubuntu-latest). System libs on the runner are enough.
+          playwright install chromium
 
       # Server must stay alive in the same step as pytest — GHA tears down
       # background jobs when a step exits (FIND-008 wiring).

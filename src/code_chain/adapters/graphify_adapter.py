@@ -159,16 +159,25 @@ class GraphifyAdapter(BaseGraphAdapter):
                 )
             )
             if llm_cfg:
-                base_url, model, api_key = llm_cfg
+                _base_url, model, _api_key = llm_cfg
                 cmd.extend(["--backend", "openai", "--max-concurrency", "1"])
                 if model and model != "local-model":
                     cmd.extend(["--model", model])
-                os.environ.setdefault("OPENAI_BASE_URL", base_url)
-                os.environ.setdefault("OPENAI_MODEL", model)
-                os.environ.setdefault("OPENAI_API_KEY", api_key)
             elif not has_cloud_key:
                 cmd.append("--code-only")
         return cmd
+
+    def _index_env(self, code_only: bool = True) -> dict[str, str]:
+        """Subprocess env for extract; never mutates ``os.environ``."""
+        env = os.environ.copy()
+        if not code_only:
+            llm_cfg = resolve_llm_config()
+            if llm_cfg:
+                base_url, model, api_key = llm_cfg
+                env.setdefault("OPENAI_BASE_URL", base_url)
+                env.setdefault("OPENAI_MODEL", model)
+                env.setdefault("OPENAI_API_KEY", api_key)
+        return env
 
     def index_project(self, code_only: bool = True, timeout: int = 300) -> dict[str, Any]:
         """Runs graphify extraction on the target project."""
@@ -181,7 +190,7 @@ class GraphifyAdapter(BaseGraphAdapter):
                 text=True,
                 timeout=timeout,
                 check=False,
-                env=os.environ,
+                env=self._index_env(code_only),
             )
         except subprocess.TimeoutExpired as exc:
             stdout = exc.stdout or ""

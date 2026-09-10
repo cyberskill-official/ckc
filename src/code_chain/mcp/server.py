@@ -7,13 +7,21 @@ Cursor, Antigravity, and other AI agents.
 from __future__ import annotations
 
 import json
+import re
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from code_chain.core.config import ChainConfig
 from code_chain.core.env import load_dotenv
 from code_chain.core.orchestrator import CodeKnowledgeChain
 from code_chain.core.timeouts import QueryTimeoutError, run_with_timeout
+
+try:
+    _PACKAGE_VERSION = version("code-knowledge-chain")
+except PackageNotFoundError:
+    # Keep in sync with pyproject.toml / code_chain.__version__ when not installed.
+    _PACKAGE_VERSION = "1.0.0"
 
 
 def make_tool_definition(
@@ -217,6 +225,21 @@ def _format_result(text: str, payload: Any, *, as_json: bool) -> str:
     return text
 
 
+def _require_nonempty(value: Any, field_name: str) -> str:
+    text = str(value if value is not None else "").strip()
+    if not text:
+        raise ValueError(f"{field_name} must be a non-empty string")
+    return text
+
+
+def _sanitize_error_message(exc: BaseException) -> str:
+    """Strip absolute paths and truncate error text returned to MCP clients."""
+    msg = str(exc)
+    msg = re.sub(r"(?:[A-Za-z]:)?(?:/|\\)[^\s:]+", "[path]", msg)
+    msg = re.sub(r"\s+", " ", msg).strip()
+    return msg[:400] if msg else type(exc).__name__
+
+
 def handle_tool_call(name: str, arguments: dict[str, Any], default_path: str) -> str:
     path = arguments.get("project_path") or default_path
     chain = CodeKnowledgeChain(project_path=path)
@@ -232,13 +255,25 @@ def handle_tool_call(name: str, arguments: dict[str, Any], default_path: str) ->
     if name == "chain_init":
         multimodal = arguments.get("multimodal", False)
         force = bool(arguments.get("force", False))
-        results = chain.index(code_only=not multimodal, force=force)
+        index_timeout = max(
+            1,
+            int(
+                getattr(config, "multimodal_index_timeout", 900)
+                if multimodal
+                else getattr(config, "index_timeout", 300)
+            ),
+        )
+
+        def _index() -> Any:
+            return chain.index(code_only=not multimodal, force=force)
+
+        results = run_with_timeout(_index, index_timeout, operation="chain_init")
         if as_json:
             return json.dumps(results, indent=2, default=str)
         return chain.export_summary()
 
     if name == "chain_query":
-        query_text = arguments.get("query", "")
+        query_text = _require_nonempty(arguments.get("query"), "query")
         use_llm = arguments.get("use_llm", True)
 
         def _work() -> Any:
@@ -248,7 +283,7 @@ def handle_tool_call(name: str, arguments: dict[str, Any], default_path: str) ->
         return _format_result(res.synthesized_context, res, as_json=as_json)
 
     if name == "chain_impact":
-        symbol = arguments.get("symbol", "")
+        symbol = _require_nonempty(arguments.get("symbol"), "symbol")
         use_llm = arguments.get("use_llm", True)
 
         def _work() -> Any:
@@ -258,8 +293,8 @@ def handle_tool_call(name: str, arguments: dict[str, Any], default_path: str) ->
         return _format_result(res.synthesized_report, res, as_json=as_json)
 
     if name == "chain_trace":
-        from_sym = arguments.get("from_symbol", "")
-        to_sym = arguments.get("to_symbol", "")
+        from_sym = _require_nonempty(arguments.get("from_symbol"), "from_symbol")
+        to_sym = _require_nonempty(arguments.get("to_symbol"), "to_symbol")
         use_llm = arguments.get("use_llm", True)
 
         def _work() -> Any:
@@ -300,7 +335,7 @@ def run_mcp_server(default_project_path: str = ".") -> None:
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "code-knowledge-chain",
-                        "version": "1.0.0",
+                        "version": _PACKAGE_VERSION,
                     },
                 },
             }
@@ -331,7 +366,9 @@ def run_mcp_server(default_project_path: str = ".") -> None:
                         "content": [
                             {
                                 "type": "text",
-                                "text": f"Error executing {tool_name}: {e!s}",
+                                "text": (
+                                    f"Error executing {tool_name}: {_sanitize_error_message(e)}"
+                                ),
                             }
                         ],
                         "isError": True,
@@ -345,7 +382,9 @@ def run_mcp_server(default_project_path: str = ".") -> None:
                         "content": [
                             {
                                 "type": "text",
-                                "text": f"Error executing {tool_name}: {e!s}",
+                                "text": (
+                                    f"Error executing {tool_name}: {_sanitize_error_message(e)}"
+                                ),
                             }
                         ],
                         "isError": True,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 from code_chain.core import llm
@@ -50,14 +51,38 @@ class TestLlmHelpers(unittest.TestCase):
         mock_resp.read.return_value = json.dumps(payload).encode("utf-8")
         mock_resp.__enter__.return_value = mock_resp
         mock_resp.__exit__.return_value = False
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
 
         with (
             patch.dict("os.environ", env, clear=True),
-            patch("urllib.request.urlopen", return_value=mock_resp) as mocked,
+            patch("urllib.request.build_opener", return_value=mock_opener) as mocked,
         ):
             text = llm.chat_completions([{"role": "user", "content": "hi"}], timeout=5)
             self.assertEqual(text, "Short grounded summary.")
             mocked.assert_called_once()
+            mock_opener.open.assert_called_once()
+            handlers = mocked.call_args[0]
+            self.assertTrue(any(h is llm._NoRedirectHandler for h in handlers))
+
+    def test_chat_completions_refuses_redirects(self):
+        env = {
+            "CKC_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
+            "CKC_LLM_MODEL": "local-model",
+        }
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = urllib.error.HTTPError(
+            "http://127.0.0.1:1234/v1/chat/completions",
+            302,
+            "Redirects disabled",
+            {},
+            None,
+        )
+        with (
+            patch.dict("os.environ", env, clear=True),
+            patch("urllib.request.build_opener", return_value=mock_opener),
+        ):
+            self.assertIsNone(llm.chat_completions([{"role": "user", "content": "hi"}]))
 
     def test_append_section_on_success(self):
         env = {

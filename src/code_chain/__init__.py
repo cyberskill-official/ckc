@@ -11,7 +11,7 @@ from code_chain.core.models import (
 )
 from code_chain.core.orchestrator import CodeKnowledgeChain
 
-__version__ = "1.0.0"
+__version__ = "1.0.0"  # keep in sync with pyproject.toml [project].version
 
 __all__ = [
     "ChainConfig",

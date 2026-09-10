@@ -27,9 +27,14 @@ COPY pyproject.toml README.md ./
 COPY src/ src/
 RUN pip install --no-cache-dir .
 
-# Install engine CLIs globally (pinned — bump with pyproject [tool.code-knowledge-chain.engines])
-RUN pip install --no-cache-dir "graphifyy==0.9.56" && \
-    npm install -g gitnexus@1.6.11 @colbymchenry/codegraph@1.6.0
+# Install engine CLIs globally.
+# Pin defaults must match pyproject.toml [tool.code-knowledge-chain.engines]
+# and scripts/setup.py load_engine_pins() (R2-ENG-05). Override via --build-arg.
+ARG GRAPHIFYY_VERSION=0.9.56
+ARG GITNEXUS_VERSION=1.6.11
+ARG CODEGRAPH_VERSION=1.6.0
+RUN pip install --no-cache-dir "graphifyy==${GRAPHIFYY_VERSION}" && \
+    npm install -g "gitnexus@${GITNEXUS_VERSION}" "@colbymchenry/codegraph@${CODEGRAPH_VERSION}"
 
 # ---- Stage 2: Runtime ----
 FROM python:3.12-slim AS runtime

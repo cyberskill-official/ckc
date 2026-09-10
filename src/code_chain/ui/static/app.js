@@ -20,6 +20,7 @@ const state = {
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     indexingAbort: null,
     queryAbort: null,
+    lastPopoverTrigger: null,
     inFlight: false,
     drawerOpen: false,
     drawerTab: 'terminal',
@@ -148,6 +149,13 @@ function showToast(message, type = 'info') {
     if (!els.toastContainer) return;
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
+    if (type === 'error') {
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+    } else {
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
+    }
 
     let icon = '';
     if (type === 'success') {
@@ -159,12 +167,21 @@ function showToast(message, type = 'info') {
     }
 
     toast.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
-    els.toastContainer.appendChild(toast);
-
-    setTimeout(() => {
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'toast-dismiss';
+    dismiss.setAttribute('aria-label', 'Dismiss notification');
+    dismiss.textContent = '×';
+    const removeToast = () => {
         toast.classList.add('toast-exit');
         setTimeout(() => { toast.remove(); }, 200);
-    }, 3000);
+    };
+    dismiss.addEventListener('click', removeToast);
+    toast.appendChild(dismiss);
+    els.toastContainer.appendChild(toast);
+
+    const ttl = type === 'error' ? 15000 : 3000;
+    setTimeout(removeToast, ttl);
 }
 
 // ==========================================================================
@@ -198,6 +215,22 @@ function init() {
     init3DGraph();
     setupEventListeners();
     loadSamples();
+    closeAllPopovers();
+    if (els.contextPanel) els.contextPanel.setAttribute('inert', '');
+    if (els.drawerToggle) els.drawerToggle.setAttribute('aria-expanded', 'false');
+    if (els.readyBadge) {
+        els.readyBadge.setAttribute(
+            'aria-label',
+            `Engine status: ${(els.readyBadgeText && els.readyBadgeText.textContent) || 'Not indexed'}`
+        );
+    }
+
+    window.addEventListener('beforeunload', (e) => {
+        if (state.indexingAbort && !state._indexingDone) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
 
     if (state.currentProject) {
         loadProject();
@@ -250,16 +283,49 @@ function updateProjectLabel() {
     }
 }
 
-function closeAllPopovers() {
-    if (els.projectPopover) els.projectPopover.classList.add('closed');
-    if (els.layersPopover) els.layersPopover.classList.add('closed');
-    if (els.indexPopover) els.indexPopover.classList.add('closed');
-    if (els.searchModeDropdown) els.searchModeDropdown.classList.add('closed');
-    if (els.searchResultsDropdown) els.searchResultsDropdown.classList.add('closed');
+function closeAllPopovers(options) {
+    const restoreFocus = !options || options.restoreFocus !== false;
+    const popovers = [
+        els.projectPopover,
+        els.layersPopover,
+        els.indexPopover,
+        els.searchModeDropdown,
+        els.searchResultsDropdown,
+    ];
+    popovers.forEach((el) => {
+        if (!el) return;
+        el.classList.add('closed');
+        el.setAttribute('inert', '');
+    });
+    if (els.contextPanel && els.contextPanel.classList.contains('closed')) {
+        els.contextPanel.setAttribute('inert', '');
+    }
     // Update ARIA expanded state on trigger buttons
     if (els.projectPillBtn) els.projectPillBtn.setAttribute('aria-expanded', 'false');
     if (els.layersToggleBtn) els.layersToggleBtn.setAttribute('aria-expanded', 'false');
     if (els.headerIndexBtn) els.headerIndexBtn.setAttribute('aria-expanded', 'false');
+    if (restoreFocus && state.lastPopoverTrigger && typeof state.lastPopoverTrigger.focus === 'function') {
+        state.lastPopoverTrigger.focus();
+    }
+    state.lastPopoverTrigger = null;
+}
+
+function focusFirstFocusable(container) {
+    if (!container) return;
+    const focusable = container.querySelector(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable) focusable.focus();
+}
+
+function openPopover(popover, trigger) {
+    if (!popover) return;
+    closeAllPopovers({ restoreFocus: false });
+    state.lastPopoverTrigger = trigger || null;
+    popover.classList.remove('closed');
+    popover.removeAttribute('inert');
+    if (trigger) trigger.setAttribute('aria-expanded', 'true');
+    focusFirstFocusable(popover);
 }
 
 function updateAiDisclosure() {
@@ -369,8 +435,12 @@ function setBusy(busy) {
 function init3DGraph() {
     if (!els.container3d || !window.ForceGraph3D) return;
 
+    const graphBg = getComputedStyle(document.documentElement)
+        .getPropertyValue('--bg-base')
+        .trim() || '#0c0e14';
+
     state.graph3d = ForceGraph3D()(els.container3d)
-        .backgroundColor('#0c0e14')
+        .backgroundColor(graphBg)
         .showNavInfo(false)
         .nodeRelSize(4)
         .nodeResolution(16)
@@ -501,17 +571,16 @@ function setupEventListeners() {
         els.projectPillBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const isOpen = !els.projectPopover.classList.contains('closed');
-            closeAllPopovers();
-            if (!isOpen) {
-                els.projectPopover.classList.remove('closed');
-                els.projectPillBtn.setAttribute('aria-expanded', 'true');
+            if (isOpen) {
+                closeAllPopovers();
+            } else {
+                openPopover(els.projectPopover, els.projectPillBtn);
             }
         });
     }
     if (els.closeProjectPopoverBtn) {
         els.closeProjectPopoverBtn.addEventListener('click', () => {
-            if (els.projectPopover) els.projectPopover.classList.add('closed');
-            if (els.projectPillBtn) els.projectPillBtn.setAttribute('aria-expanded', 'false');
+            closeAllPopovers();
         });
     }
 
@@ -519,17 +588,16 @@ function setupEventListeners() {
         els.layersToggleBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const isOpen = !els.layersPopover.classList.contains('closed');
-            closeAllPopovers();
-            if (!isOpen) {
-                els.layersPopover.classList.remove('closed');
-                els.layersToggleBtn.setAttribute('aria-expanded', 'true');
+            if (isOpen) {
+                closeAllPopovers();
+            } else {
+                openPopover(els.layersPopover, els.layersToggleBtn);
             }
         });
     }
     if (els.closeLayersPopoverBtn) {
         els.closeLayersPopoverBtn.addEventListener('click', () => {
-            if (els.layersPopover) els.layersPopover.classList.add('closed');
-            if (els.layersToggleBtn) els.layersToggleBtn.setAttribute('aria-expanded', 'false');
+            closeAllPopovers();
         });
     }
 
@@ -537,10 +605,10 @@ function setupEventListeners() {
         els.headerIndexBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const isOpen = !els.indexPopover.classList.contains('closed');
-            closeAllPopovers();
-            if (!isOpen) {
-                els.indexPopover.classList.remove('closed');
-                els.headerIndexBtn.setAttribute('aria-expanded', 'true');
+            if (isOpen) {
+                closeAllPopovers();
+            } else {
+                openPopover(els.indexPopover, els.headerIndexBtn);
             }
         });
     }
@@ -548,17 +616,16 @@ function setupEventListeners() {
         els.readyBadge.addEventListener('click', (e) => {
             e.stopPropagation();
             const isOpen = !els.indexPopover.classList.contains('closed');
-            closeAllPopovers();
-            if (!isOpen) {
-                els.indexPopover.classList.remove('closed');
-                if (els.headerIndexBtn) els.headerIndexBtn.setAttribute('aria-expanded', 'true');
+            if (isOpen) {
+                closeAllPopovers();
+            } else {
+                openPopover(els.indexPopover, els.readyBadge);
             }
         });
     }
     if (els.closeIndexPopoverBtn) {
         els.closeIndexPopoverBtn.addEventListener('click', () => {
-            if (els.indexPopover) els.indexPopover.classList.add('closed');
-            if (els.headerIndexBtn) els.headerIndexBtn.setAttribute('aria-expanded', 'false');
+            closeAllPopovers();
         });
     }
 
@@ -567,8 +634,11 @@ function setupEventListeners() {
         els.searchModeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const isOpen = !els.searchModeDropdown.classList.contains('closed');
-            closeAllPopovers();
-            if (!isOpen) els.searchModeDropdown.classList.remove('closed');
+            if (isOpen) {
+                closeAllPopovers();
+            } else {
+                openPopover(els.searchModeDropdown, els.searchModeBtn);
+            }
         });
 
         els.searchModeDropdown.querySelectorAll('.mode-option').forEach(opt => {
@@ -576,7 +646,7 @@ function setupEventListeners() {
                 e.stopPropagation();
                 const mode = opt.dataset.mode;
                 setSearchMode(mode);
-                els.searchModeDropdown.classList.add('closed');
+                closeAllPopovers();
                 els.commandBar.focus();
             });
         });
@@ -643,9 +713,11 @@ function setupEventListeners() {
 
     // HUD Dock Buttons
     if (els.autoRotateBtn) {
+        els.autoRotateBtn.setAttribute('aria-pressed', 'false');
         els.autoRotateBtn.addEventListener('click', () => {
             state.isAutoRotating = !state.isAutoRotating;
             els.autoRotateBtn.classList.toggle('active', state.isAutoRotating);
+            els.autoRotateBtn.setAttribute('aria-pressed', state.isAutoRotating ? 'true' : 'false');
             if (state.graph3d && state.graph3d.controls) {
                 state.graph3d.controls().autoRotate = state.isAutoRotating;
                 state.graph3d.controls().autoRotateSpeed = 0.8;
@@ -801,7 +873,10 @@ function setupEventListeners() {
                 closeAllPopovers();
                 clearSelection();
                 clearOverlays();
-                els.contextPanel.classList.add('closed');
+                if (els.contextPanel) {
+                    els.contextPanel.classList.add('closed');
+                    els.contextPanel.setAttribute('inert', '');
+                }
             }
         } else if ((e.key === '/' || (e.key === 'k' && (e.metaKey || e.ctrlKey))) && !isInput) {
             e.preventDefault();
@@ -1059,6 +1134,7 @@ async function loadProject() {
         console.error('Failed to load project:', e);
         els.readyBadge.className = 'badge-status badge-error';
         if (els.readyBadgeText) els.readyBadgeText.textContent = 'Error';
+        if (els.readyBadge) els.readyBadge.setAttribute('aria-label', 'Engine status: Error');
         showToast(`Failed to load project: ${e.message}`, 'error');
         setSafeHtml(
             els.resultsOutput,
@@ -1081,6 +1157,9 @@ function updateStatus(res) {
                 ? `${count} of 3 tiers ready`
                 : 'Not indexed';
         }
+    }
+    if (els.readyBadge && els.readyBadgeText) {
+        els.readyBadge.setAttribute('aria-label', `Engine status: ${els.readyBadgeText.textContent}`);
     }
 
     const docs = res.local_docs_count;
@@ -1156,19 +1235,30 @@ function renderCommunityList(communities) {
 
     communities.forEach(c => {
         const li = document.createElement('li');
-        li.className = 'community-item';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'community-item';
         const color = getNodeCommunityColor(c.id);
         const samples = (c.sample_labels || []).slice(0, 2).join(', ');
+        const title = `Cluster ${c.id}${samples ? ` • ${samples}` : ''}`;
 
-        li.innerHTML = `
-            <span class="comm-swatch" style="background-color:${color};"></span>
-            <span class="comm-title">Cluster ${c.id}${samples ? ` &bull; ${escapeHtml(samples)}` : ''}</span>
-            <span class="comm-size">${c.size}</span>
-        `;
-        li.addEventListener('click', () => {
+        const swatch = document.createElement('span');
+        swatch.className = 'comm-swatch';
+        swatch.style.backgroundColor = color;
+        const titleEl = document.createElement('span');
+        titleEl.className = 'comm-title';
+        titleEl.textContent = title;
+        const sizeEl = document.createElement('span');
+        sizeEl.className = 'comm-size';
+        sizeEl.textContent = String(c.size);
+        btn.appendChild(swatch);
+        btn.appendChild(titleEl);
+        btn.appendChild(sizeEl);
+        btn.addEventListener('click', () => {
             zoomToCommunity(c.id);
             closeAllPopovers();
         });
+        li.appendChild(btn);
         els.communityList.appendChild(li);
     });
 }
@@ -1264,6 +1354,7 @@ function clearSelection() {
     }
 
     els.contextPanel.classList.add('closed');
+    els.contextPanel.setAttribute('inert', '');
 }
 
 function handleShiftClick(data) {
@@ -1278,6 +1369,7 @@ function handleShiftClick(data) {
 function showContextPanel(data) {
     closeAllPopovers();
     els.contextPanel.classList.remove('closed');
+    els.contextPanel.removeAttribute('inert');
 
     const label = data.label || data.id;
     els.nodeLabel.textContent = label;
@@ -1668,7 +1760,13 @@ function renderOperationResults(markdown) {
             const graphDef = block.textContent;
             try {
                 mermaid.render(id, graphDef).then(({ svg }) => {
-                    container.innerHTML = svg;
+                    if (window.DOMPurify && typeof DOMPurify.sanitize === 'function') {
+                        container.innerHTML = DOMPurify.sanitize(svg, {
+                            USE_PROFILES: { svg: true, svgFilters: true },
+                        });
+                    } else {
+                        container.textContent = '[mermaid render unavailable]';
+                    }
                 });
             } catch (err) {
                 console.error('Mermaid render error:', err);
@@ -1696,53 +1794,100 @@ async function runIndexing() {
     if (els.cancelIndexBtn) els.cancelIndexBtn.classList.remove('hidden');
     if (els.runIndexBtn) els.runIndexBtn.classList.add('hidden');
 
-    const params = new URLSearchParams({
-        project: state.currentProject,
-        force: String(force),
-        multimodal: String(multi)
-    });
-    if (state.uiToken) {
-        params.append('token', state.uiToken);
-    }
+    const controller = new AbortController();
+    state.indexingAbort = controller;
+    state._indexingDone = false;
 
-    const sseUrl = `/api/index/stream?${params.toString()}`;
-    const evtSource = new EventSource(sseUrl);
-    state.indexingAbort = evtSource;
-
-    evtSource.onmessage = (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            handleIndexingEvent(data);
-        } catch (_) {
-            els.terminalOutput.textContent += `${e.data}\n`;
-            els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
+    try {
+        const res = await fetch('/api/index/stream', {
+            method: 'POST',
+            credentials: 'omit',
+            headers: authHeaders({ Accept: 'text/event-stream' }),
+            body: JSON.stringify({
+                project_path: state.currentProject,
+                multimodal: multi,
+                force,
+            }),
+            signal: controller.signal,
+        });
+        if (!res.ok) {
+            let errMessage = `HTTP ${res.status} ${res.statusText}`;
+            try {
+                const errData = await res.json();
+                if (errData && errData.detail) errMessage = formatApiDetail(errData.detail);
+            } catch (_) { /* ignore */ }
+            throw new Error(errMessage);
         }
-    };
-
-    evtSource.onerror = (e) => {
+        await consumeSseStream(res.body, handleIndexingEvent);
+        if (!state._indexingDone) {
+            finishIndexing(false, 'Indexing stream ended unexpectedly.');
+        }
+    } catch (e) {
+        if (e && e.name === 'AbortError') {
+            if (!state._indexingDone) {
+                finishIndexing(false, 'Indexing cancelled by user.');
+            }
+            return;
+        }
         console.error('SSE Error:', e);
-        evtSource.close();
-        finishIndexing(false, 'Indexing connection interrupted or failed.');
-    };
+        if (!state._indexingDone) {
+            finishIndexing(false, e.message || 'Indexing connection interrupted or failed.');
+        }
+    }
+}
+
+async function consumeSseStream(body, onEvent) {
+    if (!body) return;
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n');
+        buffer = parts.pop() || '';
+        for (const rawLine of parts) {
+            const line = rawLine.replace(/\r$/, '');
+            if (!line.startsWith('data:')) continue;
+            const payload = line.slice(5).trimStart();
+            if (!payload || payload === '[DONE]') continue;
+            try {
+                onEvent(JSON.parse(payload));
+            } catch (_) {
+                els.terminalOutput.textContent += `${payload}\n`;
+                els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
+            }
+            if (state._indexingDone) {
+                try { await reader.cancel(); } catch (_) { /* ignore */ }
+                return;
+            }
+        }
+    }
 }
 
 function handleIndexingEvent(data) {
-    const text = data.message || data.log || JSON.stringify(data);
+    const text = data.message || data.log || data.line || JSON.stringify(data);
     els.terminalOutput.textContent += `${text}\n`;
     els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
 
     if (data.event === 'complete' || data.type === 'complete') {
-        finishIndexing(true, 'Indexing completed successfully.');
+        const ok = data.overall_success !== false;
+        finishIndexing(ok, ok ? 'Indexing completed successfully.' : 'Indexing finished with errors.');
+    } else if (data.event === 'cancelled' || data.type === 'cancelled') {
+        finishIndexing(false, data.message || 'Indexing cancelled by user.');
     } else if (data.event === 'error' || data.type === 'error') {
         finishIndexing(false, data.message || 'Indexing error occurred.');
     }
 }
 
 function finishIndexing(success, msg) {
-    if (state.indexingAbort) {
-        state.indexingAbort.close();
-        state.indexingAbort = null;
+    if (state._indexingDone) return;
+    state._indexingDone = true;
+    if (state.indexingAbort && typeof state.indexingAbort.abort === 'function') {
+        state.indexingAbort.abort();
     }
+    state.indexingAbort = null;
     if (els.cancelIndexBtn) els.cancelIndexBtn.classList.add('hidden');
     if (els.runIndexBtn) els.runIndexBtn.classList.remove('hidden');
     setBusy(false);
@@ -1759,16 +1904,29 @@ function finishIndexing(success, msg) {
 }
 
 async function cancelIndexing() {
-    if (!state.currentProject) return;
+    if (!state.currentProject || state._indexingDone) return;
+    const abort = () => {
+        if (state.indexingAbort && typeof state.indexingAbort.abort === 'function') {
+            state.indexingAbort.abort();
+        }
+    };
     try {
         await apiFetch('/api/index/cancel', {
             method: 'POST',
             body: JSON.stringify({ project_path: state.currentProject })
         });
-        finishIndexing(false, 'Indexing cancelled by user.');
-        showToast('Indexing cancelled', 'info');
+        abort();
+        // finishIndexing no-ops if a complete/cancelled SSE already finalized the UI.
+        if (!state._indexingDone) {
+            finishIndexing(false, 'Indexing cancelled by user.');
+        }
     } catch (e) {
         console.error('Failed to cancel indexing:', e);
+        // Still tear down the client stream so the UI cannot stick in "indexing".
+        abort();
+        if (!state._indexingDone) {
+            finishIndexing(false, e.message || 'Cancel request failed; stopped local stream.');
+        }
     }
 }
 
@@ -1779,22 +1937,29 @@ async function cancelIndexing() {
 function openDrawer() {
     state.drawerOpen = true;
     els.drawer.classList.add('open');
+    if (els.drawerToggle) els.drawerToggle.setAttribute('aria-expanded', 'true');
 }
 
 function closeDrawer() {
     state.drawerOpen = false;
     els.drawer.classList.remove('open');
+    if (els.drawerToggle) els.drawerToggle.setAttribute('aria-expanded', 'false');
 }
 
 function toggleDrawer() {
     state.drawerOpen = !state.drawerOpen;
     els.drawer.classList.toggle('open', state.drawerOpen);
+    if (els.drawerToggle) {
+        els.drawerToggle.setAttribute('aria-expanded', state.drawerOpen ? 'true' : 'false');
+    }
 }
 
 function switchDrawerTab(tab) {
     state.drawerTab = tab;
     els.tabBtns.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.tab === tab);
+        const active = btn.dataset.tab === tab;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
 
     document.querySelectorAll('.tab-pane').forEach(pane => {
@@ -1831,7 +1996,8 @@ function addOperationHistory(type, param) {
     const emptyText = els.opsHistory.querySelector('.empty-ops-text');
     if (emptyText) emptyText.remove();
 
-    const chip = document.createElement('span');
+    const chip = document.createElement('button');
+    chip.type = 'button';
     chip.className = 'op-chip';
     chip.textContent = `${type}: ${param}`;
     chip.addEventListener('click', () => {
@@ -1872,28 +2038,50 @@ function linkifySymbolsInOutput(container) {
     }
 
     nodesToReplace.forEach(textNode => {
-        let content = textNode.textContent;
-        let modified = false;
+        const content = textNode.textContent;
+        if (!content) return;
 
+        const matches = [];
         for (const label of sortedLabels) {
-            if (content.includes(label)) {
-                const regex = new RegExp(`\\b(${label})\\b`, 'g');
-                if (regex.test(content)) {
-                    content = content.replace(regex, `###SYM###$1###/SYM###`);
-                    modified = true;
-                }
+            const regex = new RegExp(`\\b(${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\b`, 'g');
+            let m;
+            while ((m = regex.exec(content)) !== null) {
+                matches.push({ start: m.index, end: m.index + m[0].length, label: m[1] });
             }
         }
+        if (!matches.length) return;
 
-        if (modified) {
-            const span = document.createElement('span');
-            span.innerHTML = content
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/###SYM###(.*?)###\/SYM###/g, '<a class="symbol-link" onclick="selectNodeByLabel(\'$1\')">$1</a>');
-            textNode.parentNode.replaceChild(span, textNode);
+        matches.sort((a, b) => a.start - b.start || b.end - a.end);
+        const chosen = [];
+        let cursor = 0;
+        for (const m of matches) {
+            if (m.start < cursor) continue;
+            chosen.push(m);
+            cursor = m.end;
         }
+        if (!chosen.length) return;
+
+        const frag = document.createDocumentFragment();
+        let last = 0;
+        chosen.forEach((m) => {
+            if (m.start > last) {
+                frag.appendChild(document.createTextNode(content.slice(last, m.start)));
+            }
+            const a = document.createElement('a');
+            a.href = '#';
+            a.className = 'symbol-link';
+            a.textContent = m.label;
+            a.addEventListener('click', (e) => {
+                e.preventDefault();
+                selectNodeByLabel(m.label);
+            });
+            frag.appendChild(a);
+            last = m.end;
+        });
+        if (last < content.length) {
+            frag.appendChild(document.createTextNode(content.slice(last)));
+        }
+        textNode.parentNode.replaceChild(frag, textNode);
     });
 }
 

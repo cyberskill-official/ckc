@@ -20,13 +20,15 @@ dev = [
     "pytest>=9.0.3,<10",
     "ruff==0.16.6",
     "httpx",
+    "pyright>=1.1.390",
 ]
 e2e = [
     "playwright>=1.40,<2",
 ]
 
-# Pinned engine CLI versions used by Docker / setup (FIND-020).
+# Pinned engine CLI versions used by Docker / setup (FIND-020 / R2-ENG-05).
 # Bump deliberately and rebuild images after changing.
+# scripts/setup.py and Dockerfile ARG defaults must stay in sync with this table.
 [tool.code-knowledge-chain.engines]
 graphifyy = "0.9.56"
 gitnexus = "1.6.11"
@@ -66,3 +68,15 @@ select = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["code_chain"]
+
+[tool.pyright]
+include = ["src"]
+exclude = ["**/__pycache__", "examples", "tests"]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+reportMissingImports = "warning"
+reportMissingTypeStubs = false
+reportUnknownMemberType = "warning"
+reportUnknownArgumentType = "warning"
+reportUnknownVariableType = "warning"
+reportGeneralTypeIssues = "warning"

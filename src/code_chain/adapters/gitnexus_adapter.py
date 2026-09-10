@@ -209,6 +209,13 @@ class GitNexusAdapter(BaseGraphAdapter):
                 timeout=20,
                 check=False,
             )
+            if res.returncode != 0:
+                detail = (res.stderr or res.stdout or "").strip()[:400]
+                self.record_error(
+                    "query_concepts",
+                    RuntimeError(detail or f"gitnexus query exit {res.returncode}"),
+                )
+                return {"processes": [], "definitions": []}
             parsed = _extract_json(res.stdout)
             if parsed:
                 return parsed
